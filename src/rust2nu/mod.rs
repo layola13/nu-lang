@@ -1,0 +1,609 @@
+// Rust to Nu Converter
+// 将标准Rust代码压缩为Nu高密度语法
+
+use syn::{
+    visit::Visit, File, Item, ItemFn, ItemStruct, ItemEnum, ItemTrait, ItemImpl,
+    Signature, Visibility, FnArg, ReturnType, Block, Stmt, Expr, Pat, Type,
+    ExprMethodCall, ExprAwait, ExprTry, ExprCall, ExprMatch, ExprIf, ExprLoop,
+    ExprForLoop, ExprWhile, ExprReturn, ExprBlock, ExprClosure, Attribute,
+};
+use quote::ToTokens;
+use anyhow::{Result, Context};
+
+pub struct Rust2NuConverter {
+    output: String,
+    indent_level: usize,
+}
+
+impl Rust2NuConverter {
+    pub fn new() -> Self {
+        Self {
+            output: String::new(),
+            indent_level: 0,
+        }
+    }
+
+    pub fn convert(&self, rust_code: &str) -> Result<String> {
+        let syntax_tree = syn::parse_file(rust_code)
+            .context("Failed to parse Rust code")?;
+        
+        let mut converter = Self::new();
+        converter.visit_file(&syntax_tree);
+        
+        Ok(converter.output)
+    }
+
+    fn indent(&self) -> String {
+        "    ".repeat(self.indent_level)
+    }
+
+    fn writeln(&mut self, text: &str) {
+        self.output.push_str(&self.indent());
+        self.output.push_str(text);
+        self.output.push('\n');
+    }
+
+    fn write(&mut self, text: &str) {
+        self.output.push_str(text);
+    }
+
+    /// 判断是否是pub
+    fn is_public(&self, vis: &Visibility) -> bool {
+        matches!(vis, Visibility::Public(_))
+    }
+
+    /// 转换函数签名
+    fn convert_fn_signature(&self, sig: &Signature, vis: &Visibility) -> String {
+        let mut result = String::new();
+        
+        // async函数用 ~ 前缀
+        if sig.asyncness.is_some() {
+            result.push('~');
+        }
+        
+        // pub fn -> F, fn -> f
+        result.push_str(if self.is_public(vis) { "F" } else { "f" });
+        
+        result.push(' ');
+        result.push_str(&sig.ident.to_string());
+        
+        // 泛型参数保持不变
+        if !sig.generics.params.is_empty() {
+            result.push_str(&sig.generics.to_token_stream().to_string());
+        }
+        
+        // 参数列表
+        result.push('(');
+        let mut first = true;
+        for input in &sig.inputs {
+            if !first {
+                result.push_str(", ");
+            }
+            first = false;
+            
+            match input {
+                FnArg::Receiver(r) => {
+                    if r.reference.is_some() {
+                        result.push('&');
+                        if r.mutability.is_some() {
+                            result.push('!');  // &mut -> &!
+                        }
+                    }
+                    result.push_str("self");
+                }
+                FnArg::Typed(pt) => {
+                    result.push_str(&pt.pat.to_token_stream().to_string());
+                    result.push_str(": ");
+                    result.push_str(&self.convert_type(&pt.ty));
+                }
+            }
+        }
+        result.push(')');
+        
+        // 返回类型
+        if let ReturnType::Type(_, ty) = &sig.output {
+            result.push_str(" -> ");
+            result.push_str(&self.convert_type(ty));
+        }
+        
+        // where子句
+        if let Some(where_clause) = &sig.generics.where_clause {
+            result.push_str(" w ");
+            result.push_str(&where_clause.to_token_stream().to_string().replace("where", ""));
+        }
+        
+        result
+    }
+
+    /// 转换类型
+    fn convert_type(&self, ty: &Type) -> String {
+        let type_str = ty.to_token_stream().to_string();
+        
+        // 替换常见类型
+        type_str
+            .replace("String", "Str")
+            .replace("Vec <", "V<")
+            .replace("Option <", "O<")
+            .replace("Result <", "R<")
+            .replace("Arc <", "A<")
+            .replace("Mutex <", "X<")
+            .replace("Box <", "B<")
+            .replace("& mut", "&!")
+            .replace(" mut", "!")
+            .replace(" >", ">")
+    }
+
+    /// 转换语句
+    fn convert_stmt(&mut self, stmt: &Stmt) {
+        match stmt {
+            Stmt::Local(local) => {
+                self.write(&self.indent());
+                
+                // let vs let mut
+                let pat_str = local.pat.to_token_stream().to_string();
+                let is_mut = pat_str.contains("mut");
+                
+                if local.init.is_some() {
+                    self.write(if is_mut { "v " } else { "l " });
+                    
+                    // 变量名（去掉mut）
+                    let clean_pat = pat_str.replace("mut ", "");
+                    self.write(&clean_pat);
+                    
+                    self.write(" = ");
+                    if let Some(init) = &local.init {
+                        self.write(&self.convert_expr(&init.expr));
+                    }
+                }
+                
+                self.write(";\n");
+            }
+            Stmt::Expr(expr, semi) => {
+                // 处理return
+                if let Expr::Return(ret) = expr {
+                    self.write(&self.indent());
+                    self.write("< ");
+                    if let Some(val) = &ret.expr {
+                        self.write(&self.convert_expr(val));
+                    }
+                    self.write("\n");
+                } else if let Expr::Macro(mac) = expr {
+                    let mac_name = mac.mac.path.to_token_stream().to_string();
+                    if mac_name.contains("println") {
+                        self.write(&self.indent());
+                        self.write("> ");
+                        let tokens = mac.mac.tokens.to_string();
+                        self.write(&tokens);
+                        self.write("\n");
+                    } else {
+                        let expr_str = self.convert_expr(expr);
+                        self.write(&self.indent());
+                        self.write(&expr_str);
+                        if semi.is_some() {
+                            self.write(";");
+                        }
+                        self.write("\n");
+                    }
+                } else {
+                    let expr_str = self.convert_expr(expr);
+                    self.write(&self.indent());
+                    self.write(&expr_str);
+                    if semi.is_some() {
+                        self.write(";");
+                    }
+                    self.write("\n");
+                }
+            }
+            Stmt::Item(item) => {
+                self.visit_item(item);
+            }
+            _ => {}
+        }
+    }
+
+    /// 转换表达式，保持适当的换行
+    fn convert_expr(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Await(await_expr) => {
+                format!("{}.~", self.convert_expr(&await_expr.base))
+            }
+            Expr::Try(try_expr) => {
+                format!("{}!", self.convert_expr(&try_expr.expr))
+            }
+            Expr::MethodCall(call) => {
+                let receiver = self.convert_expr(&call.receiver);
+                let method = call.method.to_string();
+                let args = call.args.iter()
+                    .map(|arg| self.convert_expr(arg))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}.{}({})", receiver, method, args)
+            }
+            Expr::Return(ret) => {
+                if let Some(val) = &ret.expr {
+                    format!("< {}", self.convert_expr(val))
+                } else {
+                    "<".to_string()
+                }
+            }
+            Expr::Closure(closure) => {
+                let move_kw = if closure.capture.is_some() { "$" } else { "" };
+                let inputs = closure.inputs.iter()
+                    .map(|p| p.to_token_stream().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let body = self.convert_expr(&closure.body);
+                format!("{}|{}| {}", move_kw, inputs, body)
+            }
+            Expr::Match(match_expr) => {
+                // match表达式保持换行结构
+                let scrutinee = self.convert_expr(&match_expr.expr);
+                let mut result = format!("match {} {{\n", scrutinee);
+                for arm in &match_expr.arms {
+                    result.push_str("        ");
+                    result.push_str(&arm.pat.to_token_stream().to_string());
+                    if let Some((_, guard)) = &arm.guard {
+                        result.push_str(" if ");
+                        result.push_str(&self.convert_expr(guard));
+                    }
+                    result.push_str(" => ");
+                    result.push_str(&self.convert_expr(&arm.body));
+                    result.push_str(",\n");
+                }
+                result.push_str("    }");
+                self.convert_type_in_string(&result)
+            }
+            Expr::If(if_expr) => {
+                // if表达式保持换行
+                let cond = self.convert_expr(&if_expr.cond);
+                let mut result = format!("if {} {{\n", cond);
+                // then分支保持单独行
+                for stmt in &if_expr.then_branch.stmts {
+                    result.push_str("        ");
+                    result.push_str(&stmt.to_token_stream().to_string());
+                    result.push('\n');
+                }
+                result.push_str("    }");
+                
+                // else分支
+                if let Some((_, else_branch)) = &if_expr.else_branch {
+                    result.push_str(" else ");
+                    result.push_str(&self.convert_expr(else_branch));
+                }
+                self.convert_type_in_string(&result)
+            }
+            Expr::Block(block_expr) => {
+                // 块表达式保持换行
+                let mut result = String::from("{\n");
+                for stmt in &block_expr.block.stmts {
+                    result.push_str("        ");
+                    result.push_str(&stmt.to_token_stream().to_string());
+                    result.push('\n');
+                }
+                result.push_str("    }");
+                self.convert_type_in_string(&result)
+            }
+            Expr::ForLoop(for_loop) => {
+                // for循环保持换行
+                let pat = for_loop.pat.to_token_stream().to_string();
+                let iter = self.convert_expr(&for_loop.expr);
+                let mut result = format!("for {} in {} {{\n", pat, iter);
+                for stmt in &for_loop.body.stmts {
+                    result.push_str("        ");
+                    result.push_str(&stmt.to_token_stream().to_string());
+                    result.push('\n');
+                }
+                result.push_str("    }");
+                self.convert_type_in_string(&result)
+            }
+            Expr::While(while_expr) => {
+                // while循环保持换行
+                let cond = self.convert_expr(&while_expr.cond);
+                let mut result = format!("while {} {{\n", cond);
+                for stmt in &while_expr.body.stmts {
+                    result.push_str("        ");
+                    result.push_str(&stmt.to_token_stream().to_string());
+                    result.push('\n');
+                }
+                result.push_str("    }");
+                self.convert_type_in_string(&result)
+            }
+            Expr::Loop(loop_expr) => {
+                // loop保持换行
+                let mut result = String::from("loop {\n");
+                for stmt in &loop_expr.body.stmts {
+                    result.push_str("        ");
+                    result.push_str(&stmt.to_token_stream().to_string());
+                    result.push('\n');
+                }
+                result.push_str("    }");
+                self.convert_type_in_string(&result)
+            }
+            _ => {
+                // 默认：保持原样但替换类型
+                let expr_str = expr.to_token_stream().to_string();
+                self.convert_type_in_string(&expr_str)
+            }
+        }
+    }
+
+    fn convert_type_in_string(&self, s: &str) -> String {
+        s.replace("String", "Str")
+            .replace("Vec", "V")
+            .replace("Option", "O")
+            .replace("Result", "R")
+            .replace("Arc", "A")
+            .replace("Mutex", "X")
+            .replace("Box", "B")
+            .replace("& mut", "&!")
+    }
+
+    /// 转换函数体
+    fn convert_block(&mut self, block: &Block) {
+        self.writeln(" {");
+        self.indent_level += 1;
+        
+        for stmt in &block.stmts {
+            self.convert_stmt(stmt);
+        }
+        
+        self.indent_level -= 1;
+        self.writeln("}");
+    }
+
+    fn convert_attribute(&self, attr: &Attribute) -> String {
+        let path = attr.path().to_token_stream().to_string();
+        let tokens = attr.meta.to_token_stream().to_string();
+        
+        if path == "derive" {
+            format!("#D{}", tokens.trim_start_matches("derive"))
+        } else {
+            // 保持其他属性的完整格式，不要过度简化
+            format!("#[{}]", tokens)
+        }
+    }
+}
+
+impl<'ast> Visit<'ast> for Rust2NuConverter {
+    fn visit_file(&mut self, node: &'ast File) {
+        for item in &node.items {
+            self.visit_item(item);
+            self.output.push('\n');
+        }
+    }
+
+    fn visit_item(&mut self, node: &'ast Item) {
+        match node {
+            Item::Fn(func) => self.visit_item_fn(func),
+            Item::Struct(s) => self.visit_item_struct(s),
+            Item::Enum(e) => self.visit_item_enum(e),
+            Item::Trait(t) => self.visit_item_trait(t),
+            Item::Impl(i) => self.visit_item_impl(i),
+            Item::Mod(m) => {
+                // 处理module，特别是#[cfg(test)] mod tests
+                for attr in &m.attrs {
+                    self.writeln(&self.convert_attribute(attr));
+                }
+                
+                let mod_str = if self.is_public(&m.vis) { "M" } else { "m" };
+                self.write(mod_str);
+                self.write(" ");
+                self.write(&m.ident.to_string());
+                
+                if let Some((_, items)) = &m.content {
+                    self.writeln(" {");
+                    self.indent_level += 1;
+                    for item in items {
+                        self.visit_item(item);
+                        self.output.push('\n');
+                    }
+                    self.indent_level -= 1;
+                    self.writeln("}");
+                } else {
+                    self.writeln(";");
+                }
+            }
+            Item::Use(u) => {
+                let use_str = u.to_token_stream().to_string();
+                let nu_use = if self.is_public(&u.vis) {
+                    use_str.replace("pub use", "U").replace("use", "U")
+                } else {
+                    use_str.replace("use", "u")
+                };
+                self.writeln(&nu_use);
+            }
+            Item::Const(c) => {
+                self.write("C ");
+                self.write(&c.ident.to_string());
+                self.write(": ");
+                self.write(&self.convert_type(&c.ty));
+                self.write(" = ");
+                self.write(&c.expr.to_token_stream().to_string());
+                self.writeln(";");
+            }
+            Item::Static(s) => {
+                self.write("ST ");
+                self.write(&s.ident.to_string());
+                self.write(": ");
+                self.write(&self.convert_type(&s.ty));
+                self.write(" = ");
+                self.write(&s.expr.to_token_stream().to_string());
+                self.writeln(";");
+            }
+            _ => {
+                // 其他项保持原样
+                self.writeln(&node.to_token_stream().to_string());
+            }
+        }
+    }
+
+    fn visit_item_fn(&mut self, node: &'ast ItemFn) {
+        // 属性
+        for attr in &node.attrs {
+            self.writeln(&self.convert_attribute(attr));
+        }
+        
+        // 函数签名
+        let sig_str = self.convert_fn_signature(&node.sig, &node.vis);
+        self.write(&sig_str);
+        
+        // 函数体
+        self.convert_block(&node.block);
+    }
+
+    fn visit_item_struct(&mut self, node: &'ast ItemStruct) {
+        // pub struct -> S, struct -> s
+        let keyword = if self.is_public(&node.vis) { "S" } else { "s" };
+        
+        self.write(keyword);
+        self.write(" ");
+        self.write(&node.ident.to_string());
+        
+        // 泛型
+        if !node.generics.params.is_empty() {
+            self.write(&node.generics.to_token_stream().to_string());
+        }
+        
+        // 字段
+        match &node.fields {
+            syn::Fields::Named(fields) => {
+                self.writeln(" {");
+                self.indent_level += 1;
+                for field in &fields.named {
+                    self.write(&self.indent());
+                    if let Some(ident) = &field.ident {
+                        self.write(&ident.to_string());
+                        self.write(": ");
+                        self.write(&self.convert_type(&field.ty));
+                        self.writeln(",");
+                    }
+                }
+                self.indent_level -= 1;
+                self.writeln("}");
+            }
+            _ => {
+                self.writeln(";");
+            }
+        }
+    }
+
+    fn visit_item_enum(&mut self, node: &'ast ItemEnum) {
+        // 处理属性
+        for attr in &node.attrs {
+            self.writeln(&self.convert_attribute(attr));
+        }
+        
+        let keyword = if self.is_public(&node.vis) { "E" } else { "e" };
+        
+        self.write(keyword);
+        self.write(" ");
+        self.write(&node.ident.to_string());
+        
+        if !node.generics.params.is_empty() {
+            self.write(&node.generics.to_token_stream().to_string());
+        }
+        
+        self.writeln(" {");
+        self.indent_level += 1;
+        
+        for variant in &node.variants {
+            self.write(&self.indent());
+            self.write(&variant.ident.to_string());
+            
+            match &variant.fields {
+                syn::Fields::Named(fields) => {
+                    self.write(" { ");
+                    let field_strs: Vec<String> = fields.named.iter()
+                        .filter_map(|f| f.ident.as_ref().map(|i| {
+                            format!("{}: {}", i, self.convert_type(&f.ty))
+                        }))
+                        .collect();
+                    self.write(&field_strs.join(", "));
+                    self.write(" }");
+                }
+                syn::Fields::Unnamed(fields) => {
+                    self.write("(");
+                    let type_strs: Vec<String> = fields.unnamed.iter()
+                        .map(|f| self.convert_type(&f.ty))
+                        .collect();
+                    self.write(&type_strs.join(", "));
+                    self.write(")");
+                }
+                syn::Fields::Unit => {}
+            }
+            
+            self.writeln(",");
+        }
+        
+        self.indent_level -= 1;
+        self.writeln("}");
+    }
+
+    fn visit_item_trait(&mut self, node: &'ast ItemTrait) {
+        let keyword = if self.is_public(&node.vis) { "TR" } else { "tr" };
+        
+        self.write(keyword);
+        self.write(" ");
+        self.write(&node.ident.to_string());
+        
+        if !node.generics.params.is_empty() {
+            self.write(&node.generics.to_token_stream().to_string());
+        }
+        
+        self.writeln(" {");
+        self.indent_level += 1;
+        
+        for item in &node.items {
+            if let syn::TraitItem::Fn(method) = item {
+                let sig_str = self.convert_fn_signature(&method.sig, &Visibility::Inherited);
+                self.write(&self.indent());
+                self.write(&sig_str);
+                self.writeln(";");
+            }
+        }
+        
+        self.indent_level -= 1;
+        self.writeln("}");
+    }
+
+    fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
+        self.write("I");
+        
+        // 泛型
+        if !node.generics.params.is_empty() {
+            self.write(&node.generics.to_token_stream().to_string());
+        }
+        
+        self.write(" ");
+        
+        // trait实现
+        if let Some((_, path, _)) = &node.trait_ {
+            self.write(&path.to_token_stream().to_string());
+            self.write(" for ");
+        }
+        
+        self.write(&self.convert_type(&node.self_ty));
+        
+        self.writeln(" {");
+        self.indent_level += 1;
+        
+        for item in &node.items {
+            if let syn::ImplItem::Fn(method) = item {
+                let sig_str = self.convert_fn_signature(&method.sig, &method.vis);
+                self.write(&self.indent());
+                self.write(&sig_str);
+                self.convert_block(&method.block);
+                self.output.push('\n');
+            }
+        }
+        
+        self.indent_level -= 1;
+        self.writeln("}");
+    }
+}
+
+impl Default for Rust2NuConverter {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -1,0 +1,42 @@
+[package]
+name = "nu_compiler"
+version = "1.3.1"
+edition = "2021"
+authors = ["Nu Language Team"]
+description = "Nu Language Compiler - High-Density Rust Dialect Transpiler"
+
+[[bin]]
+name = "nuc"
+path = "src/main.rs"
+
+[[bin]]
+name = "rust2nu"
+path = "src/bin/rust2nu.rs"
+
+[[bin]]
+name = "nu2rust"
+path = "src/bin/nu2rust.rs"
+
+[[bin]]
+name = "cargo2nu"
+path = "src/bin/cargo2nu.rs"
+
+[[bin]]
+name = "nu2cargo"
+path = "src/bin/nu2cargo.rs"
+
+[dependencies]
+syn = { version = "2.0", features = ["full", "extra-traits", "parsing", "visit", "visit-mut"] }
+quote = "1.0"
+proc-macro2 = "1.0"
+prettyplease = "0.2"
+logos = "0.13"
+anyhow = "1.0"
+clap = { version = "4.0", features = ["derive"] }
+toml = "0.8"
+serde = { version = "1.0", features = ["derive"] }
+cargo_toml = "0.17"
+walkdir = "2.4"
+
+[dev-dependencies]
+pretty_assertions = "1.4"

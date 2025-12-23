@@ -1,0 +1,167 @@
+// nu2rust - Nu to Rust Converter CLI
+// 将Nu代码转换回标准Rust代码
+
+use clap::Parser;
+use nu_compiler::Nu2RustConverter;
+use std::fs;
+use std::path::PathBuf;
+use anyhow::{Context, Result};
+use walkdir::WalkDir;
+
+#[derive(Parser)]
+#[command(name = "nu2rust")]
+#[command(about = "Convert Nu code back to standard Rust", long_about = None)]
+struct Cli {
+    /// Input Nu file or directory
+    #[arg(value_name = "INPUT")]
+    input: PathBuf,
+
+    /// Output Rust file or directory (optional, defaults to INPUT with .rs extension)
+    #[arg(short, long, value_name = "OUTPUT")]
+    output: Option<PathBuf>,
+
+    /// Process directories recursively
+    #[arg(short, long)]
+    recursive: bool,
+
+    /// Overwrite existing files
+    #[arg(short = 'f', long)]
+    force: bool,
+
+    /// Verbose output
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    let converter = Nu2RustConverter::new();
+
+    if cli.input.is_file() {
+        // 单文件转换
+        convert_file(&converter, &cli.input, cli.output.as_ref(), cli.force, cli.verbose)?;
+    } else if cli.input.is_dir() {
+        // 目录转换
+        if cli.recursive {
+            convert_directory_recursive(&converter, &cli.input, cli.output.as_ref(), cli.force, cli.verbose)?;
+        } else {
+            convert_directory(&converter, &cli.input, cli.output.as_ref(), cli.force, cli.verbose)?;
+        }
+    } else {
+        anyhow::bail!("Input path does not exist: {}", cli.input.display());
+    }
+
+    Ok(())
+}
+
+fn convert_file(
+    converter: &Nu2RustConverter,
+    input: &PathBuf,
+    output: Option<&PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
+    // 检查输入文件扩展名
+    if input.extension().and_then(|s| s.to_str()) != Some("nu") {
+        if verbose {
+            println!("Skipping non-Nu file: {}", input.display());
+        }
+        return Ok(());
+    }
+
+    // 确定输出文件路径
+    let output_path = match output {
+        Some(p) => p.clone(),
+        None => input.with_extension("rs"),
+    };
+
+    // 检查输出文件是否存在
+    if output_path.exists() && !force {
+        anyhow::bail!(
+            "Output file already exists: {} (use -f to overwrite)",
+            output_path.display()
+        );
+    }
+
+    if verbose {
+        println!("Converting: {} -> {}", input.display(), output_path.display());
+    }
+
+    // 读取Nu代码
+    let nu_code = fs::read_to_string(input)
+        .with_context(|| format!("Failed to read input file: {}", input.display()))?;
+
+    // 转换为Rust代码
+    let rust_code = converter.convert(&nu_code)
+        .with_context(|| format!("Failed to convert file: {}", input.display()))?;
+
+    // 写入输出文件
+    fs::write(&output_path, rust_code)
+        .with_context(|| format!("Failed to write output file: {}", output_path.display()))?;
+
+    println!("✓ {}", output_path.display());
+
+    Ok(())
+}
+
+fn convert_directory(
+    converter: &Nu2RustConverter,
+    input_dir: &PathBuf,
+    output_dir: Option<&PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
+    let output_base = output_dir.cloned().unwrap_or_else(|| input_dir.clone());
+
+    // 创建输出目录
+    if !output_base.exists() {
+        fs::create_dir_all(&output_base)?;
+    }
+
+    // 遍历目录中的.nu文件
+    for entry in fs::read_dir(input_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("nu") {
+            let output_path = output_base.join(path.file_name().unwrap()).with_extension("rs");
+            convert_file(converter, &path, Some(&output_path), force, verbose)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn convert_directory_recursive(
+    converter: &Nu2RustConverter,
+    input_dir: &PathBuf,
+    output_dir: Option<&PathBuf>,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
+    let output_base = output_dir.cloned().unwrap_or_else(|| input_dir.clone());
+
+    // 遍历所有.nu文件
+    for entry in WalkDir::new(input_dir)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file())
+        .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("nu"))
+    {
+        let input_path = entry.path();
+        
+        // 计算相对路径
+        let relative_path = input_path.strip_prefix(input_dir)?;
+        let output_path = output_base.join(relative_path).with_extension("rs");
+
+        // 创建输出目录
+        if let Some(parent) = output_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        convert_file(converter, &input_path.to_path_buf(), Some(&output_path), force, verbose)?;
+    }
+
+    Ok(())
+}

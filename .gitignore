@@ -1,0 +1,6 @@
+target/
+examples/
+*.log
+.project/
+test_output/
+examples*/
