@@ -5,3 +5,4 @@ examples/
 test_output/
 examples*/
 test_workspace*/
+logs/

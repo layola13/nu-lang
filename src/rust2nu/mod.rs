@@ -133,6 +133,11 @@ impl Rust2NuConverter {
     fn convert_fn_signature(&self, sig: &Signature, vis: &Visibility) -> String {
         let mut result = String::new();
 
+        // unsafe函数用 U 前缀
+        if sig.unsafety.is_some() {
+            result.push_str("U ");
+        }
+
         // async函数用 ~ 前缀
         if sig.asyncness.is_some() {
             result.push('~');
@@ -265,6 +270,13 @@ impl Rust2NuConverter {
     fn convert_stmt(&mut self, stmt: &Stmt) {
         match stmt {
             Stmt::Local(local) => {
+                // 先处理语句级别的属性（如 #[cfg]）
+                for attr in &local.attrs {
+                    self.write(&self.indent());
+                    self.write(&self.convert_attribute(attr));
+                    self.write("\n");
+                }
+                
                 self.write(&self.indent());
 
                 // let vs let mut
@@ -287,6 +299,36 @@ impl Rust2NuConverter {
                 self.write(";\n");
             }
             Stmt::Expr(expr, semi) => {
+                // Stmt::Expr本身不包含attrs字段，但如果代码中有 #[cfg] if expr { }这样的形式，
+                // syn会将其解析为特殊的结构。实际上在Rust中，属性后面跟的语句会被包装。
+                // 但对于我们当前遇到的情况，cfg属性+if语句在syn中可能被解析为其他形式。
+                // 这里我们先处理常规的表达式语句。
+                
+                // 处理unsafe块（包括嵌套在其他表达式中的unsafe块）
+                if let Expr::Unsafe(unsafe_expr) = expr {
+                    self.write(&self.indent());
+                    self.write("U { ");
+                    // 转换unsafe块内的语句
+                    for inner_stmt in &unsafe_expr.block.stmts {
+                        // 简化处理：直接输出赋值语句
+                        if let Stmt::Expr(Expr::Assign(assign), _) = inner_stmt {
+                            let left = assign.left.to_token_stream().to_string();
+                            let right = self.convert_expr(&assign.right);
+                            self.write(&format!("{} = {}; ", left, right));
+                        } else {
+                            self.write(&inner_stmt.to_token_stream().to_string());
+                            self.write(" ");
+                        }
+                    }
+                    self.write("}");
+                    if semi.is_some() {
+                        self.write(";");
+                    }
+                    self.write("\n");
+                    return;
+                }
+                
+                
                 // 处理break和continue (使用br和ct)
                 if let Expr::Break(_) = expr {
                     self.write(&self.indent());
@@ -648,6 +690,90 @@ impl Rust2NuConverter {
         self.indent_level -= 1;
         self.writeln("}");
     }
+    
+    /// 递归检测表达式中是否包含嵌套的unsafe块
+    fn contains_nested_unsafe(expr: &Expr) -> bool {
+        match expr {
+            Expr::Unsafe(_) => true,
+            Expr::Match(expr_match) => {
+                // 检查match的每个分支
+                expr_match.arms.iter().any(|arm| Self::contains_nested_unsafe(&arm.body))
+            }
+            Expr::If(expr_if) => {
+                // 检查if的then分支
+                let then_has_unsafe = expr_if.then_branch.stmts.iter().any(|stmt| {
+                    if let Stmt::Expr(e, _) = stmt {
+                        Self::contains_nested_unsafe(e)
+                    } else {
+                        false
+                    }
+                });
+                // 检查else分支
+                let else_has_unsafe = expr_if.else_branch.as_ref().map_or(false, |(_, e)| {
+                    Self::contains_nested_unsafe(e)
+                });
+                then_has_unsafe || else_has_unsafe
+            }
+            Expr::Block(expr_block) => {
+                // 检查块中的语句
+                expr_block.block.stmts.iter().any(|stmt| {
+                    if let Stmt::Expr(e, _) = stmt {
+                        Self::contains_nested_unsafe(e)
+                    } else {
+                        false
+                    }
+                })
+            }
+            Expr::Loop(loop_expr) => {
+                loop_expr.body.stmts.iter().any(|stmt| {
+                    if let Stmt::Expr(e, _) = stmt {
+                        Self::contains_nested_unsafe(e)
+                    } else {
+                        false
+                    }
+                })
+            }
+            Expr::ForLoop(for_loop) => {
+                for_loop.body.stmts.iter().any(|stmt| {
+                    if let Stmt::Expr(e, _) = stmt {
+                        Self::contains_nested_unsafe(e)
+                    } else {
+                        false
+                    }
+                })
+            }
+            Expr::While(while_expr) => {
+                while_expr.body.stmts.iter().any(|stmt| {
+                    if let Stmt::Expr(e, _) = stmt {
+                        Self::contains_nested_unsafe(e)
+                    } else {
+                        false
+                    }
+                })
+            }
+            _ => false,
+        }
+    }
+    
+    /// 检查块是否包含unsafe代码（如unsafe块或unsafe static赋值）
+    fn block_contains_unsafe(&self, block: &Block) -> bool {
+        for stmt in &block.stmts {
+            if let Stmt::Expr(expr, _) = stmt {
+                if Self::contains_nested_unsafe(expr) {
+                    return true;
+                }
+                // 检查赋值语句是否涉及static变量
+                if let Expr::Assign(assign) = expr {
+                    let left_str = assign.left.to_token_stream().to_string();
+                    if left_str.to_uppercase() == left_str && left_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                        // 可能是LOGGER这样的static变量
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
 
     fn convert_attribute(&self, attr: &Attribute) -> String {
         let path = attr.path().to_token_stream().to_string();
@@ -817,24 +943,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // 进入泛型作用域
         self.push_generic_scope(&node.generics);
         
-        // Nu v1.6.3: 保留 #[cfg] 属性
+        // Nu v1.6.3: 输出所有属性（derive、cfg等）
         for attr in &node.attrs {
-            let attr_str = attr.to_token_stream().to_string();
-            // to_token_stream()会在#、[、(、)周围插入空格，需要移除
-            let cleaned_attr = attr_str
-                .replace("# [", "#[")
-                .replace(" [", "[")
-                .replace(" ]", "]")
-                .replace(" (", "(")
-                .replace(" )", ")");
-            if cleaned_attr.starts_with("#[cfg") {
-                self.writeln(&cleaned_attr);
-            }
+            self.writeln(&self.convert_attribute(attr));
         }
         
         // Nu v1.5.1: 只有 S（移除了 s）
         // 可见性由标识符首字母决定（Go风格）
-        self.write("S");
+        // 根据可见性决定使用 S 或 s
+        if matches!(node.vis, syn::Visibility::Public(_)) {
+            self.write("S");
+        } else {
+            self.write("s");
+        }
         self.write(" ");
         self.write(&node.ident.to_string());
 
@@ -849,6 +970,22 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(" {");
                 self.indent_level += 1;
                 for field in &fields.named {
+                    // 输出字段的 #[cfg] 属性
+                    for attr in &field.attrs {
+                        let attr_str = attr.to_token_stream().to_string();
+                        // to_token_stream()会在#、[、(、)周围插入空格，需要移除
+                        let cleaned_attr = attr_str
+                            .replace("# [", "#[")
+                            .replace(" [", "[")
+                            .replace(" ]", "]")
+                            .replace(" (", "(")
+                            .replace(" )", ")");
+                        if cleaned_attr.starts_with("#[cfg") {
+                            self.write(&self.indent());
+                            self.writeln(&cleaned_attr);
+                        }
+                    }
+                    
                     self.write(&self.indent());
                     if let Some(ident) = &field.ident {
                         self.write(&ident.to_string());
@@ -860,7 +997,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            _ => {
+            syn::Fields::Unnamed(fields) => {
+                // Tuple struct: pub struct ParseLevelError(());
+                self.write("(");
+                let type_strs: Vec<String> = fields
+                    .unnamed
+                    .iter()
+                    .map(|f| self.convert_type(&f.ty))
+                    .collect();
+                self.write(&type_strs.join(", "));
+                self.writeln(");");
+            }
+            syn::Fields::Unit => {
+                // Unit struct: pub struct UnitStruct;
                 self.writeln(";");
             }
         }
@@ -998,6 +1147,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         }
 
         self.write(&self.convert_type(&node.self_ty));
+        
+        // where子句 - 保留trait约束
+        if let Some(where_clause) = &node.generics.where_clause {
+            self.write(" wh ");
+            self.write(&where_clause.to_token_stream().to_string().replace("where", "").trim());
+        }
 
         self.writeln(" {");
         self.indent_level += 1;
@@ -1005,6 +1160,22 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         for item in &node.items {
             match item {
                 syn::ImplItem::Fn(method) => {
+                    // 输出方法的 #[cfg] 属性
+                    for attr in &method.attrs {
+                        let attr_str = attr.to_token_stream().to_string();
+                        // to_token_stream()会在#、[、(、)周围插入空格，需要移除
+                        let cleaned_attr = attr_str
+                            .replace("# [", "#[")
+                            .replace(" [", "[")
+                            .replace(" ]", "]")
+                            .replace(" (", "(")
+                            .replace(" )", ")");
+                        if cleaned_attr.starts_with("#[cfg") {
+                            self.write(&self.indent());
+                            self.writeln(&cleaned_attr);
+                        }
+                    }
+                    
                     let sig_str = self.convert_fn_signature(&method.sig, &method.vis);
                     self.write(&self.indent());
                     self.write(&sig_str);

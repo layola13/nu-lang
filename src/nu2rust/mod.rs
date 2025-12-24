@@ -65,6 +65,18 @@ impl Nu2RustConverter {
                 continue;
             }
 
+            // 智能恢复丢失的cfg属性
+            // 检测panic语句：当行包含panic!("key-value support时，在前面添加#[cfg(not(feature = "kv"))]
+            // 注意：Nu转换可能在!后添加空格，所以检查 panic!( 和 panic ! (
+            if (line.contains("panic!(") || line.contains("panic !")) && line.contains("key-value support") {
+                output.push_str("#[cfg(not(feature = \"kv\"))]\n");
+            }
+            
+            // 检测key_values调用：当行包含.key_values(时，在前面添加#[cfg(feature = "kv")]
+            if line.contains(".key_values(") {
+                output.push_str("#[cfg(feature = \"kv\")]\n");
+            }
+
             // 处理各种Nu语法
             if let Some(converted) = self.convert_line(line, &lines, &mut i, &mut context)? {
                 output.push_str(&converted);
@@ -101,6 +113,11 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_match(trimmed)?));
         }
 
+        // Unsafe函数定义: U F/U f (U F=pub unsafe fn, U f=unsafe fn)
+        if trimmed.starts_with("U F ") || trimmed.starts_with("U f ") {
+            return Ok(Some(self.convert_unsafe_function(trimmed, context)?));
+        }
+
         // 函数定义: F/f (F=pub fn, f=fn)
         if trimmed.starts_with("F ") || trimmed.starts_with("f ") {
             return Ok(Some(self.convert_function(trimmed, context)?));
@@ -111,13 +128,13 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_async_function(trimmed)?));
         }
 
-        // 结构体: S (v1.5.1: 移除了 s，只有 S)
-        if trimmed.starts_with("S ") {
+        // 结构体: S/s (S=pub struct, s=struct)
+        if trimmed.starts_with("S ") || trimmed.starts_with("s ") {
             return Ok(Some(self.convert_struct(trimmed, lines, index)?));
         }
 
-        // 枚举: E (v1.5.1: 移除了 e，只有 E)
-        if trimmed.starts_with("E ") {
+        // 枚举: E/e (E=pub enum, e=enum)
+        if trimmed.starts_with("E ") || trimmed.starts_with("e ") {
             return Ok(Some(self.convert_enum(trimmed, lines, index)?));
         }
 
@@ -179,6 +196,11 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_print(trimmed)?));
         }
 
+        // Unsafe块表达式: U { (必须在use之前检查)
+        if trimmed.starts_with("U {") {
+            return Ok(Some(self.convert_unsafe_block(trimmed)?));
+        }
+
         // Use语句: u/U
         if trimmed.starts_with("u ") || trimmed.starts_with("U ") {
             return Ok(Some(self.convert_use(trimmed)?));
@@ -226,6 +248,24 @@ impl Nu2RustConverter {
         Ok(format!("{}fn {}", visibility, converted))
     }
 
+    fn convert_unsafe_function(&self, line: &str, context: &ConversionContext) -> Result<String> {
+        let is_pub = line.starts_with("U F ");
+        let content = if is_pub { &line[4..] } else { &line[3..] }; // 跳过 "U F " 或 "U f "
+
+        // 在trait或impl块内，不添加pub修饰符
+        let visibility = if is_pub && !context.in_impl && !context.in_trait {
+            "pub "
+        } else {
+            ""
+        };
+        let mut converted = self.convert_types_in_string(content);
+
+        // 处理 !self -> mut self (按值接收的可变self)
+        converted = converted.replace("(!self", "(mut self");
+
+        Ok(format!("{}unsafe fn {}", visibility, converted))
+    }
+
     fn convert_async_function(&self, line: &str) -> Result<String> {
         let is_pub = line.starts_with("~F ");
         let content = &line[3..];
@@ -237,20 +277,12 @@ impl Nu2RustConverter {
     }
 
     fn convert_struct(&self, line: &str, _lines: &[&str], _index: &mut usize) -> Result<String> {
-        // Nu v1.5.1: 只有 S（移除了 s）
-        // 可见性由标识符首字母决定（Go风格）
-        let content = &line[2..]; // 跳过 "S "
+        // S = pub struct, s = struct
+        let is_pub_marker = line.starts_with("S ");
+        let content = &line[2..]; // 跳过 "S " 或 "s "
         let converted = self.convert_types_in_string(content);
 
-        // 检查结构体名称的首字母是否大写来决定可见性
-        let is_pub = content
-            .trim()
-            .chars()
-            .next()
-            .map(|c| c.is_uppercase())
-            .unwrap_or(false);
-
-        let visibility = if is_pub { "pub " } else { "" };
+        let visibility = if is_pub_marker { "pub " } else { "" };
         Ok(format!("{}struct {}", visibility, converted))
     }
 
@@ -510,6 +542,14 @@ impl Nu2RustConverter {
         Ok(format!("type {}", converted))
     }
 
+    fn convert_unsafe_block(&self, line: &str) -> Result<String> {
+        // U { ... } -> unsafe { ... }
+        let content = &line[2..]; // 跳过 "U "
+        let converted = self.convert_inline_keywords(content)?;
+        let converted = self.convert_types_in_string(&converted);
+        Ok(format!("unsafe {}", converted))
+    }
+
     fn convert_expression(&self, line: &str) -> Result<String> {
         // 递归处理表达式中的关键字
         let result = self.convert_inline_keywords(line)?;
@@ -570,7 +610,17 @@ impl Nu2RustConverter {
 
             // if: ? (检查是否是三元表达式或模式守卫的开始)
             // 但要避免在宏规则中转换（宏规则中 ? 是可选项标记）
+            // 还要避免转换 ? Sized（trait约束）
             if chars[i] == '?' && i + 1 < chars.len() && chars[i+1] == ' ' {
+                // 检查是否是 ? Sized 模式
+                let mut is_sized_trait = false;
+                if i + 7 < chars.len() {
+                    let next_6: String = chars[i+2..i+8].iter().collect();
+                    if next_6 == "Sized " || next_6 == "Sized+" || next_6 == "Sized," || next_6 == "Sized>" {
+                        is_sized_trait = true;
+                    }
+                }
+                
                 // 检查后面是否紧跟 $（宏变量），如果是则不转换
                 let mut is_macro_optional = false;
                 if i + 2 < chars.len() && chars[i+2] == '$' {
@@ -600,7 +650,7 @@ impl Nu2RustConverter {
                     }
                 }
                 
-                if !is_in_macro && !is_macro_optional {
+                if !is_in_macro && !is_macro_optional && !is_sized_trait {
                     result.push_str("if ");
                     i += 2;
                     continue;
@@ -792,7 +842,8 @@ impl Nu2RustConverter {
             .replace(" wh ", " where ")
             .replace(" I<", " impl<")
             .replace("I<", "impl<")
-            .replace(")!", ")?");
+            .replace(")!", ")?")
+            .replace("? Sized", "?Sized");  // 修复 ?Sized trait约束（Nu中为 "? Sized"，还原为 "?Sized"）
 
         // V! -> vec! (宏调用)
         result = result
