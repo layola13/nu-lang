@@ -1,6 +1,6 @@
 [package]
 name = "nu_compiler"
-version = "1.6.0"
+version = "1.6.1"
 edition = "2021"
 authors = ["Nu Language Team"]
 description = "Nu Language Compiler - High-Density Rust Dialect Transpiler"

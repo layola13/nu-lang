@@ -11,10 +11,8 @@ pub struct Nu2RustConverter {
 
 #[derive(Default)]
 struct ConversionContext {
-    // 跟踪当前作用域 - 预留用于未来扩展
-    #[allow(dead_code)]
+    // 跟踪当前作用域
     in_trait: bool,
-    #[allow(dead_code)]
     in_impl: bool,
 }
 
@@ -28,6 +26,7 @@ impl Nu2RustConverter {
     pub fn convert(&self, nu_code: &str) -> Result<String> {
         let mut output = String::new();
         let lines: Vec<&str> = nu_code.lines().collect();
+        let mut context = ConversionContext::default();
 
         let mut i = 0;
         while i < lines.len() {
@@ -66,7 +65,7 @@ impl Nu2RustConverter {
             }
 
             // 处理各种Nu语法
-            if let Some(converted) = self.convert_line(line, &lines, &mut i)? {
+            if let Some(converted) = self.convert_line(line, &lines, &mut i, &mut context)? {
                 output.push_str(&converted);
                 output.push('\n');
             }
@@ -82,12 +81,28 @@ impl Nu2RustConverter {
         line: &str,
         lines: &[&str],
         index: &mut usize,
+        context: &mut ConversionContext,
     ) -> Result<Option<String>> {
         let trimmed = line.trim();
 
+        // Loop: L (必须在函数定义之前检查，避免 "L {" 被误判为函数)
+        if trimmed.starts_with("L ") || trimmed == "L {" {
+            return Ok(Some(self.convert_loop(trimmed)?));
+        }
+
+        // If: ?
+        if trimmed.starts_with("? ") {
+            return Ok(Some(self.convert_if(trimmed)?));
+        }
+
+        // Match: M
+        if trimmed.starts_with("M ") {
+            return Ok(Some(self.convert_match(trimmed)?));
+        }
+
         // 函数定义: F/f (F=pub fn, f=fn)
         if trimmed.starts_with("F ") || trimmed.starts_with("f ") {
-            return Ok(Some(self.convert_function(trimmed)?));
+            return Ok(Some(self.convert_function(trimmed, context)?));
         }
 
         // 异步函数: ~F/~f
@@ -112,7 +127,13 @@ impl Nu2RustConverter {
 
         // Impl块: I
         if trimmed.starts_with("I ") {
+            context.in_impl = true;
             return Ok(Some(self.convert_impl(trimmed, lines, index)?));
+        }
+
+        // 检测impl块结束
+        if trimmed == "}" && context.in_impl {
+            context.in_impl = false;
         }
 
         // 模块: D (v1.5.1: D=mod，不是M)
@@ -133,13 +154,13 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_return(trimmed)?));
         }
 
-        // Break语句: b
-        if trimmed.starts_with("b ") || trimmed == "b" {
+        // Break语句: b 或 b;
+        if trimmed.starts_with("b;") || trimmed.starts_with("b ") || trimmed == "b" {
             return Ok(Some(self.convert_break(trimmed)?));
         }
 
-        // Continue语句: c
-        if trimmed.starts_with("c ") || trimmed == "c" {
+        // Continue语句: c 或 c;
+        if trimmed.starts_with("c;") || trimmed.starts_with("c ") || trimmed == "c" {
             return Ok(Some(self.convert_continue(trimmed)?));
         }
 
@@ -167,11 +188,16 @@ impl Nu2RustConverter {
         Ok(Some(self.convert_expression(trimmed)?))
     }
 
-    fn convert_function(&self, line: &str) -> Result<String> {
+    fn convert_function(&self, line: &str, context: &ConversionContext) -> Result<String> {
         let is_pub = line.starts_with("F ");
         let content = &line[2..];
 
-        let visibility = if is_pub { "pub " } else { "" };
+        // 在trait或impl块内，不添加pub修饰符（trait方法不能有pub）
+        let visibility = if is_pub && !context.in_impl && !context.in_trait {
+            "pub "
+        } else {
+            ""
+        };
         let mut converted = self.convert_types_in_string(content);
 
         // 处理 !self -> mut self (按值接收的可变self)
@@ -282,8 +308,10 @@ impl Nu2RustConverter {
     }
 
     fn convert_break(&self, line: &str) -> Result<String> {
-        if line == "b" {
-            Ok("break".to_string())
+        if line == "b" || line == "b;" {
+            Ok("break;".to_string())
+        } else if line.starts_with("b;") {
+            Ok("break;".to_string())
         } else {
             let content = &line[2..];
             let converted = self.convert_types_in_string(content);
@@ -292,13 +320,50 @@ impl Nu2RustConverter {
     }
 
     fn convert_continue(&self, line: &str) -> Result<String> {
-        if line == "c" {
-            Ok("continue".to_string())
+        if line == "c" || line == "c;" {
+            Ok("continue;".to_string())
+        } else if line.starts_with("c;") {
+            Ok("continue;".to_string())
         } else {
             let content = &line[2..];
             let converted = self.convert_types_in_string(content);
             Ok(format!("continue {}", converted))
         }
+    }
+
+    fn convert_loop(&self, line: &str) -> Result<String> {
+        if line == "L {" {
+            Ok("loop {".to_string())
+        } else if line.starts_with("L ") {
+            let content = &line[2..];
+            // 检查是否是 for 循环: L var in/: iterable
+            if content.contains(" in ") || content.contains(": ") {
+                let converted = self.convert_types_in_string(content);
+                // 标准化: L x: iter 和 L x in iter 都转换为 for x in iter
+                let normalized = converted.replace(": ", " in ");
+                Ok(format!("for {}", normalized))
+            } else {
+                // 无限循环
+                Ok("loop {".to_string())
+            }
+        } else {
+            Ok(line.to_string())
+        }
+    }
+
+    fn convert_if(&self, line: &str) -> Result<String> {
+        let content = &line[2..]; // 跳过 "? "
+        let mut converted = self.convert_types_in_string(content);
+        // 处理 if 语句中的 b; 和 c;
+        converted = converted.replace("{ b; }", "{ break; }");
+        converted = converted.replace("{ c; }", "{ continue; }");
+        Ok(format!("if {}", converted))
+    }
+
+    fn convert_match(&self, line: &str) -> Result<String> {
+        let content = &line[2..]; // 跳过 "M "
+        let converted = self.convert_types_in_string(content);
+        Ok(format!("match {}", converted))
     }
 
     fn convert_print(&self, line: &str) -> Result<String> {
@@ -328,7 +393,13 @@ impl Nu2RustConverter {
     }
 
     fn convert_expression(&self, line: &str) -> Result<String> {
-        Ok(self.convert_types_in_string(line))
+        let mut result = self.convert_types_in_string(line);
+        
+        // 处理表达式中的 b; 和 c; (在花括号内)
+        result = result.replace("{ b; }", "{ break; }");
+        result = result.replace("{ c; }", "{ continue; }");
+        
+        Ok(result)
     }
 
     /// 转换Nu类型回Rust类型

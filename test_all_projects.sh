@@ -12,6 +12,7 @@ echo "=========================================="
 # 子项目列表
 projects=(
   "calculator"
+  "dijkstra"
   "file_processor"
   "hello_rust"
   "test_closure_enhancements"
