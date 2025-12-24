@@ -3,18 +3,15 @@
 
 use anyhow::{Context, Result};
 use quote::ToTokens;
-use std::collections::HashMap;
 use syn::{
-    visit::Visit, Attribute, Block, Expr, ExprAwait, ExprBlock, ExprCall, ExprClosure, ExprForLoop,
-    ExprIf, ExprLoop, ExprMatch, ExprMethodCall, ExprReturn, ExprTry, ExprWhile, File, FnArg, Item,
-    ItemEnum, ItemFn, ItemImpl, ItemStruct, ItemTrait, Pat, ReturnType, Signature, Stmt, Type,
+    visit::Visit, Attribute, Block, Expr, File, FnArg, Item,
+    ItemEnum, ItemFn, ItemImpl, ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type,
     Visibility,
 };
 
 pub struct Rust2NuConverter {
     output: String,
     indent_level: usize,
-    comments: HashMap<usize, Vec<String>>, // line number -> comments
 }
 
 impl Rust2NuConverter {
@@ -22,7 +19,6 @@ impl Rust2NuConverter {
         Self {
             output: String::new(),
             indent_level: 0,
-            comments: HashMap::new(),
         }
     }
 
@@ -89,8 +85,6 @@ impl Rust2NuConverter {
         self.output.push_str(text);
         self.output.push('\n');
     }
-
-    /// 在指定行号之前插入注释
 
     fn write(&mut self, text: &str) {
         self.output.push_str(text);
@@ -277,7 +271,6 @@ impl Rust2NuConverter {
             Stmt::Item(item) => {
                 self.visit_item(item);
             }
-            _ => {}
         }
     }
 

@@ -25,13 +25,9 @@ fn convert_nu_toml_to_cargo_toml(nu_content: &str) -> Result<String> {
         } else if line.starts_with("ed ") {
             cargo_content.push_str(&line.replace("ed ", "edition "));
             cargo_content.push('\n');
-        } else if !line.is_empty() && !line.starts_with("#") {
+        } else {
+            // 其他行（注释、空行、普通内容）保持原样
             cargo_content.push_str(line);
-            cargo_content.push('\n');
-        } else if line.starts_with("#") {
-            cargo_content.push_str(line);
-            cargo_content.push('\n');
-        } else if line.is_empty() {
             cargo_content.push('\n');
         }
     }

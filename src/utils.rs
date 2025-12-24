@@ -12,5 +12,5 @@ pub fn to_snake_case(s: &str) -> String {
 }
 
 pub fn is_public_ident(s: &str) -> bool {
-    s.chars().next().map_or(false, |c| c.is_uppercase())
+    s.chars().next().is_some_and(|c| c.is_uppercase())
 }

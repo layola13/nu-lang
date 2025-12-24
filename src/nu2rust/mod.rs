@@ -1,18 +1,20 @@
 // Nu to Rust Converter
 // 将Nu代码转换回标准Rust代码
 
-use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
+use anyhow::Result;
 
 pub struct Nu2RustConverter {
-    // 转换上下文
+    // 转换上下文 - 预留用于未来扩展
+    #[allow(dead_code)]
     context: ConversionContext,
 }
 
 #[derive(Default)]
 struct ConversionContext {
-    // 跟踪当前作用域
+    // 跟踪当前作用域 - 预留用于未来扩展
+    #[allow(dead_code)]
     in_trait: bool,
+    #[allow(dead_code)]
     in_impl: bool,
 }
 
@@ -167,7 +169,7 @@ impl Nu2RustConverter {
 
     fn convert_function(&self, line: &str) -> Result<String> {
         let is_pub = line.starts_with("F ");
-        let content = if is_pub { &line[2..] } else { &line[2..] };
+        let content = &line[2..];
 
         let visibility = if is_pub { "pub " } else { "" };
         let mut converted = self.convert_types_in_string(content);
@@ -180,7 +182,7 @@ impl Nu2RustConverter {
 
     fn convert_async_function(&self, line: &str) -> Result<String> {
         let is_pub = line.starts_with("~F ");
-        let content = if is_pub { &line[3..] } else { &line[3..] };
+        let content = &line[3..];
 
         let visibility = if is_pub { "pub " } else { "" };
         let converted = self.convert_types_in_string(content);
@@ -226,7 +228,7 @@ impl Nu2RustConverter {
 
     fn convert_trait(&self, line: &str, _lines: &[&str], _index: &mut usize) -> Result<String> {
         let is_pub = line.starts_with("TR ");
-        let content = if is_pub { &line[3..] } else { &line[3..] };
+        let content = &line[3..];
 
         let visibility = if is_pub { "pub " } else { "" };
         let converted = self.convert_types_in_string(content);
@@ -307,7 +309,7 @@ impl Nu2RustConverter {
 
     fn convert_use(&self, line: &str) -> Result<String> {
         let is_pub = line.starts_with("U ");
-        let content = if is_pub { &line[2..] } else { &line[2..] };
+        let content = &line[2..];
 
         let visibility = if is_pub { "pub " } else { "" };
         Ok(format!("{}use {}", visibility, content))
