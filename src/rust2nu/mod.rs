@@ -4,9 +4,8 @@
 use anyhow::{Context, Result};
 use quote::ToTokens;
 use syn::{
-    visit::Visit, Attribute, Block, Expr, File, FnArg, Item,
-    ItemEnum, ItemFn, ItemImpl, ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type,
-    Visibility,
+    visit::Visit, Attribute, Block, Expr, File, FnArg, Item, ItemEnum, ItemFn, ItemImpl,
+    ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type, Visibility,
 };
 
 pub struct Rust2NuConverter {
