@@ -71,7 +71,7 @@ impl Nu2RustConverter {
     fn convert_line(&self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<String>> {
         let trimmed = line.trim();
         
-        // 函数定义: F/f
+        // 函数定义: F/f (F=pub fn, f=fn)
         if trimmed.starts_with("F ") || trimmed.starts_with("f ") {
             return Ok(Some(self.convert_function(trimmed)?));
         }
@@ -81,13 +81,13 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_async_function(trimmed)?));
         }
         
-        // 结构体: S/s
-        if trimmed.starts_with("S ") || trimmed.starts_with("s ") {
+        // 结构体: S (v1.5.1: 移除了 s，只有 S)
+        if trimmed.starts_with("S ") {
             return Ok(Some(self.convert_struct(trimmed, lines, index)?));
         }
         
-        // 枚举: E/e
-        if trimmed.starts_with("E ") || trimmed.starts_with("e ") {
+        // 枚举: E (v1.5.1: 移除了 e，只有 E)
+        if trimmed.starts_with("E ") {
             return Ok(Some(self.convert_enum(trimmed, lines, index)?));
         }
         
@@ -101,8 +101,8 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_impl(trimmed, lines, index)?));
         }
         
-        // 模块: M/m
-        if trimmed.starts_with("M ") || trimmed.starts_with("m ") {
+        // 模块: D (v1.5.1: D=mod，不是M)
+        if trimmed.starts_with("D ") {
             return Ok(Some(self.convert_module(trimmed)?));
         }
         
@@ -162,7 +162,10 @@ impl Nu2RustConverter {
         };
         
         let visibility = if is_pub { "pub " } else { "" };
-        let converted = self.convert_types_in_string(content);
+        let mut converted = self.convert_types_in_string(content);
+        
+        // 处理 !self -> mut self (按值接收的可变self)
+        converted = converted.replace("(!self", "(mut self");
         
         Ok(format!("{}fn {}", visibility, converted))
     }
@@ -182,30 +185,36 @@ impl Nu2RustConverter {
     }
     
     fn convert_struct(&self, line: &str, _lines: &[&str], _index: &mut usize) -> Result<String> {
-        let is_pub = line.starts_with("S ");
-        let content = if is_pub {
-            &line[2..]
-        } else {
-            &line[2..]
-        };
-        
-        let visibility = if is_pub { "pub " } else { "" };
+        // Nu v1.5.1: 只有 S（移除了 s）
+        // 可见性由标识符首字母决定（Go风格）
+        let content = &line[2..]; // 跳过 "S "
         let converted = self.convert_types_in_string(content);
         
+        // 检查结构体名称的首字母是否大写来决定可见性
+        let is_pub = content.trim()
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
+        
+        let visibility = if is_pub { "pub " } else { "" };
         Ok(format!("{}struct {}", visibility, converted))
     }
     
     fn convert_enum(&self, line: &str, _lines: &[&str], _index: &mut usize) -> Result<String> {
-        let is_pub = line.starts_with("E ");
-        let content = if is_pub {
-            &line[2..]
-        } else {
-            &line[2..]
-        };
-        
-        let visibility = if is_pub { "pub " } else { "" };
+        // Nu v1.5.1: 只有 E（移除了 e）
+        // 可见性由标识符首字母决定（Go风格）
+        let content = &line[2..]; // 跳过 "E "
         let converted = self.convert_types_in_string(content);
         
+        // 检查枚举名称的首字母是否大写来决定可见性
+        let is_pub = content.trim()
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
+        
+        let visibility = if is_pub { "pub " } else { "" };
         Ok(format!("{}enum {}", visibility, converted))
     }
     
@@ -230,15 +239,18 @@ impl Nu2RustConverter {
     }
     
     fn convert_module(&self, line: &str) -> Result<String> {
-        let is_pub = line.starts_with("M ");
-        let content = if is_pub {
-            &line[2..]
-        } else {
-            &line[2..]
-        };
+        // Nu v1.5.1: D=mod (由标识符首字母决定可见性)
+        let content = &line[2..]; // 跳过 "D "
+        let converted = self.convert_types_in_string(content);
+        
+        // 检查模块名称的首字母是否大写来决定可见性
+        let is_pub = content.trim()
+            .chars()
+            .next()
+            .map(|c| c.is_uppercase())
+            .unwrap_or(false);
         
         let visibility = if is_pub { "pub " } else { "" };
-        let converted = self.convert_types_in_string(content);
         Ok(format!("{}mod {}", visibility, converted))
     }
     
@@ -320,8 +332,42 @@ impl Nu2RustConverter {
     
     /// 转换Nu类型回Rust类型
     fn convert_types_in_string(&self, s: &str) -> String {
-        // 注意：必须先处理长模式，避免"String"被"Str"规则误转换为"Stringing"
-        let result = s.replace(" V ", " Vec ")
+        // 第一步：先转换 $| -> move | (在保护闭包之前)
+        let mut result = s.replace("$|", "move |");
+        
+        // 第二步：保护闭包参数，避免单字母变量被误转换
+        // 识别闭包模式: |param1, param2| 或 |(param1, param2)| 或 move |...|
+        let mut protected_closures = Vec::new();
+        
+        // 查找所有闭包参数列表
+        let chars: Vec<char> = result.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '|' {
+                let start = i;
+                i += 1;
+                // 找到匹配的闭包结束符 |
+                while i < chars.len() && chars[i] != '|' {
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1; // 包含结束的 |
+                    let closure_params: String = chars[start..i].iter().collect();
+                    protected_closures.push(closure_params);
+                }
+            } else {
+                i += 1;
+            }
+        }
+        
+        // 用占位符替换闭包参数
+        for (idx, closure) in protected_closures.iter().enumerate() {
+            result = result.replacen(closure, &format!("__CLOSURE_PARAMS_{}__", idx), 1);
+        }
+        
+        // 执行类型和关键字替换
+        result = result
+            .replace(" V ", " Vec ")
             .replace("V::", "Vec::")
             .replace(" V<", " Vec<")
             .replace("V<", "Vec<")
@@ -333,30 +379,52 @@ impl Nu2RustConverter {
             .replace("&!", "&mut ")
             .replace(".~", ".await")
             .replace("$|", "move |")
-            .replace(" wh ", " where ")
+            .replace(" wh ", " where ")  // wh -> where（只在有空格边界时）
             .replace(" I<", " impl<")
             .replace("I<", "impl<")
             .replace(")!", ")?");
         
         // Str -> String 精确替换：覆盖所有Str作为类型出现的模式
-        let result = result
+        result = result
             // 静态方法调用
             .replace("Str ::", "String::")
-            // 泛型参数
+            .replace("Str::", "String::")
+            // 泛型参数（元组和单个参数）
+            .replace("(Str ", "(String ")
+            .replace("(Str,", "(String,")
+            .replace("(Str)", "(String)")
+            .replace(", Str ", ", String ")
+            .replace(", Str,", ", String,")
+            .replace(", Str)", ", String)")
+            .replace("< Str ", "<String ")
+            .replace("< Str,", "<String,")
             .replace("< Str>", "<String>")
+            .replace("<Str ", "<String ")
+            .replace("<Str,", "<String,")
             .replace("<Str>", "<String>")
             // 类型标注
             .replace(": Str ", ": String ")
             .replace(": Str)", ": String)")
             .replace(": Str,", ": String,")
             .replace(": Str>", ": String>")
+            .replace(": Str;", ": String;")
             // 返回类型
             .replace("-> Str ", "-> String ")
             .replace("-> Str)", "-> String)")
             .replace("-> Str{", "-> String{")
+            .replace("-> Str;", "-> String;")
             // 引用类型
-            .replace("& Str", "&String")
-            .replace("&Str", "&String")
+            .replace("& Str ", "&String ")
+            .replace("& Str,", "&String,")
+            .replace("& Str)", "&String)")
+            .replace("& Str>", "&String>")
+            .replace("&Str ", "&String ")
+            .replace("&Str,", "&String,")
+            .replace("&Str)", "&String)")
+            .replace("&Str>", "&String>")
+            // Vec/数组元素
+            .replace("Str ]", "String]")
+            .replace("Str]", "String]")
             // 结尾边界
             .replace("Str>", "String>")
             .replace("Str,", "String,")
@@ -366,6 +434,11 @@ impl Nu2RustConverter {
             .replace("Str\n", "String\n")
             // 通用空格边界
             .replace(" Str ", " String ");
+        
+        // 恢复闭包参数（保持原样）
+        for (idx, closure) in protected_closures.iter().enumerate() {
+            result = result.replace(&format!("__CLOSURE_PARAMS_{}__", idx), closure);
+        }
         
         // 移除函数调用中的多余空格: ") (" -> ")("
         result.replace(") (", ")(")

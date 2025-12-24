@@ -88,8 +88,14 @@ impl Rust2NuConverter {
                         if r.mutability.is_some() {
                             result.push('!');  // &mut -> &!
                         }
+                        result.push_str("self");
+                    } else {
+                        // 按值接收的self
+                        if r.mutability.is_some() {
+                            result.push('!');  // mut self -> !self
+                        }
+                        result.push_str("self");
                     }
-                    result.push_str("self");
                 }
                 FnArg::Typed(pt) => {
                     result.push_str(&pt.pat.to_token_stream().to_string());
@@ -106,28 +112,34 @@ impl Rust2NuConverter {
             result.push_str(&self.convert_type(ty));
         }
         
-        // where子句
+        // where子句 - 使用 wh 而不是 w（避免与单字母变量冲突）
         if let Some(where_clause) = &sig.generics.where_clause {
-            result.push_str(" w ");
+            result.push_str(" wh ");
             result.push_str(&where_clause.to_token_stream().to_string().replace("where", ""));
         }
         
         result
     }
 
-    /// 转换类型
+    /// 转换类型 - 保留泛型参数中的类型标注
     fn convert_type(&self, ty: &Type) -> String {
         let type_str = ty.to_token_stream().to_string();
         
-        // 替换常见类型
+        // 替换常见类型，注意处理泛型参数
         type_str
             .replace("String", "Str")
             .replace("Vec <", "V<")
+            .replace("Vec<", "V<")
             .replace("Option <", "O<")
+            .replace("Option<", "O<")
             .replace("Result <", "R<")
+            .replace("Result<", "R<")
             .replace("Arc <", "A<")
+            .replace("Arc<", "A<")
             .replace("Mutex <", "X<")
+            .replace("Mutex<", "X<")
             .replace("Box <", "B<")
+            .replace("Box<", "B<")
             .replace("& mut", "&!")
             .replace(" mut", "!")
             .replace(" >", ">")
@@ -219,12 +231,10 @@ impl Rust2NuConverter {
                     .join(", ");
                 format!("{}.{}({})", receiver, method, args)
             }
-            Expr::Return(ret) => {
-                if let Some(val) = &ret.expr {
-                    format!("< {}", self.convert_expr(val))
-                } else {
-                    "<".to_string()
-                }
+            Expr::Return(_ret) => {
+                // return语句在语句级别处理，在表达式中不应该转换
+                // 保持原样以避免在match分支中错误转换
+                expr.to_token_stream().to_string()
             }
             Expr::Closure(closure) => {
                 let move_kw = if closure.capture.is_some() { "$" } else { "" };
@@ -328,14 +338,60 @@ impl Rust2NuConverter {
     }
 
     fn convert_type_in_string(&self, s: &str) -> String {
-        s.replace("String", "Str")
+        // 智能类型替换：保护 turbofish 语法中的类型标注（如 collect::<String>()）
+        let mut result = s.to_string();
+        let mut protected_parts = Vec::new();
+        
+        // 查找并保护所有的 turbofish 模式 (::<...>)
+        let chars: Vec<char> = result.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            // 检测 ::< 模式
+            if i + 2 < chars.len() && chars[i] == ':' && chars[i+1] == ':' && chars[i+2] == '<' {
+                let start = i;
+                i += 3;
+                let mut depth = 1;
+                
+                // 找到匹配的 >
+                while i < chars.len() && depth > 0 {
+                    if chars[i] == '<' {
+                        depth += 1;
+                    } else if chars[i] == '>' {
+                        depth -= 1;
+                    }
+                    i += 1;
+                }
+                
+                // 提取 turbofish 部分
+                let turbofish: String = chars[start..i].iter().collect();
+                protected_parts.push(turbofish);
+            } else {
+                i += 1;
+            }
+        }
+        
+        // 用占位符替换 turbofish
+        for (idx, part) in protected_parts.iter().enumerate() {
+            result = result.replacen(part, &format!("__TURBOFISH_PLACEHOLDER_{}__", idx), 1);
+        }
+        
+        // 执行类型替换
+        result = result
+            .replace("String", "Str")
             .replace("Vec", "V")
             .replace("Option", "O")
             .replace("Result", "R")
             .replace("Arc", "A")
             .replace("Mutex", "X")
             .replace("Box", "B")
-            .replace("& mut", "&!")
+            .replace("& mut", "&!");
+        
+        // 恢复 turbofish（保持原样，不进行类型替换）
+        for (idx, part) in protected_parts.iter().enumerate() {
+            result = result.replace(&format!("__TURBOFISH_PLACEHOLDER_{}__", idx), part);
+        }
+        
+        result
     }
 
     /// 转换函数体
@@ -385,8 +441,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.writeln(&self.convert_attribute(attr));
                 }
                 
-                let mod_str = if self.is_public(&m.vis) { "M" } else { "m" };
-                self.write(mod_str);
+                // Nu v1.5.1: D=mod（移除了 M/m）
+                // 可见性由标识符首字母决定（Go风格）
+                self.write("D");
                 self.write(" ");
                 self.write(&m.ident.to_string());
                 
@@ -452,10 +509,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
     }
 
     fn visit_item_struct(&mut self, node: &'ast ItemStruct) {
-        // pub struct -> S, struct -> s
-        let keyword = if self.is_public(&node.vis) { "S" } else { "s" };
-        
-        self.write(keyword);
+        // Nu v1.5.1: 只有 S（移除了 s）
+        // 可见性由标识符首字母决定（Go风格）
+        self.write("S");
         self.write(" ");
         self.write(&node.ident.to_string());
         
@@ -493,9 +549,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             self.writeln(&self.convert_attribute(attr));
         }
         
-        let keyword = if self.is_public(&node.vis) { "E" } else { "e" };
-        
-        self.write(keyword);
+        // Nu v1.5.1: 只有 E（移除了 e）
+        // 可见性由标识符首字母决定（Go风格）
+        self.write("E");
         self.write(" ");
         self.write(&node.ident.to_string());
         
