@@ -1,15 +1,15 @@
 // Rust to Nu Converter
 // 将标准Rust代码压缩为Nu高密度语法
 
-use syn::{
-    visit::Visit, File, Item, ItemFn, ItemStruct, ItemEnum, ItemTrait, ItemImpl,
-    Signature, Visibility, FnArg, ReturnType, Block, Stmt, Expr, Pat, Type,
-    ExprMethodCall, ExprAwait, ExprTry, ExprCall, ExprMatch, ExprIf, ExprLoop,
-    ExprForLoop, ExprWhile, ExprReturn, ExprBlock, ExprClosure, Attribute,
-};
+use anyhow::{Context, Result};
 use quote::ToTokens;
-use anyhow::{Result, Context};
 use std::collections::HashMap;
+use syn::{
+    visit::Visit, Attribute, Block, Expr, ExprAwait, ExprBlock, ExprCall, ExprClosure, ExprForLoop,
+    ExprIf, ExprLoop, ExprMatch, ExprMethodCall, ExprReturn, ExprTry, ExprWhile, File, FnArg, Item,
+    ItemEnum, ItemFn, ItemImpl, ItemStruct, ItemTrait, Pat, ReturnType, Signature, Stmt, Type,
+    Visibility,
+};
 
 pub struct Rust2NuConverter {
     output: String,
@@ -31,7 +31,7 @@ impl Rust2NuConverter {
         // 1. 先提取所有注释和它们的位置
         let lines: Vec<&str> = rust_code.lines().collect();
         let mut line_types = Vec::new(); // true = comment line, false = code line
-        
+
         for line in &lines {
             let trimmed = line.trim();
             // 判断是否为纯注释行或空行
@@ -41,20 +41,19 @@ impl Rust2NuConverter {
                 || trimmed.starts_with("*");
             line_types.push(is_comment_or_empty);
         }
-        
+
         // 2. 解析并转换代码（syn会忽略注释）
-        let syntax_tree = syn::parse_file(rust_code)
-            .context("Failed to parse Rust code")?;
-        
+        let syntax_tree = syn::parse_file(rust_code).context("Failed to parse Rust code")?;
+
         let mut converter = Self::new();
         converter.visit_file(&syntax_tree);
         let converted_code = converter.output;
-        
+
         // 3. 合并：在转换后的代码中插入注释
         // 简单策略：在文件开头保留所有前导注释，然后是转换后的代码
         let mut output = String::new();
         let mut found_code = false;
-        
+
         for (i, line) in lines.iter().enumerate() {
             if line_types[i] {
                 // 注释或空行
@@ -72,12 +71,12 @@ impl Rust2NuConverter {
                 break;
             }
         }
-        
+
         // 如果全是注释，直接返回
         if !found_code {
             return Ok(output);
         }
-        
+
         Ok(output)
     }
 
@@ -90,7 +89,7 @@ impl Rust2NuConverter {
         self.output.push_str(text);
         self.output.push('\n');
     }
-    
+
     /// 在指定行号之前插入注释
 
     fn write(&mut self, text: &str) {
@@ -105,23 +104,23 @@ impl Rust2NuConverter {
     /// 转换函数签名
     fn convert_fn_signature(&self, sig: &Signature, vis: &Visibility) -> String {
         let mut result = String::new();
-        
+
         // async函数用 ~ 前缀
         if sig.asyncness.is_some() {
             result.push('~');
         }
-        
+
         // pub fn -> F, fn -> f
         result.push_str(if self.is_public(vis) { "F" } else { "f" });
-        
+
         result.push(' ');
         result.push_str(&sig.ident.to_string());
-        
+
         // 泛型参数保持不变
         if !sig.generics.params.is_empty() {
             result.push_str(&sig.generics.to_token_stream().to_string());
         }
-        
+
         // 参数列表
         result.push('(');
         let mut first = true;
@@ -130,19 +129,19 @@ impl Rust2NuConverter {
                 result.push_str(", ");
             }
             first = false;
-            
+
             match input {
                 FnArg::Receiver(r) => {
                     if r.reference.is_some() {
                         result.push('&');
                         if r.mutability.is_some() {
-                            result.push('!');  // &mut -> &!
+                            result.push('!'); // &mut -> &!
                         }
                         result.push_str("self");
                     } else {
                         // 按值接收的self
                         if r.mutability.is_some() {
-                            result.push('!');  // mut self -> !self
+                            result.push('!'); // mut self -> !self
                         }
                         result.push_str("self");
                     }
@@ -155,26 +154,31 @@ impl Rust2NuConverter {
             }
         }
         result.push(')');
-        
+
         // 返回类型
         if let ReturnType::Type(_, ty) = &sig.output {
             result.push_str(" -> ");
             result.push_str(&self.convert_type(ty));
         }
-        
+
         // where子句 - 使用 wh 而不是 w（避免与单字母变量冲突）
         if let Some(where_clause) = &sig.generics.where_clause {
             result.push_str(" wh ");
-            result.push_str(&where_clause.to_token_stream().to_string().replace("where", ""));
+            result.push_str(
+                &where_clause
+                    .to_token_stream()
+                    .to_string()
+                    .replace("where", ""),
+            );
         }
-        
+
         result
     }
 
     /// 转换类型 - 保留泛型参数中的类型标注
     fn convert_type(&self, ty: &Type) -> String {
         let type_str = ty.to_token_stream().to_string();
-        
+
         // 替换常见类型，注意处理泛型参数
         type_str
             .replace("String", "Str")
@@ -200,33 +204,36 @@ impl Rust2NuConverter {
         match stmt {
             Stmt::Local(local) => {
                 self.write(&self.indent());
-                
+
                 // let vs let mut
                 let pat_str = local.pat.to_token_stream().to_string();
                 let is_mut = pat_str.contains("mut");
-                
+
                 if local.init.is_some() {
                     self.write(if is_mut { "v " } else { "l " });
-                    
+
                     // 变量名（去掉mut）
                     let clean_pat = pat_str.replace("mut ", "");
                     self.write(&clean_pat);
-                    
+
                     self.write(" = ");
                     if let Some(init) = &local.init {
                         self.write(&self.convert_expr(&init.expr));
                     }
                 }
-                
+
                 self.write(";\n");
             }
             Stmt::Macro(mac) => {
                 // v1.6: 宏语句原样保留（println!, vec!, assert!, etc.）
                 // 移除to_token_stream()插入的空格（"println !" -> "println!"）
                 self.write(&self.indent());
-                let macro_str = mac.mac.to_token_stream().to_string()
-                    .replace(" !", "!")  // 修复宏名和!之间的空格
-                    .replace(" (", "(")  // 修复!和(之间的空格
+                let macro_str = mac
+                    .mac
+                    .to_token_stream()
+                    .to_string()
+                    .replace(" !", "!") // 修复宏名和!之间的空格
+                    .replace(" (", "(") // 修复!和(之间的空格
                     .replace(" ,", ","); // 修复参数逗号前的空格
                 self.write(&macro_str);
                 if mac.semi_token.is_some() {
@@ -246,7 +253,9 @@ impl Rust2NuConverter {
                 } else if let Expr::Macro(_mac) = expr {
                     // v1.6: 表达式宏原样保留（极少见，大多数宏是Stmt::Macro）
                     self.write(&self.indent());
-                    let macro_str = expr.to_token_stream().to_string()
+                    let macro_str = expr
+                        .to_token_stream()
+                        .to_string()
                         .replace(" !", "!")
                         .replace(" (", "(")
                         .replace(" ,", ",");
@@ -284,15 +293,17 @@ impl Rust2NuConverter {
             Expr::MethodCall(call) => {
                 let receiver = self.convert_expr(&call.receiver);
                 let method = call.method.to_string();
-                
+
                 // v1.6: 保留Turbofish泛型参数 ::<Type>
                 let turbofish = if let Some(turbo) = &call.turbofish {
                     turbo.to_token_stream().to_string()
                 } else {
                     String::new()
                 };
-                
-                let args = call.args.iter()
+
+                let args = call
+                    .args
+                    .iter()
                     .map(|arg| self.convert_expr(arg))
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -305,11 +316,13 @@ impl Rust2NuConverter {
             }
             Expr::Closure(closure) => {
                 let move_kw = if closure.capture.is_some() { "$" } else { "" };
-                let inputs = closure.inputs.iter()
+                let inputs = closure
+                    .inputs
+                    .iter()
                     .map(|p| p.to_token_stream().to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                
+
                 // v1.6: 支持闭包返回类型 |x: i32| -> i32 { }
                 let return_type = match &closure.output {
                     syn::ReturnType::Default => String::new(),
@@ -318,7 +331,7 @@ impl Rust2NuConverter {
                         format!(" -> {}", ty_str)
                     }
                 };
-                
+
                 let body = self.convert_expr(&closure.body);
                 format!("{}|{}|{} {}", move_kw, inputs, return_type, body)
             }
@@ -351,7 +364,7 @@ impl Rust2NuConverter {
                     result.push('\n');
                 }
                 result.push_str("    }");
-                
+
                 // else分支
                 if let Some((_, else_branch)) = &if_expr.else_branch {
                     result.push_str(" else ");
@@ -418,17 +431,18 @@ impl Rust2NuConverter {
         // 智能类型替换：保护 turbofish 语法中的类型标注（如 collect::<String>()）
         let mut result = s.to_string();
         let mut protected_parts = Vec::new();
-        
+
         // 查找并保护所有的 turbofish 模式 (::<...>)
         let chars: Vec<char> = result.chars().collect();
         let mut i = 0;
         while i < chars.len() {
             // 检测 ::< 模式
-            if i + 2 < chars.len() && chars[i] == ':' && chars[i+1] == ':' && chars[i+2] == '<' {
+            if i + 2 < chars.len() && chars[i] == ':' && chars[i + 1] == ':' && chars[i + 2] == '<'
+            {
                 let start = i;
                 i += 3;
                 let mut depth = 1;
-                
+
                 // 找到匹配的 >
                 while i < chars.len() && depth > 0 {
                     if chars[i] == '<' {
@@ -438,7 +452,7 @@ impl Rust2NuConverter {
                     }
                     i += 1;
                 }
-                
+
                 // 提取 turbofish 部分
                 let turbofish: String = chars[start..i].iter().collect();
                 protected_parts.push(turbofish);
@@ -446,12 +460,12 @@ impl Rust2NuConverter {
                 i += 1;
             }
         }
-        
+
         // 用占位符替换 turbofish
         for (idx, part) in protected_parts.iter().enumerate() {
             result = result.replacen(part, &format!("__TURBOFISH_PLACEHOLDER_{}__", idx), 1);
         }
-        
+
         // 执行类型替换
         result = result
             .replace("String", "Str")
@@ -462,12 +476,12 @@ impl Rust2NuConverter {
             .replace("Mutex", "X")
             .replace("Box", "B")
             .replace("& mut", "&!");
-        
+
         // 恢复 turbofish（保持原样，不进行类型替换）
         for (idx, part) in protected_parts.iter().enumerate() {
             result = result.replace(&format!("__TURBOFISH_PLACEHOLDER_{}__", idx), part);
         }
-        
+
         result
     }
 
@@ -475,11 +489,11 @@ impl Rust2NuConverter {
     fn convert_block(&mut self, block: &Block) {
         self.writeln(" {");
         self.indent_level += 1;
-        
+
         for stmt in &block.stmts {
             self.convert_stmt(stmt);
         }
-        
+
         self.indent_level -= 1;
         self.writeln("}");
     }
@@ -487,7 +501,7 @@ impl Rust2NuConverter {
     fn convert_attribute(&self, attr: &Attribute) -> String {
         let path = attr.path().to_token_stream().to_string();
         let tokens = attr.meta.to_token_stream().to_string();
-        
+
         if path == "derive" {
             format!("#D{}", tokens.trim_start_matches("derive"))
         } else {
@@ -517,13 +531,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 for attr in &m.attrs {
                     self.writeln(&self.convert_attribute(attr));
                 }
-                
+
                 // Nu v1.5.1: D=mod（移除了 M/m）
                 // 可见性由标识符首字母决定（Go风格）
                 self.write("D");
                 self.write(" ");
                 self.write(&m.ident.to_string());
-                
+
                 if let Some((_, items)) = &m.content {
                     self.writeln(" {");
                     self.indent_level += 1;
@@ -576,11 +590,11 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         for attr in &node.attrs {
             self.writeln(&self.convert_attribute(attr));
         }
-        
+
         // 函数签名
         let sig_str = self.convert_fn_signature(&node.sig, &node.vis);
         self.write(&sig_str);
-        
+
         // 函数体
         self.convert_block(&node.block);
     }
@@ -591,12 +605,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.write("S");
         self.write(" ");
         self.write(&node.ident.to_string());
-        
+
         // 泛型
         if !node.generics.params.is_empty() {
             self.write(&node.generics.to_token_stream().to_string());
         }
-        
+
         // 字段
         match &node.fields {
             syn::Fields::Named(fields) => {
@@ -625,38 +639,44 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         for attr in &node.attrs {
             self.writeln(&self.convert_attribute(attr));
         }
-        
+
         // Nu v1.5.1: 只有 E（移除了 e）
         // 可见性由标识符首字母决定（Go风格）
         self.write("E");
         self.write(" ");
         self.write(&node.ident.to_string());
-        
+
         if !node.generics.params.is_empty() {
             self.write(&node.generics.to_token_stream().to_string());
         }
-        
+
         self.writeln(" {");
         self.indent_level += 1;
-        
+
         for variant in &node.variants {
             self.write(&self.indent());
             self.write(&variant.ident.to_string());
-            
+
             match &variant.fields {
                 syn::Fields::Named(fields) => {
                     self.write(" { ");
-                    let field_strs: Vec<String> = fields.named.iter()
-                        .filter_map(|f| f.ident.as_ref().map(|i| {
-                            format!("{}: {}", i, self.convert_type(&f.ty))
-                        }))
+                    let field_strs: Vec<String> = fields
+                        .named
+                        .iter()
+                        .filter_map(|f| {
+                            f.ident
+                                .as_ref()
+                                .map(|i| format!("{}: {}", i, self.convert_type(&f.ty)))
+                        })
                         .collect();
                     self.write(&field_strs.join(", "));
                     self.write(" }");
                 }
                 syn::Fields::Unnamed(fields) => {
                     self.write("(");
-                    let type_strs: Vec<String> = fields.unnamed.iter()
+                    let type_strs: Vec<String> = fields
+                        .unnamed
+                        .iter()
                         .map(|f| self.convert_type(&f.ty))
                         .collect();
                     self.write(&type_strs.join(", "));
@@ -664,28 +684,32 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 }
                 syn::Fields::Unit => {}
             }
-            
+
             self.writeln(",");
         }
-        
+
         self.indent_level -= 1;
         self.writeln("}");
     }
 
     fn visit_item_trait(&mut self, node: &'ast ItemTrait) {
-        let keyword = if self.is_public(&node.vis) { "TR" } else { "tr" };
-        
+        let keyword = if self.is_public(&node.vis) {
+            "TR"
+        } else {
+            "tr"
+        };
+
         self.write(keyword);
         self.write(" ");
         self.write(&node.ident.to_string());
-        
+
         if !node.generics.params.is_empty() {
             self.write(&node.generics.to_token_stream().to_string());
         }
-        
+
         self.writeln(" {");
         self.indent_level += 1;
-        
+
         for item in &node.items {
             if let syn::TraitItem::Fn(method) = item {
                 let sig_str = self.convert_fn_signature(&method.sig, &Visibility::Inherited);
@@ -694,32 +718,32 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(";");
             }
         }
-        
+
         self.indent_level -= 1;
         self.writeln("}");
     }
 
     fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
         self.write("I");
-        
+
         // 泛型
         if !node.generics.params.is_empty() {
             self.write(&node.generics.to_token_stream().to_string());
         }
-        
+
         self.write(" ");
-        
+
         // trait实现
         if let Some((_, path, _)) = &node.trait_ {
             self.write(&path.to_token_stream().to_string());
             self.write(" for ");
         }
-        
+
         self.write(&self.convert_type(&node.self_ty));
-        
+
         self.writeln(" {");
         self.indent_level += 1;
-        
+
         for item in &node.items {
             if let syn::ImplItem::Fn(method) = item {
                 let sig_str = self.convert_fn_signature(&method.sig, &method.vis);
@@ -729,7 +753,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.output.push('\n');
             }
         }
-        
+
         self.indent_level -= 1;
         self.writeln("}");
     }

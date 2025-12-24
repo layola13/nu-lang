@@ -1,0 +1,47 @@
+#!/bin/bash
+# Git pre-push hook for Nu Language Compiler
+# This hook runs before git push to ensure code quality
+
+set -e
+
+echo "🔍 Running pre-push checks..."
+
+# Check if cargo is available
+if ! command -v cargo &> /dev/null; then
+    echo "❌ Cargo not found. Please install Rust."
+    exit 1
+fi
+
+# Run cargo fmt check
+echo "📝 Checking code formatting..."
+if ! cargo fmt -- --check; then
+    echo ""
+    echo "❌ Code formatting check failed!"
+    echo "💡 Run 'cargo fmt' to fix formatting issues."
+    exit 1
+fi
+echo "✅ Code formatting check passed"
+
+# Run clippy
+echo "🔧 Running clippy..."
+if ! cargo clippy -- -D warnings; then
+    echo ""
+    echo "❌ Clippy found issues!"
+    echo "💡 Fix the warnings above before pushing."
+    exit 1
+fi
+echo "✅ Clippy check passed"
+
+# Run tests
+echo "🧪 Running tests..."
+if ! cargo test --quiet; then
+    echo ""
+    echo "❌ Tests failed!"
+    echo "💡 Fix the failing tests before pushing."
+    exit 1
+fi
+echo "✅ All tests passed"
+
+echo ""
+echo "✅ All pre-push checks passed! Proceeding with push..."
+exit 0

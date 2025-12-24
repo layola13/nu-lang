@@ -491,17 +491,50 @@ git push origin v1.3.1
 
 See [.github/RELEASE.md](.github/RELEASE.md) for detailed release instructions.
 
+### Git Hooks
+
+This project includes a pre-push hook to ensure code quality before pushing:
+
+**Setup (one-time):**
+```bash
+./setup-hooks.sh
+```
+
+The pre-push hook will automatically:
+- Check code formatting with `cargo fmt --check`
+- Run linter with `cargo clippy`
+- Run all tests
+
+**Bypass hook (not recommended):**
+```bash
+git push --no-verify
+```
+
 ### Contributing
 
 Contributions are welcome! Please:
 
 1. Fork the repository
 2. Create a feature branch
-3. Make your changes
-4. Run tests: `cargo test`
-5. Format code: `cargo fmt`
-6. Run clippy: `cargo clippy`
-7. Submit a pull request
+3. Run setup script: `./setup-hooks.sh` (first time only)
+4. Make your changes
+5. The pre-push hook will automatically check:
+   - Code formatting (`cargo fmt`)
+   - Linting (`cargo clippy`)
+   - Tests (`cargo test`)
+6. Submit a pull request
+
+**Manual checks:**
+```bash
+# Format code
+cargo fmt
+
+# Run linter
+cargo clippy
+
+# Run tests
+cargo test
+```
 
 ---
 

@@ -1,11 +1,11 @@
 // rust2nu - Rust to Nu Converter CLI
 // 将Rust代码压缩为Nu高密度语法
 
+use anyhow::{Context, Result};
 use clap::Parser;
 use nu_compiler::Rust2NuConverter;
 use std::fs;
 use std::path::PathBuf;
-use anyhow::{Context, Result};
 use walkdir::WalkDir;
 
 #[derive(Parser)]
@@ -40,13 +40,31 @@ fn main() -> Result<()> {
 
     if cli.input.is_file() {
         // 单文件转换
-        convert_file(&converter, &cli.input, cli.output.as_ref(), cli.force, cli.verbose)?;
+        convert_file(
+            &converter,
+            &cli.input,
+            cli.output.as_ref(),
+            cli.force,
+            cli.verbose,
+        )?;
     } else if cli.input.is_dir() {
         // 目录转换
         if cli.recursive {
-            convert_directory_recursive(&converter, &cli.input, cli.output.as_ref(), cli.force, cli.verbose)?;
+            convert_directory_recursive(
+                &converter,
+                &cli.input,
+                cli.output.as_ref(),
+                cli.force,
+                cli.verbose,
+            )?;
         } else {
-            convert_directory(&converter, &cli.input, cli.output.as_ref(), cli.force, cli.verbose)?;
+            convert_directory(
+                &converter,
+                &cli.input,
+                cli.output.as_ref(),
+                cli.force,
+                cli.verbose,
+            )?;
         }
     } else {
         anyhow::bail!("Input path does not exist: {}", cli.input.display());
@@ -85,7 +103,11 @@ fn convert_file(
     }
 
     if verbose {
-        println!("Converting: {} -> {}", input.display(), output_path.display());
+        println!(
+            "Converting: {} -> {}",
+            input.display(),
+            output_path.display()
+        );
     }
 
     // 读取Rust代码
@@ -93,7 +115,8 @@ fn convert_file(
         .with_context(|| format!("Failed to read input file: {}", input.display()))?;
 
     // 转换为Nu代码
-    let nu_code = converter.convert(&rust_code)
+    let nu_code = converter
+        .convert(&rust_code)
         .with_context(|| format!("Failed to convert file: {}", input.display()))?;
 
     // 写入输出文件
@@ -125,7 +148,9 @@ fn convert_directory(
         let path = entry.path();
 
         if path.is_file() && path.extension().and_then(|s| s.to_str()) == Some("rs") {
-            let output_path = output_base.join(path.file_name().unwrap()).with_extension("nu");
+            let output_path = output_base
+                .join(path.file_name().unwrap())
+                .with_extension("nu");
             convert_file(converter, &path, Some(&output_path), force, verbose)?;
         }
     }
@@ -150,7 +175,7 @@ fn convert_directory_recursive(
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("rs"))
     {
         let input_path = entry.path();
-        
+
         // 计算相对路径
         let relative_path = input_path.strip_prefix(input_dir)?;
         let output_path = output_base.join(relative_path).with_extension("nu");
@@ -160,7 +185,13 @@ fn convert_directory_recursive(
             fs::create_dir_all(parent)?;
         }
 
-        convert_file(converter, &input_path.to_path_buf(), Some(&output_path), force, verbose)?;
+        convert_file(
+            converter,
+            &input_path.to_path_buf(),
+            Some(&output_path),
+            force,
+            verbose,
+        )?;
     }
 
     Ok(())

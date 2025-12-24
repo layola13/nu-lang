@@ -1,8 +1,8 @@
 // nuc - Nu Language Compiler CLI
 // Nu语言编译器命令行工具
 
-use clap::{Parser, Subcommand};
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "nuc")]
@@ -20,31 +20,31 @@ enum Commands {
         /// Project name
         name: String,
     },
-    
+
     /// Build Nu project
     Build {
         /// Release mode
         #[arg(short, long)]
         release: bool,
     },
-    
+
     /// Run Nu project
     Run {
         /// Arguments to pass to the program
         #[arg(trailing_var_arg = true)]
         args: Vec<String>,
     },
-    
+
     /// Compress Rust code to Nu
     Compress {
         /// Input Rust file or directory
         input: String,
-        
+
         /// Output Nu file or directory
         #[arg(short, long)]
         output: Option<String>,
     },
-    
+
     /// Check Nu syntax
     Check {
         /// Nu file to check

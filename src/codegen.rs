@@ -9,7 +9,7 @@ impl CodeGenerator {
     pub fn new() -> Self {
         Self {}
     }
-    
+
     pub fn generate(&self, _ast: &crate::ast::NuFile) -> anyhow::Result<String> {
         todo!("CodeGenerator implementation")
     }
