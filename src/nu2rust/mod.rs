@@ -308,9 +308,7 @@ impl Nu2RustConverter {
     }
 
     fn convert_break(&self, line: &str) -> Result<String> {
-        if line == "b" || line == "b;" {
-            Ok("break;".to_string())
-        } else if line.starts_with("b;") {
+        if line == "b" || line == "b;" || line.starts_with("b;") {
             Ok("break;".to_string())
         } else {
             let content = &line[2..];
@@ -320,9 +318,7 @@ impl Nu2RustConverter {
     }
 
     fn convert_continue(&self, line: &str) -> Result<String> {
-        if line == "c" || line == "c;" {
-            Ok("continue;".to_string())
-        } else if line.starts_with("c;") {
+        if line == "c" || line == "c;" || line.starts_with("c;") {
             Ok("continue;".to_string())
         } else {
             let content = &line[2..];
@@ -334,8 +330,7 @@ impl Nu2RustConverter {
     fn convert_loop(&self, line: &str) -> Result<String> {
         if line == "L {" {
             Ok("loop {".to_string())
-        } else if line.starts_with("L ") {
-            let content = &line[2..];
+        } else if let Some(content) = line.strip_prefix("L ") {
             // 检查是否是 for 循环: L var in/: iterable
             if content.contains(" in ") || content.contains(": ") {
                 let converted = self.convert_types_in_string(content);
@@ -394,11 +389,11 @@ impl Nu2RustConverter {
 
     fn convert_expression(&self, line: &str) -> Result<String> {
         let mut result = self.convert_types_in_string(line);
-        
+
         // 处理表达式中的 b; 和 c; (在花括号内)
         result = result.replace("{ b; }", "{ break; }");
         result = result.replace("{ c; }", "{ continue; }");
-        
+
         Ok(result)
     }
 
