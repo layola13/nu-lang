@@ -25,6 +25,10 @@ path = "src/bin/cargo2nu.rs"
 name = "nu2cargo"
 path = "src/bin/nu2cargo.rs"
 
+[[bin]]
+name = "nu2ts"
+path = "src/bin/nu2ts.rs"
+
 [dependencies]
 syn = { version = "2.0", features = ["full", "extra-traits", "parsing", "visit", "visit-mut"] }
 quote = "1.0"

@@ -4,9 +4,9 @@
 [![Release](https://github.com/YOUR_USERNAME/nu/actions/workflows/release.yml/badge.svg)](https://github.com/YOUR_USERNAME/nu/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version:** 1.7 (Production Standard)
+**Version:** 1.6.3 (Production Standard)
 **Date:** 2025-12-24
-**Status:** Frozen / Implementation Ready
+**Status:** Stable / Implementation Ready
 **Target:** AI-Native Systems Programming
 **License:** MIT
 
@@ -223,9 +223,11 @@ Based on real-world testing, Nu achieves:
 |  | **f** | `fn` | **Lowercase=Priv** |
 |  | **TR** | `trait` |  |
 |  | **I** | `impl` |  |
+|  | **U I** | `unsafe impl` | **v1.6.3** |
 |  | **D** | `mod` |  |
 |  | **C** | `const` |  |
 |  | **ST** | `static` |  |
+|  | **SM** | `static mut` | **v1.6.3** |
 |  | **EXT** | `extern` |  |
 | **Atomic** | **l** | `let` |  |
 |  | **v** | `let mut` |  |
@@ -238,7 +240,7 @@ Based on real-world testing, Nu achieves:
 
 ---
 
-## 3. Macros & Attributes - **v1.6 Updated**
+## 3. Macros & Attributes - **v1.6.3 Updated**
 
 ### 3.1 Macros
 
@@ -254,15 +256,16 @@ No symbolic compression to ensure compatibility and eliminate ambiguity.
 
 ### 3.2 Attributes
 
-Mixed strategy: compress only high-frequency attributes.
+Mixed strategy: compress only high-frequency attributes, preserve cfg for cross-platform support.
 
-| Nu Syntax | Rust Original | Strategy |
-| --- | --- | --- |
-| **#D(...)** | `#[derive(...)]` | **Abbreviated** |
-| **#I** | `#[inline]` | **Abbreviated** |
-| **#[test]** | `#[test]` | **Standard** (tool compat) |
-| **#[cfg(...)]** | `#[cfg(...)]` | **Standard** |
-| **#[...]** | `#[...]` | Other attributes pass-through |
+| Nu Syntax | Rust Original | Strategy | Note |
+| --- | --- | --- | --- |
+| **#D(...)** | `#[derive(...)]` | **Abbreviated** |  |
+| **#I** | `#[inline]` | **Abbreviated** |  |
+| **#[test]** | `#[test]` | **Standard** | tool compat |
+| **#[cfg(...)]** | `#[cfg(...)]` | **Preserved** | **v1.6.3** |
+| **#![cfg(...)]** | `#![cfg(...)]` | **Preserved** | file-level, **v1.6.3** |
+| **#[...]** | `#[...]` | Other attributes pass-through |  |
 
 ---
 
@@ -433,27 +436,33 @@ Since macros are restored to native syntax, the Parser no longer needs complex L
 
 ---
 
-## 8. System Prompt (v1.7)
+## 8. System Prompt (v1.6.3)
 
 ```markdown
-**System Role:** Nu v1.7 Compiler (Production Standard).
+**System Role:** Nu v1.6.3 Compiler (Production Standard).
 
 **Parsing Rules:**
 1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, `br`=break, `ct`=continue.
-2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, `D`=mod.
-3.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
-4.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
-5.  **Operators:** `!`(suffix)=try. `>`=greater than.
-6.  **Strings:** `String`=String(owned, no abbreviation), `str`=str(slice).
-7.  **Concurrency:** `@`=spawn(async move), `~`=async, `.~`=await.
-8.  **Types:** `V`=Vec, `O`=Option, `R`=Result, `A`=Arc, `X`=Mutex, `B`=Box.
-9.  **Attributes:** `#D`=derive, `#I`=inline. Keep `#[test]`.
-10. **Generics:** Keep `<T>` and `::<T>`.
+2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, **`U I`=unsafe impl**, `D`=mod.
+3.  **Static:** `ST`=static, **`SM`=static mut**.
+4.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
+5.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
+6.  **Operators:** `!`(suffix)=try. `>`=greater than.
+7.  **Strings:** `String`=String(owned, no abbreviation), `str`=str(slice).
+8.  **Concurrency:** `@`=spawn(async move), `~`=async, `.~`=await.
+9.  **Types:** `V`=Vec, `O`=Option, `R`=Result, `A`=Arc, `X`=Mutex, `B`=Box.
+10. **Attributes:** `#D`=derive, `#I`=inline. **Preserve `#[cfg]` and `#![cfg]`**.
+11. **Generics:** Keep `<T>` and `::<T>`.
 
-**Task:** Convert Input description or Rust code into valid Nu v1.7 code.
+**Task:** Convert Input description or Rust code into valid Nu v1.6.3 code.
 ```
 
-Nu v1.7 is a mature version that balances ideals (high density) with reality (engineering compatibility). **Key improvement in v1.7**: Removed `Str` type abbreviation to eliminate conversion complexity and improve reliability.
+**v1.6.3 Key Features:**
+- **SM**: Support for `static mut` (mutable static variables) - essential for low-level libraries like `log`
+- **U I**: Support for `unsafe impl` (unsafe trait implementations) - required for Send/Sync traits
+- **cfg preservation**: Full preservation of `#[cfg]` and `#![cfg]` attributes for cross-platform compatibility
+
+Nu v1.6.3 adds critical features for supporting low-level Rust libraries while maintaining high compression ratio and bidirectional conversion accuracy.
 
 ---
 

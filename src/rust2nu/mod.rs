@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Result};
 use quote::ToTokens;
+use std::collections::{HashMap, HashSet};
 use syn::{
     visit::Visit, Attribute, Block, Expr, File, FnArg, Item, ItemEnum, ItemFn, ItemImpl,
     ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type, Visibility,
@@ -11,6 +12,9 @@ use syn::{
 pub struct Rust2NuConverter {
     output: String,
     indent_level: usize,
+    // 泛型作用域栈：跟踪当前作用域中的泛型参数名
+    // 用于避免将泛型参数（如impl<S>中的S）误转换为类型缩写
+    generic_scope_stack: Vec<HashSet<String>>,
 }
 
 impl Rust2NuConverter {
@@ -18,6 +22,7 @@ impl Rust2NuConverter {
         Self {
             output: String::new(),
             indent_level: 0,
+            generic_scope_stack: Vec::new(),
         }
     }
 
@@ -67,7 +72,12 @@ impl Rust2NuConverter {
             }
         }
 
-        // 如果全是注释，直接返回
+        // 如果全是注释但转换后有内容，输出转换内容
+        if !found_code && !converted_code.is_empty() {
+            return Ok(converted_code);
+        }
+        
+        // 如果全是注释且转换后也是空的，返回注释
         if !found_code {
             return Ok(output);
         }
@@ -94,6 +104,29 @@ impl Rust2NuConverter {
         matches!(vis, Visibility::Public(_))
     }
 
+    /// 检查名称是否是当前作用域中的泛型参数
+    fn is_generic_param(&self, name: &str) -> bool {
+        self.generic_scope_stack
+            .iter()
+            .any(|scope| scope.contains(name))
+    }
+
+    /// 进入泛型作用域，记录泛型参数名
+    fn push_generic_scope(&mut self, generics: &syn::Generics) {
+        let mut scope = HashSet::new();
+        for param in &generics.params {
+            if let syn::GenericParam::Type(type_param) = param {
+                scope.insert(type_param.ident.to_string());
+            }
+        }
+        self.generic_scope_stack.push(scope);
+    }
+
+    /// 退出泛型作用域
+    fn pop_generic_scope(&mut self) {
+        self.generic_scope_stack.pop();
+    }
+
     /// 转换函数签名
     fn convert_fn_signature(&self, sig: &Signature, vis: &Visibility) -> String {
         let mut result = String::new();
@@ -109,9 +142,16 @@ impl Rust2NuConverter {
         result.push(' ');
         result.push_str(&sig.ident.to_string());
 
-        // 泛型参数保持不变
+        // 泛型参数保持不变，但需要清理空格
         if !sig.generics.params.is_empty() {
-            result.push_str(&sig.generics.to_token_stream().to_string());
+            let generics_str = sig.generics.to_token_stream().to_string();
+            // 清理泛型中的多余空格
+            let cleaned = generics_str
+                .replace(" <", "<")
+                .replace("< ", "<")
+                .replace(" >", ">")
+                .replace(" ,", ",");
+            result.push_str(&cleaned);
         }
 
         // 参数列表
@@ -168,13 +208,30 @@ impl Rust2NuConverter {
         result
     }
 
-    /// 转换类型 - 保留泛型参数中的类型标注
+    /// 转换类型 - 保留泛型参数中的类型标注，避免将泛型参数误转换
     fn convert_type(&self, ty: &Type) -> String {
         let type_str = ty.to_token_stream().to_string();
 
+        // 检查是否是单个泛型参数（如 "S", "D", "A" 等）
+        // 如果是当前作用域中的泛型参数，则不进行转换
+        let trimmed = type_str.trim();
+        if trimmed.len() == 1 && self.is_generic_param(trimmed) {
+            // 这是一个泛型参数，保持原样
+            return trimmed.to_string();
+        }
+
+        // 检查是否包含泛型参数（如 "S::Error"）
+        // 如果类型路径的第一段是泛型参数，则保持整个路径不转换
+        if let Some(first_segment) = trimmed.split("::").next() {
+            if self.is_generic_param(first_segment) {
+                // 路径以泛型参数开头，保持原样
+                return type_str.clone();
+            }
+        }
+
         // 替换常见类型，注意处理泛型参数
         // v1.7: String不再缩写为Str
-        type_str
+        let result = type_str
             .replace("Vec <", "V<")
             .replace("Vec<", "V<")
             .replace("Option <", "O<")
@@ -189,7 +246,17 @@ impl Rust2NuConverter {
             .replace("Box<", "B<")
             .replace("& mut", "&!")
             .replace(" mut", "!")
+            .replace(" >", ">");
+        
+        // 清理多余空格: 移除 :: < > , 周围的空格
+        result
+            .replace(" :: ", "::")
+            .replace(" ::", "::")
+            .replace(":: ", "::")
+            .replace(" <", "<")
+            .replace("< ", "<")  // 移除 < 后的空格
             .replace(" >", ">")
+            .replace(" ,", ",")
     }
 
     /// 转换语句
@@ -595,6 +662,14 @@ impl Rust2NuConverter {
 
 impl<'ast> Visit<'ast> for Rust2NuConverter {
     fn visit_file(&mut self, node: &'ast File) {
+        // Nu v1.6.3: 优先输出文件级属性 #![...]
+        for attr in &node.attrs {
+            let attr_str = attr.to_token_stream().to_string();
+            if attr_str.starts_with("#![") {
+                self.writeln(&attr_str);
+            }
+        }
+        
         for item in &node.items {
             self.visit_item(item);
             self.output.push('\n');
@@ -609,18 +684,28 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             Item::Trait(t) => self.visit_item_trait(t),
             Item::Impl(i) => self.visit_item_impl(i),
             Item::Mod(m) => {
-                // 处理module，特别是#[cfg(test)] mod tests
+                // Nu v1.6.3: 保留 #[cfg] 属性
                 for attr in &m.attrs {
-                    self.writeln(&self.convert_attribute(attr));
+                    let attr_str = attr.to_token_stream().to_string();
+                    // to_token_stream()会在#和[之间插入空格，需要移除
+                    let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+                    if cleaned_attr.starts_with("#[cfg") {
+                        self.writeln(&cleaned_attr);
+                    }
                 }
 
-                // Nu v1.5.1: D=mod（移除了 M/m）
-                // 可见性由标识符首字母决定（Go风格）
-                self.write("D");
-                self.write(" ");
-                self.write(&m.ident.to_string());
-
+                // Nu v1.6.3: DM=pub mod, D=mod
+                let keyword = if self.is_public(&m.vis) {
+                    "DM"
+                } else {
+                    "D"
+                };
+                
                 if let Some((_, items)) = &m.content {
+                    // 内联模块：mod name { ... }
+                    self.write(keyword);
+                    self.write(" ");
+                    self.write(&m.ident.to_string());
                     self.writeln(" {");
                     self.indent_level += 1;
                     for item in items {
@@ -630,10 +715,21 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.indent_level -= 1;
                     self.writeln("}");
                 } else {
-                    self.writeln(";");
+                    // 模块声明：mod name;
+                    self.writeln(&format!("{} {};", keyword, m.ident));
                 }
             }
             Item::Use(u) => {
+                // Nu v1.6.3: 保留 #[cfg] 属性
+                for attr in &u.attrs {
+                    let attr_str = attr.to_token_stream().to_string();
+                    // to_token_stream()会在#和[之间插入空格，需要移除
+                    let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+                    if cleaned_attr.starts_with("#[cfg") {
+                        self.writeln(&cleaned_attr);
+                    }
+                }
+                
                 let use_str = u.to_token_stream().to_string();
                 let nu_use = if self.is_public(&u.vis) {
                     use_str.replace("pub use", "U").replace("use", "U")
@@ -652,7 +748,14 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(";");
             }
             Item::Static(s) => {
-                self.write("ST ");
+                // Nu v1.6.3: SM = static mut, ST = static
+                let keyword = if matches!(s.mutability, syn::StaticMutability::Mut(_)) {
+                    "SM"
+                } else {
+                    "ST"
+                };
+                self.write(keyword);
+                self.write(" ");
                 self.write(&s.ident.to_string());
                 self.write(": ");
                 self.write(&self.convert_type(&s.ty));
@@ -682,6 +785,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
     }
 
     fn visit_item_struct(&mut self, node: &'ast ItemStruct) {
+        // 进入泛型作用域
+        self.push_generic_scope(&node.generics);
+        
+        // Nu v1.6.3: 保留 #[cfg] 属性
+        for attr in &node.attrs {
+            let attr_str = attr.to_token_stream().to_string();
+            // to_token_stream()会在#和[之间插入空格，需要移除
+            let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+            if cleaned_attr.starts_with("#[cfg") {
+                self.writeln(&cleaned_attr);
+            }
+        }
+        
         // Nu v1.5.1: 只有 S（移除了 s）
         // 可见性由标识符首字母决定（Go风格）
         self.write("S");
@@ -714,6 +830,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(";");
             }
         }
+        
+        // 退出泛型作用域
+        self.pop_generic_scope();
     }
 
     fn visit_item_enum(&mut self, node: &'ast ItemEnum) {
@@ -806,6 +925,24 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
     }
 
     fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
+        // 进入泛型作用域，记录impl的泛型参数
+        self.push_generic_scope(&node.generics);
+        
+        // Nu v1.6.3: 保留 #[cfg] 属性
+        for attr in &node.attrs {
+            let attr_str = attr.to_token_stream().to_string();
+            // to_token_stream()会在#和[之间插入空格，需要移除
+            let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+            if cleaned_attr.starts_with("#[cfg") {
+                self.writeln(&cleaned_attr);
+            }
+        }
+        
+        // Nu v1.6.3: U I = unsafe impl
+        if node.unsafety.is_some() {
+            self.write("U ");
+        }
+        
         self.write("I");
 
         // 泛型
@@ -827,17 +964,45 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.indent_level += 1;
 
         for item in &node.items {
-            if let syn::ImplItem::Fn(method) = item {
-                let sig_str = self.convert_fn_signature(&method.sig, &method.vis);
-                self.write(&self.indent());
-                self.write(&sig_str);
-                self.convert_block(&method.block);
-                self.output.push('\n');
+            match item {
+                syn::ImplItem::Fn(method) => {
+                    let sig_str = self.convert_fn_signature(&method.sig, &method.vis);
+                    self.write(&self.indent());
+                    self.write(&sig_str);
+                    self.convert_block(&method.block);
+                    self.output.push('\n');
+                }
+                syn::ImplItem::Type(type_item) => {
+                    // 转换关联类型: type Value = Level; → t Value = Level;
+                    self.write(&self.indent());
+                    self.write("t ");
+                    self.write(&type_item.ident.to_string());
+                    self.write(" = ");
+                    self.write(&self.convert_type(&type_item.ty));
+                    self.writeln(";");
+                }
+                syn::ImplItem::Const(const_item) => {
+                    // 处理 const 声明
+                    self.write(&self.indent());
+                    self.write("C ");
+                    self.write(&const_item.ident.to_string());
+                    self.write(": ");
+                    self.write(&self.convert_type(&const_item.ty));
+                    self.write(" = ");
+                    self.write(&const_item.expr.to_token_stream().to_string());
+                    self.writeln(";");
+                }
+                _ => {
+                    // 其他类型的impl item暂时保持原样
+                }
             }
         }
 
         self.indent_level -= 1;
         self.writeln("}");
+        
+        // 退出泛型作用域
+        self.pop_generic_scope();
     }
 }
 

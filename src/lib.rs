@@ -1,5 +1,5 @@
 // Nu Language Compiler Library
-// Version: 1.3.1
+// Version: 1.6.2
 // High-Density Rust Dialect Transpiler
 
 pub mod ast;
@@ -7,6 +7,7 @@ pub mod codegen;
 pub mod lexer;
 pub mod module;
 pub mod nu2rust;
+pub mod nu2ts;
 pub mod parser;
 pub mod project;
 pub mod rust2nu;
@@ -14,6 +15,7 @@ pub mod utils;
 
 pub use ast::*;
 pub use nu2rust::Nu2RustConverter;
+pub use nu2ts::Nu2TsConverter;
 pub use rust2nu::Rust2NuConverter;
 
 use anyhow::Result;
@@ -27,6 +29,12 @@ pub fn rust_to_nu(rust_code: &str) -> Result<String> {
 /// 将Nu代码转换为Rust代码
 pub fn nu_to_rust(nu_code: &str) -> Result<String> {
     let converter = Nu2RustConverter::new();
+    converter.convert(nu_code)
+}
+
+/// 将Nu代码转换为TypeScript代码
+pub fn nu_to_ts(nu_code: &str) -> Result<String> {
+    let converter = Nu2TsConverter::with_default_config();
     converter.convert(nu_code)
 }
 

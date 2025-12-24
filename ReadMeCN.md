@@ -2,9 +2,9 @@
 
 # Nu Language Specification
 
-**Version:** 1.7 (Production Standard)
+**Version:** 1.6.3 (Production Standard)
 **Date:** 2025-12-24
-**Status:** Frozen / Implementation Ready
+**Status:** Stable / Implementation Ready
 **Target:** AI-Native Systems Programming
 
 ---
@@ -43,9 +43,11 @@
 |  | **f** | `fn` | **小写=Priv** |
 |  | **TR** | `trait` |  |
 |  | **I** | `impl` |  |
+|  | **U I** | `unsafe impl` | **v1.6.3新增** |
 |  | **D** | `mod` |  |
 |  | **C** | `const` |  |
 |  | **ST** | `static` |  |
+|  | **SM** | `static mut` | **v1.6.3新增** |
 |  | **EXT** | `extern` |  |
 | **原子** | **l** | `let` |  |
 |  | **v** | `let mut` |  |
@@ -53,12 +55,12 @@
 |  | **a** | `as` |  |
 |  | **u** | `use` |  |
 |  | **t** | `type` |  |
-|  | **br** | `break` | **v1.7更新** |
-|  | **ct** | `continue` | **v1.7更新** |
+|  | **br** | `break` |  |
+|  | **ct** | `continue` |  |
 
 ---
 
-## 3. 宏与元编程 (Macros & Attributes) - **v1.6 Updated**
+## 3. 宏与元编程 (Macros & Attributes) - **v1.6.3 Updated**
 
 ### 3.1 宏 (Macros)
 
@@ -74,15 +76,16 @@
 
 ### 3.2 属性 (Attributes)
 
-采用混合策略：仅压缩极高频属性。
+采用混合策略：仅压缩极高频属性，保留cfg以支持跨平台。
 
-| Nu 语法 | Rust 原文 | 策略 |
-| --- | --- | --- |
-| **#D(...)** | `#[derive(...)]` | **缩写** |
-| **#I** | `#[inline]` | **缩写** |
-| **#[test]** | `#[test]` | **标准** (工具兼容) |
-| **#[cfg(...)]** | `#[cfg(...)]` | **标准** |
-| **#[...]** | `#[...]` | 其他属性透传 |
+| Nu 语法 | Rust 原文 | 策略 | 备注 |
+| --- | --- | --- | --- |
+| **#D(...)** | `#[derive(...)]` | **缩写** |  |
+| **#I** | `#[inline]` | **缩写** |  |
+| **#[test]** | `#[test]` | **标准** | 工具兼容 |
+| **#[cfg(...)]** | `#[cfg(...)]` | **保留** | **v1.6.3** |
+| **#![cfg(...)]** | `#![cfg(...)]` | **保留** | 文件级, **v1.6.3** |
+| **#[...]** | `#[...]` | 其他属性透传 |  |
 
 ---
 
@@ -254,25 +257,31 @@ D tests {
 
 ---
 
-## 8. System Prompt (v1.7)
+## 8. System Prompt (v1.6.3)
 
 ```markdown
-**System Role:** Nu v1.7 Compiler (Production Standard).
+**System Role:** Nu v1.6.3 Compiler (Production Standard).
 
 **Parsing Rules:**
-1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, **`br`=break**, **`ct`=continue**.
-2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, `D`=mod.
-3.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
-4.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
-5.  **Operators:** `!`(suffix)=try. `>`=greater than.
-6.  **Strings:** `String`=String(owned, 不缩写), `str`=str(slice).
-7.  **Concurrency:** `@`=spawn(async move), `~`=async, `.~`=await.
-8.  **Types:** `V`=Vec, `O`=Option, `R`=Result, `A`=Arc, `X`=Mutex, `B`=Box.
-9.  **Attributes:** `#D`=derive, `#I`=inline. Keep `#[test]`.
-10. **Generics:** Keep `<T>` and `::<T>`.
+1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, `br`=break, `ct`=continue.
+2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, **`U I`=unsafe impl**, `D`=mod.
+3.  **Static:** `ST`=static, **`SM`=static mut**.
+4.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
+5.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
+6.  **Operators:** `!`(suffix)=try. `>`=greater than.
+7.  **Strings:** `String`=String(owned, 不缩写), `str`=str(slice).
+8.  **Concurrency:** `@`=spawn(async move), `~`=async, `.~`=await.
+9.  **Types:** `V`=Vec, `O`=Option, `R`=Result, `A`=Arc, `X`=Mutex, `B`=Box.
+10. **Attributes:** `#D`=derive, `#I`=inline. **保留 `#[cfg]` 和 `#![cfg]`**.
+11. **Generics:** Keep `<T>` and `::<T>`.
 
-**Task:** Convert Input description or Rust code into valid Nu v1.7 code.
+**Task:** Convert Input description or Rust code into valid Nu v1.6.3 code.
 
 ```
 
-Nu v1.7 是一个兼顾了理想（高密度）与现实（工程兼容性）的成熟版本。**v1.7的关键改进**：移除了`Str`类型缩写以消除转换复杂性并提高可靠性。
+**v1.6.3 关键特性：**
+- **SM**: 支持 `static mut`（可变静态变量）- 对于像 `log` 这样的底层库必不可少
+- **U I**: 支持 `unsafe impl`（不安全trait实现）- Send/Sync trait所需
+- **cfg保留**: 完整保留 `#[cfg]` 和 `#![cfg]` 属性以支持跨平台兼容性
+
+Nu v1.6.3 添加了支持底层Rust库所需的关键特性，同时保持高压缩比和双向转换准确性。
