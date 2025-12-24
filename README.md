@@ -4,7 +4,7 @@
 [![Release](https://github.com/YOUR_USERNAME/nu/actions/workflows/release.yml/badge.svg)](https://github.com/YOUR_USERNAME/nu/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Version:** 1.6 (Production Standard)
+**Version:** 1.7 (Production Standard)
 **Date:** 2025-12-24
 **Status:** Frozen / Implementation Ready
 **Target:** AI-Native Systems Programming
@@ -161,12 +161,12 @@ F add(a: i32, b: i32) -> i32 {
 }
 
 S Person {
-    name: Str,
+    name: String,
     age: u32,
 }
 
 I Person {
-    F new(name: Str, age: u32) -> Self {
+    F new(name: String, age: u32) -> Self {
         Person { name, age }
     }
 }
@@ -233,8 +233,8 @@ Based on real-world testing, Nu achieves:
 |  | **a** | `as` |  |
 |  | **u** | `use` |  |
 |  | **t** | `type` |  |
-|  | **b** | `break` |  |
-|  | **c** | `continue` |  |
+|  | **br** | `break` |  |
+|  | **ct** | `continue` |  |
 
 ---
 
@@ -268,10 +268,10 @@ Mixed strategy: compress only high-frequency attributes.
 
 ## 4. Type System
 
-### 4.1 String Hierarchy
+### 4.1 String Types
 
-* **Str** → `String` (**Owned**)
-* **str** → `str` (**Slice**)
+* **String** → `String` (**Owned**, no abbreviation in v1.7)
+* **str** → `str` (**Slice**, keep as-is)
 
 ### 4.2 Common Abbreviations
 
@@ -349,11 +349,11 @@ u std::collections::HashMap
 #D(Debug, Clone)
 S Processor {
     id: u64,
-    cache: HashMap<Str, i32> // Str = String
+    cache: HashMap<String, i32> // String = String (no abbreviation)
 }
 
 // F = pub fn
-F run_logic(input: &str) -> R<V<i32>, Str> {
+F run_logic(input: &str) -> R<V<i32>, String> {
     // v = let mut
     v results: V<i32> = V::new();
     
@@ -362,7 +362,7 @@ F run_logic(input: &str) -> R<V<i32>, Str> {
     println!("Processing: {}", input);
 
     // Closure with return type
-    l parse = |s: &str| -> R<i32, Str> {
+    l parse = |s: &str| -> R<i32, String> {
         // ! suffix = Try, macro (format!) keeps original form
         l val = s.parse::<i32>().map_err(|_| format!("Bad num: {}", s))!;
         < Ok(val)
@@ -423,7 +423,8 @@ Since macros are restored to native syntax, the Parser no longer needs complex L
 ### 7.2 Type Folding
 
 * Must preserve `::<T>` (Turbofish) structure.
-* Recursively convert types: `Vec` -> `V`, `String` -> `Str`.
+* Recursively convert types: `Vec` -> `V`, `Option` -> `O`, `Result` -> `R`.
+* **String remains as `String`** (no abbreviation in v1.7).
 
 ### 7.3 Lexer
 
@@ -432,27 +433,27 @@ Since macros are restored to native syntax, the Parser no longer needs complex L
 
 ---
 
-## 8. System Prompt (v1.6)
+## 8. System Prompt (v1.7)
 
 ```markdown
-**System Role:** Nu v1.6 Compiler (Production Standard).
+**System Role:** Nu v1.7 Compiler (Production Standard).
 
 **Parsing Rules:**
-1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, `b`=break, `c`=continue.
+1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, `br`=break, `ct`=continue.
 2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, `D`=mod.
 3.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
 4.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
 5.  **Operators:** `!`(suffix)=try. `>`=greater than.
-6.  **Strings:** `Str`=String(owned), `str`=&str(slice).
+6.  **Strings:** `String`=String(owned, no abbreviation), `str`=str(slice).
 7.  **Concurrency:** `@`=spawn(async move), `~`=async, `.~`=await.
 8.  **Types:** `V`=Vec, `O`=Option, `R`=Result, `A`=Arc, `X`=Mutex, `B`=Box.
 9.  **Attributes:** `#D`=derive, `#I`=inline. Keep `#[test]`.
 10. **Generics:** Keep `<T>` and `::<T>`.
 
-**Task:** Convert Input description or Rust code into valid Nu v1.6 code.
+**Task:** Convert Input description or Rust code into valid Nu v1.7 code.
 ```
 
-Nu v1.6 is a mature version that balances ideals (high density) with reality (engineering compatibility). You can confidently proceed with the final implementation of the Transpiler based on this version.
+Nu v1.7 is a mature version that balances ideals (high density) with reality (engineering compatibility). **Key improvement in v1.7**: Removed `Str` type abbreviation to eliminate conversion complexity and improve reliability.
 
 ---
 

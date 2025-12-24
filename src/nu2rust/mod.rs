@@ -154,13 +154,13 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_return(trimmed)?));
         }
 
-        // Break语句: b 或 b;
-        if trimmed.starts_with("b;") || trimmed.starts_with("b ") || trimmed == "b" {
+        // Break语句: br 或 br;
+        if trimmed.starts_with("br;") || trimmed.starts_with("br ") || trimmed == "br" {
             return Ok(Some(self.convert_break(trimmed)?));
         }
 
-        // Continue语句: c 或 c;
-        if trimmed.starts_with("c;") || trimmed.starts_with("c ") || trimmed == "c" {
+        // Continue语句: ct 或 ct;
+        if trimmed.starts_with("ct;") || trimmed.starts_with("ct ") || trimmed == "ct" {
             return Ok(Some(self.convert_continue(trimmed)?));
         }
 
@@ -287,13 +287,17 @@ impl Nu2RustConverter {
 
     fn convert_let(&self, line: &str) -> Result<String> {
         let content = &line[2..];
-        let converted = self.convert_types_in_string(content);
+        // 先转换关键字，再转换类型
+        let converted = self.convert_inline_keywords(content)?;
+        let converted = self.convert_types_in_string(&converted);
         Ok(format!("let {}", converted))
     }
 
     fn convert_let_mut(&self, line: &str) -> Result<String> {
         let content = &line[2..];
-        let converted = self.convert_types_in_string(content);
+        // 先转换关键字，再转换类型
+        let converted = self.convert_inline_keywords(content)?;
+        let converted = self.convert_types_in_string(&converted);
         Ok(format!("let mut {}", converted))
     }
 
@@ -308,20 +312,20 @@ impl Nu2RustConverter {
     }
 
     fn convert_break(&self, line: &str) -> Result<String> {
-        if line == "b" || line == "b;" || line.starts_with("b;") {
+        if line == "br" || line == "br;" || line.starts_with("br;") {
             Ok("break;".to_string())
         } else {
-            let content = &line[2..];
+            let content = &line[3..];
             let converted = self.convert_types_in_string(content);
             Ok(format!("break {}", converted))
         }
     }
 
     fn convert_continue(&self, line: &str) -> Result<String> {
-        if line == "c" || line == "c;" || line.starts_with("c;") {
+        if line == "ct" || line == "ct;" || line.starts_with("ct;") {
             Ok("continue;".to_string())
         } else {
-            let content = &line[2..];
+            let content = &line[3..];
             let converted = self.convert_types_in_string(content);
             Ok(format!("continue {}", converted))
         }
@@ -331,12 +335,47 @@ impl Nu2RustConverter {
         if line == "L {" {
             Ok("loop {".to_string())
         } else if let Some(content) = line.strip_prefix("L ") {
-            // 检查是否是 for 循环: L var in/: iterable
-            if content.contains(" in ") || content.contains(": ") {
-                let converted = self.convert_types_in_string(content);
-                // 标准化: L x: iter 和 L x in iter 都转换为 for x in iter
-                let normalized = converted.replace(": ", " in ");
-                Ok(format!("for {}", normalized))
+            // 先检查是否以 { 开头 - 这是 loop
+            if content.starts_with("{") {
+                // L { ... } - 无限循环
+                let body = &content[1..]; // 跳过 {
+                let converted_body = self.convert_inline_keywords(body)?;
+                let converted_body = self.convert_types_in_string(&converted_body);
+                Ok(format!("loop {{ {}", converted_body))
+            } else if content.contains(" in ") || content.contains(": ") {
+                // 检查是否是for循环（L var in iter 或 L var: iter）
+                let brace_pos = content.find('{');
+                let in_pos = content.find(" in ");
+                let colon_pos = content.find(": ");
+                
+                // 找到最早出现的分隔符位置
+                let separator_pos = match (in_pos, colon_pos) {
+                    (Some(in_p), Some(c_p)) => Some(in_p.min(c_p)),
+                    (Some(in_p), None) => Some(in_p),
+                    (None, Some(c_p)) => Some(c_p),
+                    _ => None,
+                };
+                
+                let is_for_loop = match (separator_pos, brace_pos) {
+                    (Some(sep_p), Some(brace_p)) => sep_p < brace_p, // 分隔符在 { 之前
+                    (Some(_), None) => true, // 有分隔符但没有 {
+                    _ => false,
+                };
+                
+                if is_for_loop {
+                    // for 循环: L var in iter { ... } 或 L var: iter { ... }
+                    // 将 : 替换为 in
+                    let normalized = content.replace(": ", " in ");
+                    let converted = self.convert_inline_keywords(&normalized)?;
+                    let converted = self.convert_types_in_string(&converted);
+                    Ok(format!("for {}", converted))
+                } else {
+                    // loop { ... 中包含 for ... }
+                    let body = content;
+                    let converted_body = self.convert_inline_keywords(body)?;
+                    let converted_body = self.convert_types_in_string(&converted_body);
+                    Ok(format!("loop {{ {}", converted_body))
+                }
             } else {
                 // 无限循环
                 Ok("loop {".to_string())
@@ -348,16 +387,31 @@ impl Nu2RustConverter {
 
     fn convert_if(&self, line: &str) -> Result<String> {
         let content = &line[2..]; // 跳过 "? "
-        let mut converted = self.convert_types_in_string(content);
-        // 处理 if 语句中的 b; 和 c;
-        converted = converted.replace("{ b; }", "{ break; }");
-        converted = converted.replace("{ c; }", "{ continue; }");
+        
+        // 检查是否是三元表达式: ? condition { value } else { value }
+        // 这种情况下不应该添加 "if"，而是直接转换为 "if condition { value } else { value }"
+        let trimmed = content.trim();
+        if !trimmed.starts_with("let ") && !trimmed.starts_with("if ") {
+            // 可能是三元表达式，检查是否有 { ... } else { ... } 模式
+            if trimmed.contains('{') && trimmed.contains("} else {") {
+                // 三元表达式，直接转换
+                let converted = self.convert_inline_keywords(content)?;
+                let converted = self.convert_types_in_string(&converted);
+                return Ok(format!("if {}", converted));
+            }
+        }
+        
+        // 递归处理if语句内容
+        let converted = self.convert_inline_keywords(content)?;
+        let converted = self.convert_types_in_string(&converted);
         Ok(format!("if {}", converted))
     }
 
     fn convert_match(&self, line: &str) -> Result<String> {
         let content = &line[2..]; // 跳过 "M "
-        let converted = self.convert_types_in_string(content);
+        // 递归处理match语句内容
+        let converted = self.convert_inline_keywords(content)?;
+        let converted = self.convert_types_in_string(&converted);
         Ok(format!("match {}", converted))
     }
 
@@ -388,11 +442,116 @@ impl Nu2RustConverter {
     }
 
     fn convert_expression(&self, line: &str) -> Result<String> {
-        let mut result = self.convert_types_in_string(line);
+        // 递归处理表达式中的关键字
+        let result = self.convert_inline_keywords(line)?;
+        // 必须调用convert_types_in_string来转换&!等类型修饰符
+        let result = self.convert_types_in_string(&result);
+        Ok(result)
+    }
 
-        // 处理表达式中的 b; 和 c; (在花括号内)
-        result = result.replace("{ b; }", "{ break; }");
-        result = result.replace("{ c; }", "{ continue; }");
+    /// 递归转换行内的Nu关键字 (用于单行中的多个语句)
+    fn convert_inline_keywords(&self, content: &str) -> Result<String> {
+        let mut result = String::new();
+        let mut i = 0;
+        let chars: Vec<char> = content.chars().collect();
+
+        while i < chars.len() {
+            // 跳过空白
+            while i < chars.len() && chars[i].is_whitespace() {
+                result.push(chars[i]);
+                i += 1;
+            }
+
+            if i >= chars.len() {
+                break;
+            }
+
+            // 检查关键字
+            let remaining: String = chars[i..].iter().collect();
+
+            // break: br 或 br; (使用双字母避免与变量b冲突)
+            if remaining.starts_with("br;") || remaining.starts_with("br ") || remaining == "br" {
+                let is_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
+                if is_start_boundary {
+                    if remaining.starts_with("br;") {
+                        result.push_str("break;");
+                        i += 3;
+                    } else if remaining.starts_with("br ") || remaining == "br" {
+                        result.push_str("break");
+                        i += 2;
+                    }
+                    continue;
+                }
+            }
+
+            // continue: ct 或 ct; (使用双字母避免与变量c冲突)
+            if remaining.starts_with("ct;") || remaining.starts_with("ct ") || remaining == "ct" {
+                let is_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
+                if is_start_boundary {
+                    if remaining.starts_with("ct;") {
+                        result.push_str("continue;");
+                        i += 3;
+                    } else if remaining.starts_with("ct ") || remaining == "ct" {
+                        result.push_str("continue");
+                        i += 2;
+                    }
+                    continue;
+                }
+            }
+
+            // if: ? (检查是否是三元表达式的开始)
+            if remaining.starts_with("? ") {
+                result.push_str("if ");
+                i += 2;
+                continue;
+            }
+
+            // match: M (需要确保不是其他标识符的一部分)
+            // M必须前后都有明确的边界
+            if remaining.starts_with("M ") {
+                let has_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
+                if has_start_boundary {
+                    result.push_str("match ");
+                    i += 2;
+                    continue;
+                }
+            }
+
+            // loop: L { (必须在 for 之前检查)
+            if remaining.starts_with("L {") {
+                result.push_str("loop {");
+                i += 3;
+                continue;
+            }
+
+            // for: L ... in (检查直到下一个花括号前是否有 in)
+            if remaining.starts_with("L ") {
+                // 查找下一个 { 的位置
+                let mut j = i + 2;
+                let mut found_in = false;
+                while j < chars.len() && chars[j] != '{' {
+                    if j + 3 < chars.len()
+                        && chars[j] == ' '
+                        && chars[j+1] == 'i'
+                        && chars[j+2] == 'n'
+                        && chars[j+3] == ' ' {
+                        found_in = true;
+                        break;
+                    }
+                    j += 1;
+                }
+                
+                if found_in {
+                    result.push_str("for ");
+                    i += 2;
+                    continue;
+                }
+            }
+
+            // 默认情况：复制字符
+            result.push(chars[i]);
+            i += 1;
+        }
 
         Ok(result)
     }
@@ -454,7 +613,8 @@ impl Nu2RustConverter {
             result = result.replacen(closure, &format!("__CLOSURE_PARAMS_{}__", idx), 1);
         }
 
-        // 执行类型和关键字替换
+        // v1.7: String 不再缩写为 Str，因此无需 Str -> String 转换
+        // 直接进行其他类型和关键字替换
         result = result
             .replace(" V ", " Vec ")
             .replace("V::", "Vec::")
@@ -468,61 +628,15 @@ impl Nu2RustConverter {
             .replace("&!", "&mut ")
             .replace(".~", ".await")
             .replace("$|", "move |")
-            .replace(" wh ", " where ") // wh -> where（只在有空格边界时）
+            .replace(" wh ", " where ")
             .replace(" I<", " impl<")
             .replace("I<", "impl<")
             .replace(")!", ")?");
 
-        // Str -> String 精确替换：覆盖所有Str作为类型出现的模式
+        // V! -> vec! (宏调用)
         result = result
-            // 静态方法调用
-            .replace("Str ::", "String::")
-            .replace("Str::", "String::")
-            // 泛型参数（元组和单个参数）
-            .replace("(Str ", "(String ")
-            .replace("(Str,", "(String,")
-            .replace("(Str)", "(String)")
-            .replace(", Str ", ", String ")
-            .replace(", Str,", ", String,")
-            .replace(", Str)", ", String)")
-            .replace("< Str ", "<String ")
-            .replace("< Str,", "<String,")
-            .replace("< Str>", "<String>")
-            .replace("<Str ", "<String ")
-            .replace("<Str,", "<String,")
-            .replace("<Str>", "<String>")
-            // 类型标注
-            .replace(": Str ", ": String ")
-            .replace(": Str)", ": String)")
-            .replace(": Str,", ": String,")
-            .replace(": Str>", ": String>")
-            .replace(": Str;", ": String;")
-            // 返回类型
-            .replace("-> Str ", "-> String ")
-            .replace("-> Str)", "-> String)")
-            .replace("-> Str{", "-> String{")
-            .replace("-> Str;", "-> String;")
-            // 引用类型
-            .replace("& Str ", "&String ")
-            .replace("& Str,", "&String,")
-            .replace("& Str)", "&String)")
-            .replace("& Str>", "&String>")
-            .replace("&Str ", "&String ")
-            .replace("&Str,", "&String,")
-            .replace("&Str)", "&String)")
-            .replace("&Str>", "&String>")
-            // Vec/数组元素
-            .replace("Str ]", "String]")
-            .replace("Str]", "String]")
-            // 结尾边界
-            .replace("Str>", "String>")
-            .replace("Str,", "String,")
-            .replace("Str;", "String;")
-            .replace("Str)", "String)")
-            .replace("Str{", "String{")
-            .replace("Str\n", "String\n")
-            // 通用空格边界
-            .replace(" Str ", " String ");
+            .replace("V![", "vec![")
+            .replace("V! [", "vec![");
 
         // 恢复闭包参数（保持原样）
         for (idx, closure) in protected_closures.iter().enumerate() {
@@ -570,7 +684,8 @@ mod tests {
     fn test_convert_types() {
         let converter = Nu2RustConverter::new();
 
-        let nu_code = "l name: Str = \"test\".to_string();";
+        // v1.7: String 不再缩写为 Str
+        let nu_code = "l name: String = \"test\".to_string();";
         let rust_code = converter.convert(nu_code).unwrap();
         assert!(rust_code.contains("let name: String"));
         assert!(rust_code.contains("to_string()"));

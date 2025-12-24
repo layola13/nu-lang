@@ -173,8 +173,8 @@ impl Rust2NuConverter {
         let type_str = ty.to_token_stream().to_string();
 
         // 替换常见类型，注意处理泛型参数
+        // v1.7: String不再缩写为Str
         type_str
-            .replace("String", "Str")
             .replace("Vec <", "V<")
             .replace("Vec<", "V<")
             .replace("Option <", "O<")
@@ -217,25 +217,27 @@ impl Rust2NuConverter {
 
                 self.write(";\n");
             }
-            Stmt::Macro(mac) => {
-                // v1.6: 宏语句原样保留（println!, vec!, assert!, etc.）
-                // 移除to_token_stream()插入的空格（"println !" -> "println!"）
-                self.write(&self.indent());
-                let macro_str = mac
-                    .mac
-                    .to_token_stream()
-                    .to_string()
-                    .replace(" !", "!") // 修复宏名和!之间的空格
-                    .replace(" (", "(") // 修复!和(之间的空格
-                    .replace(" ,", ","); // 修复参数逗号前的空格
-                self.write(&macro_str);
-                if mac.semi_token.is_some() {
-                    self.write(";");
-                }
-                self.write("\n");
-            }
             Stmt::Expr(expr, semi) => {
-                // 处理return
+                // 处理break和continue (使用br和ct)
+                if let Expr::Break(_) = expr {
+                    self.write(&self.indent());
+                    self.write("br");
+                    if semi.is_some() {
+                        self.write(";");
+                    }
+                    self.write("\n");
+                    return;
+                } else if let Expr::Continue(_) = expr {
+                    self.write(&self.indent());
+                    self.write("ct");
+                    if semi.is_some() {
+                        self.write(";");
+                    }
+                    self.write("\n");
+                    return;
+                }
+                
+                // 原有的return和macro处理...
                 if let Expr::Return(ret) = expr {
                     self.write(&self.indent());
                     self.write("< ");
@@ -244,14 +246,14 @@ impl Rust2NuConverter {
                     }
                     self.write("\n");
                 } else if let Expr::Macro(_mac) = expr {
-                    // v1.6: 表达式宏原样保留（极少见，大多数宏是Stmt::Macro）
                     self.write(&self.indent());
                     let macro_str = expr
                         .to_token_stream()
                         .to_string()
                         .replace(" !", "!")
                         .replace(" (", "(")
-                        .replace(" ,", ",");
+                        .replace(" ,", ",")
+                        .replace("vec!", "V!");  // vec! -> V!
                     self.write(&macro_str);
                     if semi.is_some() {
                         self.write(";");
@@ -266,6 +268,24 @@ impl Rust2NuConverter {
                     }
                     self.write("\n");
                 }
+            }
+            Stmt::Macro(mac) => {
+                // v1.6: 宏语句，vec!转换为V!，其他保留（println!, assert!, etc.）
+                // 移除to_token_stream()插入的空格（"println !" -> "println!"）
+                self.write(&self.indent());
+                let macro_str = mac
+                    .mac
+                    .to_token_stream()
+                    .to_string()
+                    .replace(" !", "!") // 修复宏名和!之间的空格
+                    .replace(" (", "(") // 修复!和(之间的空格
+                    .replace(" ,", ",") // 修复参数逗号前的空格
+                    .replace("vec!", "V!");  // vec! -> V!
+                self.write(&macro_str);
+                if mac.semi_token.is_some() {
+                    self.write(";");
+                }
+                self.write("\n");
             }
             Stmt::Item(item) => {
                 self.visit_item(item);
@@ -328,14 +348,14 @@ impl Rust2NuConverter {
                 format!("{}|{}|{} {}", move_kw, inputs, return_type, body)
             }
             Expr::Match(match_expr) => {
-                // match表达式保持换行结构
+                // M = match
                 let scrutinee = self.convert_expr(&match_expr.expr);
-                let mut result = format!("match {} {{\n", scrutinee);
+                let mut result = format!("M {} {{\n", scrutinee);
                 for arm in &match_expr.arms {
                     result.push_str("        ");
                     result.push_str(&arm.pat.to_token_stream().to_string());
                     if let Some((_, guard)) = &arm.guard {
-                        result.push_str(" if ");
+                        result.push_str(" ? ");
                         result.push_str(&self.convert_expr(guard));
                     }
                     result.push_str(" => ");
@@ -346,18 +366,22 @@ impl Rust2NuConverter {
                 self.convert_type_in_string(&result)
             }
             Expr::If(if_expr) => {
-                // if表达式保持换行
+                // ? = if
                 let cond = self.convert_expr(&if_expr.cond);
-                let mut result = format!("if {} {{\n", cond);
-                // then分支保持单独行
+                let mut result = format!("? {} {{ ", cond);
+                // 递归转换then分支中的语句
                 for stmt in &if_expr.then_branch.stmts {
-                    result.push_str("        ");
-                    result.push_str(&stmt.to_token_stream().to_string());
-                    result.push('\n');
+                    match stmt {
+                        Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
+                        Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
+                        _ => {
+                            result.push_str(&stmt.to_token_stream().to_string());
+                            result.push(' ');
+                        }
+                    }
                 }
-                result.push_str("    }");
+                result.push('}');
 
-                // else分支
                 if let Some((_, else_branch)) = &if_expr.else_branch {
                     result.push_str(" else ");
                     result.push_str(&self.convert_expr(else_branch));
@@ -365,31 +389,67 @@ impl Rust2NuConverter {
                 self.convert_type_in_string(&result)
             }
             Expr::Block(block_expr) => {
-                // 块表达式保持换行
+                // 块表达式：递归转换内部语句
                 let mut result = String::from("{\n");
                 for stmt in &block_expr.block.stmts {
                     result.push_str("        ");
-                    result.push_str(&stmt.to_token_stream().to_string());
+                    // 递归转换语句以处理内部的if/match/break/continue
+                    let stmt_str = match stmt {
+                        Stmt::Expr(Expr::Break(_), _) => String::from("br"),
+                        Stmt::Expr(Expr::Continue(_), _) => String::from("ct"),
+                        Stmt::Expr(Expr::Return(ret), _) => {
+                            if let Some(val) = &ret.expr {
+                                format!("< {}", self.convert_expr(val))
+                            } else {
+                                String::from("<")
+                            }
+                        }
+                        _ => stmt.to_token_stream().to_string(),
+                    };
+                    result.push_str(&stmt_str);
                     result.push('\n');
                 }
                 result.push_str("    }");
                 self.convert_type_in_string(&result)
             }
             Expr::ForLoop(for_loop) => {
-                // for循环保持换行
+                // L = for
                 let pat = for_loop.pat.to_token_stream().to_string();
                 let iter = self.convert_expr(&for_loop.expr);
-                let mut result = format!("for {} in {} {{\n", pat, iter);
+                let mut result = format!("L {} in {} {{ ", pat, iter);
+                // 递归转换循环体中的语句
                 for stmt in &for_loop.body.stmts {
-                    result.push_str("        ");
-                    result.push_str(&stmt.to_token_stream().to_string());
-                    result.push('\n');
+                    match stmt {
+                        Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
+                        Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
+                        Stmt::Expr(Expr::If(if_expr), semi) => {
+                            result.push_str(&self.convert_expr(&Expr::If(if_expr.clone())));
+                            if semi.is_some() {
+                                result.push_str("; ");
+                            } else {
+                                result.push(' ');
+                            }
+                        }
+                        Stmt::Expr(Expr::Match(match_expr), semi) => {
+                            result.push_str(&self.convert_expr(&Expr::Match(match_expr.clone())));
+                            if semi.is_some() {
+                                result.push_str("; ");
+                            } else {
+                                result.push(' ');
+                            }
+                        }
+                        _ => {
+                            let stmt_str = stmt.to_token_stream().to_string().replace("vec!", "V!");
+                            result.push_str(&stmt_str);
+                            result.push(' ');
+                        }
+                    }
                 }
-                result.push_str("    }");
+                result.push('}');
                 self.convert_type_in_string(&result)
             }
             Expr::While(while_expr) => {
-                // while循环保持换行
+                // while暂时保持不变（nu没有while的简写）
                 let cond = self.convert_expr(&while_expr.cond);
                 let mut result = format!("while {} {{\n", cond);
                 for stmt in &while_expr.body.stmts {
@@ -401,19 +461,48 @@ impl Rust2NuConverter {
                 self.convert_type_in_string(&result)
             }
             Expr::Loop(loop_expr) => {
-                // loop保持换行
-                let mut result = String::from("loop {\n");
+                // L = loop
+                let mut result = String::from("L { ");
+                // 递归转换循环体中的语句
                 for stmt in &loop_expr.body.stmts {
-                    result.push_str("        ");
-                    result.push_str(&stmt.to_token_stream().to_string());
-                    result.push('\n');
+                    match stmt {
+                        Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
+                        Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
+                        Stmt::Expr(Expr::If(if_expr), semi) => {
+                            result.push_str(&self.convert_expr(&Expr::If(if_expr.clone())));
+                            if semi.is_some() {
+                                result.push_str("; ");
+                            } else {
+                                result.push(' ');
+                            }
+                        }
+                        Stmt::Expr(Expr::ForLoop(for_loop), semi) => {
+                            result.push_str(&self.convert_expr(&Expr::ForLoop(for_loop.clone())));
+                            if semi.is_some() {
+                                result.push_str("; ");
+                            } else {
+                                result.push(' ');
+                            }
+                        }
+                        _ => {
+                            let stmt_str = stmt.to_token_stream().to_string().replace("vec!", "V!");
+                            result.push_str(&stmt_str);
+                            result.push(' ');
+                        }
+                    }
                 }
-                result.push_str("    }");
+                result.push('}');
                 self.convert_type_in_string(&result)
             }
+            Expr::Break(_) => {
+                String::from("br")
+            }
+            Expr::Continue(_) => {
+                String::from("ct")
+            }
             _ => {
-                // 默认：保持原样但替换类型
-                let expr_str = expr.to_token_stream().to_string();
+                // 默认：保持原样但替换类型和vec!宏
+                let expr_str = expr.to_token_stream().to_string().replace("vec!", "V!");
                 self.convert_type_in_string(&expr_str)
             }
         }
@@ -458,16 +547,17 @@ impl Rust2NuConverter {
             result = result.replacen(part, &format!("__TURBOFISH_PLACEHOLDER_{}__", idx), 1);
         }
 
-        // 执行类型替换
+        // 执行类型替换和宏替换
+        // v1.7: String不再缩写为Str
         result = result
-            .replace("String", "Str")
             .replace("Vec", "V")
             .replace("Option", "O")
             .replace("Result", "R")
             .replace("Arc", "A")
             .replace("Mutex", "X")
             .replace("Box", "B")
-            .replace("& mut", "&!");
+            .replace("& mut", "&!")
+            .replace("vec!", "V!");  // vec! -> V!
 
         // 恢复 turbofish（保持原样，不进行类型替换）
         for (idx, part) in protected_parts.iter().enumerate() {
@@ -756,3 +846,4 @@ impl Default for Rust2NuConverter {
         Self::new()
     }
 }
+

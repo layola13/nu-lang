@@ -1,0 +1,239 @@
+# Nu2TS Compiler Implementation Tasks
+
+## Phase 0: Project Setup
+- [ ] Add SWC dependencies to Cargo.toml
+  - [ ] `swc_core` with ecma_ast, ecma_codegen features
+  - [ ] `swc_ecma_ast` for AST nodes
+  - [ ] `swc_ecma_codegen` for code emission
+  - [ ] `swc_common` for span management
+- [ ] Create project structure
+  - [ ] `src/codegen/ts/` module directory
+  - [ ] `src/codegen/ts/mod.rs` - main coordinator
+  - [ ] `src/codegen/ts/type_mapper.rs` - Rust/Nu types → TS types
+  - [ ] `src/codegen/ts/ast_builder.rs` - SWC AST construction
+  - [ ] `src/codegen/ts/emitter.rs` - Code generation
+- [ ] Create `src/bin/nu2ts.rs` CLI tool
+- [ ] Setup test infrastructure
+  - [ ] `tests/ts_codegen/` directory
+  - [ ] Test fixtures for each phase
+
+## Phase 1: Type Mapping MVP (Week 1-2)
+- [ ] Implement primitive type conversion
+  - [ ] `i8/i16/i32/i64/u8/u16/u32/u64/f32/f64` → `number`
+  - [ ] `bool` → `boolean`
+  - [ ] `String/Str` → `string`
+  - [ ] `()` → `void`
+- [ ] Implement collection type conversion
+  - [ ] `Vec<T>` → `Array<T>`
+  - [ ] `HashMap<K,V>` → `Map<K,V>` or `Record<K,V>`
+  - [ ] `HashSet<T>` → `Set<T>`
+- [ ] Implement option/result types
+  - [ ] `Option<T>` → `T | null` (或 `T | undefined`)
+  - [ ] `Result<T,E>` → Runtime wrapper or Union type
+- [ ] Struct to Interface/Type conversion
+  - [ ] Parse Rust struct fields
+  - [ ] Build TS interface AST
+  - [ ] Handle generic parameters `<T>`
+  - [ ] Handle visibility (pub/private)
+- [ ] Enum conversion
+  - [ ] C-like enum → TS enum
+  - [ ] Rust enum with data → TS discriminated union
+  - [ ] Build TS union type AST
+- [ ] Test type mapping
+  - [ ] Unit tests for each type category
+  - [ ] Integration test: convert simple type definitions
+
+## Phase 2: Control Flow & Core Logic (Week 3-4)
+- [ ] Function conversion
+  - [ ] Parse function signature from syn AST
+  - [ ] Convert parameters to TS
+  - [ ] Convert return type
+  - [ ] Handle `pub fn` → `export function`
+  - [ ] Handle `fn` → private function
+  - [ ] Handle **async functions**: `~F` → `async function`
+  - [ ] Build SWC FnDecl AST node
+- [ ] Variable declarations
+  - [ ] `l` (let) → `const`
+  - [ ] `v` (let mut) → `let`
+  - [ ] Handle type annotations
+- [ ] Control flow keywords (P0 - CRITICAL)
+  - [ ] **`br`** → `break`
+  - [ ] **`ct`** → `continue`
+  - [ ] `<` → `return`
+  - [ ] `?` → `if`
+  - [ ] `M` → `match`
+  - [ ] `L` → `loop`/`for`
+- [ ] Expression conversion
+  - [ ] Literals (number, string, bool)
+  - [ ] Binary operations (+, -, *, /, ==, !=, <, >)
+  - [ ] Unary operations (!, -, &, *)
+  - [ ] Function calls
+  - [ ] Method calls
+  - [ ] Field access
+  - [ ] Array/Vec indexing
+  - [ ] **Try operator**: `expr!` → `expr!` (non-null assertion)
+- [ ] Control flow statements
+  - [ ] `if/else` → `if/else`
+  - [ ] `while` → `while`
+  - [ ] `for item in iter` → `for (const item of iter)`
+  - [ ] `loop` → `while (true)`
+  - [ ] **`br`** → `break` (P0)
+  - [ ] **`ct`** → `continue` (P0)
+  - [ ] `return` / `< expr` → `return`
+- [ ] Async/Await support (P1 - HIGH PRIORITY)
+  - [ ] **`~F func()`** → `async function func()`
+  - [ ] **`~{ }`** → `async () => {}`
+  - [ ] **`expr.~`** → `await expr`
+  - [ ] `Future<T>` → `Promise<T>`
+- [ ] Closure conversion (P1)
+  - [ ] `|x| expr` → `(x) => expr`
+  - [ ] `|x| -> T { }` → `(x): T => { }`
+  - [ ] **`$|x| { }`** (move) → `(x) => { }` (ignore move semantics)
+  - [ ] Capture context handling
+- [ ] Memory modifiers (P1)
+  - [ ] `&T` → `T` (remove ref)
+  - [ ] **`&!T`** (`&mut T`) → `T` (remove mut ref)
+  - [ ] `*T` → `T` (remove deref)
+  - [ ] **`*!T`** (`*mut T`) → `T` (remove mut deref)
+  - [ ] **`!` prefix for mut** → remove entirely
+- [ ] Type operations (P1)
+  - [ ] **`t Name = Type`** (type alias) → `type Name = Type`
+  - [ ] **`a` / `as`** (casting) → `as` (TypeScript casting)
+- [ ] Match expression conversion
+  - [ ] Analyze match patterns
+  - [ ] Strategy A: Convert to switch/case (simple enums)
+  - [ ] Strategy B: Convert to if/else chain (complex patterns)
+  - [ ] Strategy C: Runtime helper function (fallback)
+  - [ ] Generate exhaustiveness check comments
+- [ ] Test control flow
+  - [ ] Test function conversion
+  - [ ] Test each control flow construct
+  - [ ] Test async/await
+  - [ ] Test closures (including move)
+  - [ ] Test nested control flow
+  - [ ] Integration test: convert example programs
+
+## Phase 3: Advanced Features (Week 5-6)
+- [ ] Trait conversion
+  - [ ] Trait → TS interface
+  - [ ] Impl trait → implement interface
+  - [ ] Generic trait bounds → TS generic constraints
+- [ ] Impl blocks
+  - [ ] Associated functions → static methods
+  - [ ] Methods → instance methods
+  - [ ] Self type handling
+- [ ] Macro expansion
+  - [ ] `println!` → `console.log`
+  - [ ] `vec!` → `[...]`
+  - [ ] `panic!` → `throw new Error`
+  - [ ] `format!` → template string
+  - [ ] `assert!` → `if (!cond) throw`
+  - [ ] `todo!` → `throw new Error("TODO")`
+  - [ ] Custom macros: emit warning or best-effort conversion
+- [ ] Result/Error handling patterns
+  - [ ] Micro-polyfill injection (3 lines)
+  - [ ] Pattern matching via type guards
+  - [ ] Document chosen strategy
+- [ ] Generics
+  - [ ] Generic function parameters
+  - [ ] Generic struct/interface parameters
+  - [ ] Where clauses → extends constraints
+  - [ ] Preserve Turbofish syntax in comments
+- [ ] Module system
+  - [ ] `mod` → TS module
+  - [ ] `use` → `import`
+  - [ ] `pub use` → `export`
+  - [ ] Generate proper import paths
+- [ ] Concurrency primitives (P2 - ADVANCED)
+  - [ ] **`@`** (spawn) → `Promise.resolve().then(async () => {})`
+  - [ ] Tokio spawn semantic mapping
+  - [ ] Document limitations
+- [ ] Safety keywords (P2)
+  - [ ] **`U { }`** (unsafe) → `// @ts-ignore` or keep as-is
+  - [ ] **`ST`** (static) → `static` (class) or `const`
+  - [ ] **`C`** (const) → `const`
+- [ ] Attributes handling
+  - [ ] **`#D(...)`** (derive) → comment or skip
+  - [ ] **`#I`** (inline) → `// @inline` comment
+  - [ ] `#[test]` → skip or convert to test framework
+  - [ ] `#[cfg(...)]` → conditional compilation (skip or warn)
+- [ ] Advanced concurrency (P3 - FUTURE)
+  - [ ] **`@@`** (thread spawn) → `new Worker()` (Node.js/Deno only)
+  - [ ] **`<<`** (channel) → EventEmitter or Channel polyfill
+  - [ ] Document runtime requirements
+- [ ] Extern declarations (P3)
+  - [ ] **`EXT`** → `declare` (ambient types)
+  - [ ] FFI bindings (document limitations)
+- [ ] Test advanced features
+  - [ ] Test each feature category
+  - [ ] Test spawn and async primitives
+  - [ ] Test attributes handling
+  - [ ] Complex integration tests
+  - [ ] Real-world example conversions
+
+## Phase 4: Zero-Runtime Polyfill (Week 7)
+- [ ] Implement Result polyfill injection
+  - [ ] Detect Result type usage in AST
+  - [ ] Generate micro-prelude (3 lines)
+  - [ ] Inject only once per file
+  - [ ] Tree-shake unused polyfills
+- [ ] Option<T> inline handling
+  - [ ] Pure union type `T | null`
+  - [ ] No runtime helper
+  - [ ] Type narrowing support
+- [ ] Chain method optimization ("Onion Peeling")
+  - [ ] Detect ghost nodes (`.iter()`, `.collect()`)
+  - [ ] Remove ghost nodes from AST
+  - [ ] Transform `.len()` → `.length`
+  - [ ] Transform `.unwrap()` contextually
+  - [ ] Transform `.unwrap_or(v)` → `?? v`
+  - [ ] Rename methods (`.contains()` → `.includes()`)
+- [ ] Optional: Full runtime library
+  - [ ] Create npm package `nu-ts-runtime`
+  - [ ] Rich Option/Result classes
+  - [ ] Build and publish setup
+  - [ ] Documentation
+
+## Phase 5: Tooling & Polish (Week 8)
+- [ ] CLI improvements
+  - [ ] Target selection (node/browser)
+  - [ ] Runtime mode (minimal/full)
+  - [ ] Source map generation
+  - [ ] Watch mode for development
+  - [ ] Bundle/tree-shaking support
+- [ ] Error messages
+  - [ ] Helpful diagnostics for unsupported features
+  - [ ] Source location in error messages
+  - [ ] Suggestions for common issues
+- [ ] Documentation
+  - [ ] README with examples
+  - [ ] Type mapping reference
+  - [ ] Migration guide (Rust/Nu → TS)
+  - [ ] API documentation
+- [ ] Examples & Demos
+  - [ ] Convert existing Nu examples
+  - [ ] Create web demo project
+  - [ ] Create Node.js backend example
+  - [ ] Performance benchmarks
+- [ ] CI/CD
+  - [ ] Add nu2ts to build pipeline
+  - [ ] Test generated TS compiles
+  - [ ] Test generated code runs correctly
+  - [ ] Publish workflow
+
+## Phase 6: Optimization (Week 9+)
+- [ ] Performance optimization
+  - [ ] Incremental compilation
+  - [ ] Caching parsed ASTs
+  - [ ] Parallel module processing
+- [ ] Source maps
+  - [ ] Generate accurate source mapping
+  - [ ] Test debugging experience
+- [ ] Code quality
+  - [ ] Prettier formatting integration
+  - [ ] ESLint-friendly output
+  - [ ] Tree-shakeable exports
+- [ ] Advanced type inference
+  - [ ] Infer types from usage
+  - [ ] Minimize explicit type annotations
+  - [ ] Generate stricter types where possible

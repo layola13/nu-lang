@@ -2,7 +2,7 @@
 
 # Nu Language Specification
 
-**Version:** 1.6 (Production Standard)
+**Version:** 1.7 (Production Standard)
 **Date:** 2025-12-24
 **Status:** Frozen / Implementation Ready
 **Target:** AI-Native Systems Programming
@@ -53,8 +53,8 @@
 |  | **a** | `as` |  |
 |  | **u** | `use` |  |
 |  | **t** | `type` |  |
-|  | **b** | `break` |  |
-|  | **c** | `continue` |  |
+|  | **br** | `break` | **v1.7更新** |
+|  | **ct** | `continue` | **v1.7更新** |
 
 ---
 
@@ -88,10 +88,10 @@
 
 ## 4. 类型系统 (Type System)
 
-### 4.1 字符串分层
+### 4.1 字符串类型
 
-* **Str**  `String` (**Owned**)
-* **str**  `str` (**Slice**)
+* **String**  `String` (**Owned**, v1.7中不再缩写)
+* **str**  `str` (**Slice**, 保持不变)
 
 ### 4.2 常用缩写
 
@@ -102,10 +102,10 @@
 | **R** | `Result` | **B** | `Box` |
 | **(A,B)** | Tuple | **W** | `Weak` |
 
-### 4.3 泛型与 Turbofish - **v1.6 Updated**
+### 4.3 泛型与 Turbofish - **v1.7 Updated**
 
 * **泛型定义**: `S Box<T>` (保持 `<T>`)
-* **Turbofish**: `iter.collect::<Str>()` (**强制保留** `::<T>`, 禁止压缩)
+* **Turbofish**: `iter.collect::<String>()` (**强制保留** `::<T>`, 禁止压缩)
 
 ---
 
@@ -169,11 +169,11 @@ u std::collections::HashMap
 #D(Debug, Clone)
 S Processor {
     id: u64,
-    cache: HashMap<Str, i32> // Str = String
+    cache: HashMap<String, i32> // String = String (v1.7不再缩写)
 }
 
 // F = pub fn
-F run_logic(input: &str) -> R<V<i32>, Str> {
+F run_logic(input: &str) -> R<V<i32>, String> {
     // v = let mut
     v results: V<i32> = V::new();
     
@@ -182,7 +182,7 @@ F run_logic(input: &str) -> R<V<i32>, Str> {
     println!("Processing: {}", input);
 
     // 闭包带返回类型
-    l parse = |s: &str| -> R<i32, Str> {
+    l parse = |s: &str| -> R<i32, String> {
         // ! 后缀 = Try, 宏 (format!) 保持原样
         l val = s.parse::<i32>().map_err(|_| format!("Bad num: {}", s))!;
         < Ok(val)
@@ -194,9 +194,9 @@ F run_logic(input: &str) -> R<V<i32>, Str> {
         M parse(part) {
             Ok(n): {
                 // < 在变量间 = 小于号
-                ? n < 0 { 
+                ? n < 0 {
                     println!("Skipping negative: {}", n);
-                    c // continue
+                    ct // continue (v1.7)
                 }
                 results.push(n);
             },
@@ -244,7 +244,8 @@ D tests {
 ### 7.2 Type Folding
 
 * 必须保留 `::<T>` (Turbofish) 结构。
-* 递归转换类型：`Vec` -> `V`, `String` -> `Str`。
+* 递归转换类型：`Vec` -> `V`, `Option` -> `O`, `Result` -> `R`。
+* **String 保持为 `String`**（v1.7中不再缩写）。
 
 ### 7.3 Lexer
 
@@ -253,25 +254,25 @@ D tests {
 
 ---
 
-## 8. System Prompt (v1.6)
+## 8. System Prompt (v1.7)
 
 ```markdown
-**System Role:** Nu v1.6 Compiler (Production Standard).
+**System Role:** Nu v1.7 Compiler (Production Standard).
 
 **Parsing Rules:**
-1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, `b`=break, `c`=continue.
+1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, **`br`=break**, **`ct`=continue**.
 2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, `D`=mod.
 3.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
 4.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
 5.  **Operators:** `!`(suffix)=try. `>`=greater than.
-6.  **Strings:** `Str`=String(owned), `str`=&str(slice).
+6.  **Strings:** `String`=String(owned, 不缩写), `str`=str(slice).
 7.  **Concurrency:** `@`=spawn(async move), `~`=async, `.~`=await.
 8.  **Types:** `V`=Vec, `O`=Option, `R`=Result, `A`=Arc, `X`=Mutex, `B`=Box.
 9.  **Attributes:** `#D`=derive, `#I`=inline. Keep `#[test]`.
 10. **Generics:** Keep `<T>` and `::<T>`.
 
-**Task:** Convert Input description or Rust code into valid Nu v1.6 code.
+**Task:** Convert Input description or Rust code into valid Nu v1.7 code.
 
 ```
 
-Nu v1.6 是一个兼顾了理想（高密度）与现实（工程兼容性）的成熟版本。您可以基于此版本放心地推进 Transpiler 的最终实现。
+Nu v1.7 是一个兼顾了理想（高密度）与现实（工程兼容性）的成熟版本。**v1.7的关键改进**：移除了`Str`类型缩写以消除转换复杂性并提高可靠性。
