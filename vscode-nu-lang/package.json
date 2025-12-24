@@ -1,0 +1,35 @@
+{
+  "name": "nu-lang",
+  "displayName": "Nu Language",
+  "description": "Nu v1.5.1 language support with syntax highlighting",
+  "version": "0.0.1",
+  "publisher": "nu-lang",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "nu",
+    "nu-lang",
+    "syntax highlighting"
+  ],
+  "contributes": {
+    "languages": [{
+      "id": "nu",
+      "aliases": ["Nu", "nu"],
+      "extensions": [".nu"],
+      "configuration": "./language-configuration.json"
+    }],
+    "grammars": [{
+      "language": "nu",
+      "scopeName": "source.nu",
+      "path": "./syntaxes/nu.tmLanguage.json"
+    }]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/vscode-nu-lang"
+  }
+}

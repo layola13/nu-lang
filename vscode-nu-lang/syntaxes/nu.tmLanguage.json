@@ -1,0 +1,139 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Nu",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#keywords" },
+    { "include": "#definitions" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#attributes" },
+    { "include": "#constants" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.nu",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.nu",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
+      ]
+    },
+    "strings": {
+      "name": "string.quoted.double.nu",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        { "name": "constant.character.escape.nu", "match": "\\\\." }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.nu",
+          "match": "\\b(b|c|wh)\\b"
+        },
+        {
+          "name": "storage.type.nu",
+          "match": "\\b(l|v|a|u|t)\\b"
+        },
+        {
+          "name": "keyword.control.flow.nu",
+          "match": "\\b(M|L)\\b"
+        },
+        {
+          "name": "keyword.control.if.nu",
+          "match": "\\?"
+        },
+        {
+          "name": "keyword.other.async.nu",
+          "match": "~"
+        }
+      ]
+    },
+    "definitions": {
+      "patterns": [
+        {
+          "name": "storage.type.struct.nu",
+          "match": "\\b(S|E|TR|I|D)\\b"
+        },
+        {
+          "name": "storage.type.function.nu",
+          "match": "\\b(F|f)\\b"
+        },
+        {
+          "name": "storage.modifier.nu",
+          "match": "\\b(C|ST|EXT)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.nu",
+          "match": "\\b(Str|str|V|O|R|A|X|B|W)\\b"
+        },
+        {
+          "name": "support.type.primitive.nu",
+          "match": "\\b(u8|u16|u32|u64|i8|i16|i32|i64|f32|f64|bool|char|usize|isize)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "comment": "Return at start of line (allowing indentation)",
+          "name": "keyword.control.return.nu",
+          "match": "^(\\s*)(<)"
+        },
+        {
+          "comment": "Print at start of line",
+          "name": "support.function.print.nu",
+          "match": "^(\\s*)(>)"
+        },
+        {
+          "comment": "Comparison operators",
+          "name": "keyword.operator.comparison.nu",
+          "match": "(<=|>=|==|!=)"
+        },
+        {
+          "comment": "Spawn and Thread",
+          "name": "keyword.other.spawn.nu",
+          "match": "(@|@@)"
+        },
+        {
+          "comment": "Try operator suffix",
+          "name": "keyword.control.try.nu",
+          "match": "(!)"
+        }
+      ]
+    },
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.nu",
+          "match": "(#D|#I|#\\?|#T|#!|#\\[.*?\\])"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.numeric.nu",
+          "match": "\\b\\d+(\\.\\d+)?\\b"
+        },
+        {
+          "name": "constant.language.boolean.nu",
+          "match": "\\b(true|false)\\b"
+        }
+      ]
+    }
+  },
+  "scopeName": "source.nu"
+}

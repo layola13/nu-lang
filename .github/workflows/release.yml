@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from Cargo.toml
+        id: get_version
+        run: |
+          VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          release_name: Nu Compiler v${{ steps.get_version.outputs.version }}
+          body: |
+            # Nu Language Compiler v${{ steps.get_version.outputs.version }}
+            
+            High-density Rust dialect transpiler for AI-native systems programming.
+            
+            ## Installation
+            
+            Download the appropriate binary for your platform below and add it to your PATH.
+            
+            ## Tools Included
+            
+            - `rust2nu` - Convert Rust to Nu
+            - `nu2rust` - Convert Nu to Rust
+            - `cargo2nu` - Convert Cargo projects to Nu
+            - `nu2cargo` - Convert Nu projects to Cargo
+            
+            ## Documentation
+            
+            - [English Documentation](https://github.com/${{ github.repository }}/blob/main/README.md)
+            - [中文文档](https://github.com/${{ github.repository }}/blob/main/ReadMeCN.md)
+          draft: false
+          prerelease: false
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive_name: nu-compiler-linux-x86_64
+            
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive_name: nu-compiler-linux-aarch64
+            
+          # macOS x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive_name: nu-compiler-macos-x86_64
+            
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive_name: nu-compiler-macos-aarch64
+            
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive_name: nu-compiler-windows-x86_64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
+          target: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binaries
+        run: |
+          cargo build --release --target ${{ matrix.target }} --bin rust2nu
+          cargo build --release --target ${{ matrix.target }} --bin nu2rust
+          cargo build --release --target ${{ matrix.target }} --bin cargo2nu
+          cargo build --release --target ${{ matrix.target }} --bin nu2cargo
+
+      - name: Prepare release assets (Unix)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p release
+          cp target/${{ matrix.target }}/release/rust2nu release/
+          cp target/${{ matrix.target }}/release/nu2rust release/
+          cp target/${{ matrix.target }}/release/cargo2nu release/
+          cp target/${{ matrix.target }}/release/nu2cargo release/
+          cp README.md release/
+          cp ReadMeCN.md release/
+          cd release
+          tar czf ../${{ matrix.archive_name }}.tar.gz *
+          cd ..
+          shasum -a 256 ${{ matrix.archive_name }}.tar.gz > ${{ matrix.archive_name }}.tar.gz.sha256
+
+      - name: Prepare release assets (Windows)
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir release
+          copy target\${{ matrix.target }}\release\rust2nu.exe release\
+          copy target\${{ matrix.target }}\release\nu2rust.exe release\
+          copy target\${{ matrix.target }}\release\cargo2nu.exe release\
+          copy target\${{ matrix.target }}\release\nu2cargo.exe release\
+          copy README.md release\
+          copy ReadMeCN.md release\
+          cd release
+          tar czf ..\${{ matrix.archive_name }}.tar.gz *
+          cd ..
+          certutil -hashfile ${{ matrix.archive_name }}.tar.gz SHA256 > ${{ matrix.archive_name }}.tar.gz.sha256
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./${{ matrix.archive_name }}.tar.gz
+          asset_name: ${{ matrix.archive_name }}.tar.gz
+          asset_content_type: application/gzip
+
+      - name: Upload SHA256 Checksum
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./${{ matrix.archive_name }}.tar.gz.sha256
+          asset_name: ${{ matrix.archive_name }}.tar.gz.sha256
+          asset_content_type: text/plain

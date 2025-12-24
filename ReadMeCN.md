@@ -1,14 +1,4 @@
-这是一个非常明智且务实的决定。
 
-保留 Rust 原生宏语法（`println!`, `vec!`, `panic!` 等）虽然牺牲了一点点压缩率，但换来了**巨大的工程收益**：
-
-1. **零歧义**：彻底消除了 `>` (Print) 与 `>` (大于号) 的解析冲突。
-2. **生态兼容**：所有第三方库的宏（如 `tokio::main`, `serde_json::json!`, `log::info!`）直接可用，无需编译器特殊适配。
-3. **降低实现难度**：Transpiler 不再需要维护一个“宏白名单”，遇到 `name!` 直接透传即可。
-
-结合您之前的反馈（Turbofish、闭包返回类型），这是**最终定稿的 Nu v1.6 (Production Standard)**。
-
----
 
 # Nu Language Specification
 
