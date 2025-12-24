@@ -335,11 +335,11 @@ impl Nu2RustConverter {
         // 第一步：先转换 $| -> move | (在保护闭包之前)
         let mut result = s.replace("$|", "move |");
         
-        // 第二步：保护闭包参数，避免单字母变量被误转换
-        // 识别闭包模式: |param1, param2| 或 |(param1, param2)| 或 move |...|
+        // 第二步：保护闭包参数和返回类型，避免单字母变量被误转换
+        // 识别闭包模式: |param1, param2| 或 |params| -> RetType 或 move |...|
         let mut protected_closures = Vec::new();
         
-        // 查找所有闭包参数列表
+        // 查找所有闭包参数列表（包括返回类型）
         let chars: Vec<char> = result.chars().collect();
         let mut i = 0;
         while i < chars.len() {
@@ -352,8 +352,30 @@ impl Nu2RustConverter {
                 }
                 if i < chars.len() {
                     i += 1; // 包含结束的 |
-                    let closure_params: String = chars[start..i].iter().collect();
-                    protected_closures.push(closure_params);
+                    
+                    // v1.6: 检查是否有返回类型 -> Type
+                    // 跳过空白
+                    while i < chars.len() && chars[i].is_whitespace() {
+                        i += 1;
+                    }
+                    // 检查 ->
+                    if i + 1 < chars.len() && chars[i] == '-' && chars[i+1] == '>' {
+                        i += 2;
+                        // 跳过空白
+                        while i < chars.len() && chars[i].is_whitespace() {
+                            i += 1;
+                        }
+                        // 找到返回类型的结束（遇到 { 或 空格+非字母数字）
+                        while i < chars.len() {
+                            if chars[i] == '{' || chars[i] == ';' {
+                                break;
+                            }
+                            i += 1;
+                        }
+                    }
+                    
+                    let closure_signature: String = chars[start..i].iter().collect();
+                    protected_closures.push(closure_signature);
                 }
             } else {
                 i += 1;

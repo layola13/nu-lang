@@ -170,6 +170,20 @@ impl Rust2NuConverter {
                 
                 self.write(";\n");
             }
+            Stmt::Macro(mac) => {
+                // v1.6: 宏语句原样保留（println!, vec!, assert!, etc.）
+                // 移除to_token_stream()插入的空格（"println !" -> "println!"）
+                self.write(&self.indent());
+                let macro_str = mac.mac.to_token_stream().to_string()
+                    .replace(" !", "!")  // 修复宏名和!之间的空格
+                    .replace(" (", "(")  // 修复!和(之间的空格
+                    .replace(" ,", ","); // 修复参数逗号前的空格
+                self.write(&macro_str);
+                if mac.semi_token.is_some() {
+                    self.write(";");
+                }
+                self.write("\n");
+            }
             Stmt::Expr(expr, semi) => {
                 // 处理return
                 if let Expr::Return(ret) = expr {
@@ -179,23 +193,18 @@ impl Rust2NuConverter {
                         self.write(&self.convert_expr(val));
                     }
                     self.write("\n");
-                } else if let Expr::Macro(mac) = expr {
-                    let mac_name = mac.mac.path.to_token_stream().to_string();
-                    if mac_name.contains("println") {
-                        self.write(&self.indent());
-                        self.write("> ");
-                        let tokens = mac.mac.tokens.to_string();
-                        self.write(&tokens);
-                        self.write("\n");
-                    } else {
-                        let expr_str = self.convert_expr(expr);
-                        self.write(&self.indent());
-                        self.write(&expr_str);
-                        if semi.is_some() {
-                            self.write(";");
-                        }
-                        self.write("\n");
+                } else if let Expr::Macro(_mac) = expr {
+                    // v1.6: 表达式宏原样保留（极少见，大多数宏是Stmt::Macro）
+                    self.write(&self.indent());
+                    let macro_str = expr.to_token_stream().to_string()
+                        .replace(" !", "!")
+                        .replace(" (", "(")
+                        .replace(" ,", ",");
+                    self.write(&macro_str);
+                    if semi.is_some() {
+                        self.write(";");
                     }
+                    self.write("\n");
                 } else {
                     let expr_str = self.convert_expr(expr);
                     self.write(&self.indent());
@@ -225,11 +234,19 @@ impl Rust2NuConverter {
             Expr::MethodCall(call) => {
                 let receiver = self.convert_expr(&call.receiver);
                 let method = call.method.to_string();
+                
+                // v1.6: 保留Turbofish泛型参数 ::<Type>
+                let turbofish = if let Some(turbo) = &call.turbofish {
+                    turbo.to_token_stream().to_string()
+                } else {
+                    String::new()
+                };
+                
                 let args = call.args.iter()
                     .map(|arg| self.convert_expr(arg))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("{}.{}({})", receiver, method, args)
+                format!("{}.{}{}({})", receiver, method, turbofish, args)
             }
             Expr::Return(_ret) => {
                 // return语句在语句级别处理，在表达式中不应该转换
@@ -242,8 +259,18 @@ impl Rust2NuConverter {
                     .map(|p| p.to_token_stream().to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
+                
+                // v1.6: 支持闭包返回类型 |x: i32| -> i32 { }
+                let return_type = match &closure.output {
+                    syn::ReturnType::Default => String::new(),
+                    syn::ReturnType::Type(_, ty) => {
+                        let ty_str = self.convert_type_in_string(&ty.to_token_stream().to_string());
+                        format!(" -> {}", ty_str)
+                    }
+                };
+                
                 let body = self.convert_expr(&closure.body);
-                format!("{}|{}| {}", move_kw, inputs, body)
+                format!("{}|{}|{} {}", move_kw, inputs, return_type, body)
             }
             Expr::Match(match_expr) => {
                 // match表达式保持换行结构
