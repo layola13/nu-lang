@@ -3,7 +3,7 @@
 
 use anyhow::{Context, Result};
 use quote::ToTokens;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use syn::{
     visit::Visit, Attribute, Block, Expr, File, FnArg, Item, ItemEnum, ItemFn, ItemImpl,
     ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type, Visibility,
@@ -35,6 +35,7 @@ impl Rust2NuConverter {
         for line in &lines {
             let trimmed = line.trim();
             // 判断是否为纯注释行或空行
+            // 注意：属性（#[...] 和 #![...]）不算注释，会被syn处理并在converted_code中输出
             let is_comment_or_empty = trimmed.is_empty()
                 || trimmed.starts_with("//")
                 || trimmed.starts_with("/*")
@@ -50,35 +51,36 @@ impl Rust2NuConverter {
         let converted_code = converter.output;
 
         // 3. 合并：在转换后的代码中插入注释
-        // 简单策略：在文件开头保留所有前导注释，然后是转换后的代码
+        // 策略：保留文件开头的纯注释行，然后输出转换后的代码
         let mut output = String::new();
-        let mut found_code = false;
+        let mut found_non_comment = false;
 
         for (i, line) in lines.iter().enumerate() {
             if line_types[i] {
                 // 注释或空行
-                if !found_code {
-                    // 文件开头的注释，直接保留
+                if !found_non_comment {
+                    // 文件开头的纯注释，直接保留
                     output.push_str(line);
                     output.push('\n');
                 }
             } else {
-                // 遇到第一行代码
-                if !found_code {
-                    found_code = true;
+                // 遇到第一行非注释代码（可能是属性、use、fn等）
+                if !found_non_comment {
+                    found_non_comment = true;
+                    // 追加完整的转换后代码（包含属性、use、fn等）
                     output.push_str(&converted_code);
                 }
                 break;
             }
         }
 
-        // 如果全是注释但转换后有内容，输出转换内容
-        if !found_code && !converted_code.is_empty() {
+        // 如果全是注释但转换后有内容，直接返回转换内容
+        if !found_non_comment && !converted_code.is_empty() {
             return Ok(converted_code);
         }
         
         // 如果全是注释且转换后也是空的，返回注释
-        if !found_code {
+        if !found_non_comment {
             return Ok(output);
         }
 
@@ -654,8 +656,12 @@ impl Rust2NuConverter {
         if path == "derive" {
             format!("#D{}", tokens.trim_start_matches("derive"))
         } else {
-            // 保持其他属性的完整格式，不要过度简化
-            format!("#[{}]", tokens)
+            // 保持其他属性的完整格式，并清理多余空格
+            let cleaned_tokens = tokens
+                .replace(" (", "(")
+                .replace(" )", ")")
+                .replace(" ,", ",");
+            format!("#[{}]", cleaned_tokens)
         }
     }
 }
@@ -665,8 +671,16 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // Nu v1.6.3: 优先输出文件级属性 #![...]
         for attr in &node.attrs {
             let attr_str = attr.to_token_stream().to_string();
-            if attr_str.starts_with("#![") {
-                self.writeln(&attr_str);
+            // to_token_stream()会在#!、[、]周围插入空格，需要移除
+            let cleaned_attr = attr_str
+                .replace("# !", "#!")
+                .replace("#! ", "#!")
+                .replace(" [", "[")
+                .replace(" ]", "]")
+                .replace(" (", "(")
+                .replace(" )", ")");
+            if cleaned_attr.starts_with("#![") {
+                self.writeln(&cleaned_attr);
             }
         }
         
@@ -687,8 +701,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 // Nu v1.6.3: 保留 #[cfg] 属性
                 for attr in &m.attrs {
                     let attr_str = attr.to_token_stream().to_string();
-                    // to_token_stream()会在#和[之间插入空格，需要移除
-                    let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+                    // to_token_stream()会在#、[、(、)周围插入空格，需要移除
+                    let cleaned_attr = attr_str
+                        .replace("# [", "#[")
+                        .replace(" [", "[")
+                        .replace(" ]", "]")
+                        .replace(" (", "(")
+                        .replace(" )", ")");
                     if cleaned_attr.starts_with("#[cfg") {
                         self.writeln(&cleaned_attr);
                     }
@@ -723,8 +742,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 // Nu v1.6.3: 保留 #[cfg] 属性
                 for attr in &u.attrs {
                     let attr_str = attr.to_token_stream().to_string();
-                    // to_token_stream()会在#和[之间插入空格，需要移除
-                    let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+                    // to_token_stream()会在#、[、(、)周围插入空格，需要移除
+                    let cleaned_attr = attr_str
+                        .replace("# [", "#[")
+                        .replace(" [", "[")
+                        .replace(" ]", "]")
+                        .replace(" (", "(")
+                        .replace(" )", ")");
                     if cleaned_attr.starts_with("#[cfg") {
                         self.writeln(&cleaned_attr);
                     }
@@ -736,7 +760,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 } else {
                     use_str.replace("use", "u")
                 };
-                self.writeln(&nu_use);
+                // 清理多余空格: 移除 :: 、 ; 周围的空格
+                let cleaned_use = nu_use
+                    .replace(" ::", "::")
+                    .replace(":: ", "::")
+                    .replace(" ;", ";");
+                self.writeln(&cleaned_use);
             }
             Item::Const(c) => {
                 self.write("C ");
@@ -791,8 +820,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // Nu v1.6.3: 保留 #[cfg] 属性
         for attr in &node.attrs {
             let attr_str = attr.to_token_stream().to_string();
-            // to_token_stream()会在#和[之间插入空格，需要移除
-            let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+            // to_token_stream()会在#、[、(、)周围插入空格，需要移除
+            let cleaned_attr = attr_str
+                .replace("# [", "#[")
+                .replace(" [", "[")
+                .replace(" ]", "]")
+                .replace(" (", "(")
+                .replace(" )", ")");
             if cleaned_attr.starts_with("#[cfg") {
                 self.writeln(&cleaned_attr);
             }
@@ -931,8 +965,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // Nu v1.6.3: 保留 #[cfg] 属性
         for attr in &node.attrs {
             let attr_str = attr.to_token_stream().to_string();
-            // to_token_stream()会在#和[之间插入空格，需要移除
-            let cleaned_attr = attr_str.replace("# [", "#[").replace(" ]", "]");
+            // to_token_stream()会在#、[、(、)周围插入空格，需要移除
+            let cleaned_attr = attr_str
+                .replace("# [", "#[")
+                .replace(" [", "[")
+                .replace(" ]", "]")
+                .replace(" (", "(")
+                .replace(" )", ")");
             if cleaned_attr.starts_with("#[cfg") {
                 self.writeln(&cleaned_attr);
             }
