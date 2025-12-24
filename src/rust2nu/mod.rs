@@ -9,10 +9,12 @@ use syn::{
 };
 use quote::ToTokens;
 use anyhow::{Result, Context};
+use std::collections::HashMap;
 
 pub struct Rust2NuConverter {
     output: String,
     indent_level: usize,
+    comments: HashMap<usize, Vec<String>>, // line number -> comments
 }
 
 impl Rust2NuConverter {
@@ -20,17 +22,63 @@ impl Rust2NuConverter {
         Self {
             output: String::new(),
             indent_level: 0,
+            comments: HashMap::new(),
         }
     }
 
     pub fn convert(&self, rust_code: &str) -> Result<String> {
+        // 策略：混合处理 - 保留注释行，转换代码行
+        // 1. 先提取所有注释和它们的位置
+        let lines: Vec<&str> = rust_code.lines().collect();
+        let mut line_types = Vec::new(); // true = comment line, false = code line
+        
+        for line in &lines {
+            let trimmed = line.trim();
+            // 判断是否为纯注释行或空行
+            let is_comment_or_empty = trimmed.is_empty()
+                || trimmed.starts_with("//")
+                || trimmed.starts_with("/*")
+                || trimmed.starts_with("*");
+            line_types.push(is_comment_or_empty);
+        }
+        
+        // 2. 解析并转换代码（syn会忽略注释）
         let syntax_tree = syn::parse_file(rust_code)
             .context("Failed to parse Rust code")?;
         
         let mut converter = Self::new();
         converter.visit_file(&syntax_tree);
+        let converted_code = converter.output;
         
-        Ok(converter.output)
+        // 3. 合并：在转换后的代码中插入注释
+        // 简单策略：在文件开头保留所有前导注释，然后是转换后的代码
+        let mut output = String::new();
+        let mut found_code = false;
+        
+        for (i, line) in lines.iter().enumerate() {
+            if line_types[i] {
+                // 注释或空行
+                if !found_code {
+                    // 文件开头的注释，直接保留
+                    output.push_str(line);
+                    output.push('\n');
+                }
+            } else {
+                // 遇到第一行代码
+                if !found_code {
+                    found_code = true;
+                    output.push_str(&converted_code);
+                }
+                break;
+            }
+        }
+        
+        // 如果全是注释，直接返回
+        if !found_code {
+            return Ok(output);
+        }
+        
+        Ok(output)
     }
 
     fn indent(&self) -> String {
@@ -42,6 +90,8 @@ impl Rust2NuConverter {
         self.output.push_str(text);
         self.output.push('\n');
     }
+    
+    /// 在指定行号之前插入注释
 
     fn write(&mut self, text: &str) {
         self.output.push_str(text);

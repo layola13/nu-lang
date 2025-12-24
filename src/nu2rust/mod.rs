@@ -31,8 +31,15 @@ impl Nu2RustConverter {
         while i < lines.len() {
             let line = lines[i].trim();
             
-            // 跳过空行和注释
-            if line.is_empty() || line.starts_with("//") {
+            // 保留空行和注释（不跳过）
+            if line.is_empty() {
+                output.push('\n');
+                i += 1;
+                continue;
+            }
+            
+            // 保留注释行
+            if line.starts_with("//") || line.starts_with("/*") || line.starts_with("*") {
                 output.push_str(lines[i]);
                 output.push('\n');
                 i += 1;
