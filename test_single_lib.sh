@@ -72,7 +72,11 @@ echo ""
 echo "步骤3: 编译还原的Cargo项目"
 echo "命令: cd $cargo_back_dir && cargo build"
 echo ""
-if (cd "$cargo_back_dir" && cargo build 2>&1 | tee "../../logs/opensource_libs/${LIB}_build.log"); then
+# 保存cargo build的输出和退出码
+(cd "$cargo_back_dir" && cargo build 2>&1 | tee "../../logs/opensource_libs/${LIB}_build.log"; exit ${PIPESTATUS[0]})
+BUILD_EXIT_CODE=$?
+
+if [ $BUILD_EXIT_CODE -eq 0 ]; then
   echo ""
   echo "✅ 步骤3完成: 编译成功"
   echo ""

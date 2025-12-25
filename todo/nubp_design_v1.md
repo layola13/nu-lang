@@ -218,12 +218,134 @@ l lookUp = AXL    // Get Input Axis "LookUp"
 | **AI** | AddImpulse | 添加冲量 |
 | **SAL** | SetActorLocation | 设置位置 |
 | **SAR** | SetActorRotation | 设置旋转 |
+| **SAT** | SetActorTransform | 设置变换 |
 
 **使用示例**:
 ```nu
 -> AMI(direction, 1.0)        // AddMovementInput(direction, 1.0)
 -> SAL(V{0,0,100})            // SetActorLocation(FVector(0,0,100))
 -> AF(V{0,0,500})             // AddForce(FVector(0,0,500))
+```
+
+#### 5.1.5 战斗系统（游戏专用）⭐
+
+| nubp 缩写 | UE5 蓝图节点 | 说明 |
+|-----------|--------------|------|
+| **TKD** | TakeDamage | 受到伤害 |
+| **APD** | ApplyDamage | 应用伤害 |
+| **APDD** | ApplyPointDamage | 应用点伤害 |
+| **APRD** | ApplyRadialDamage | 应用范围伤害 |
+| **HEL** | Heal | 治疗 |
+| **DIE** | Die / Destroy | 死亡/销毁 |
+
+**使用示例**:
+```nu
+// 受到伤害并检查死亡
+E OnHit(Damage: f32) {
+    l h = G Health
+    S Health = h - Damage
+    ? h <= 0 { True: -> DIE }  // 死亡
+}
+
+// 应用范围伤害
+-> APRD::<Origin>(GVL)::<Radius>(500.0)::<Damage>(50.0)
+```
+
+#### 5.1.6 UI/UMG（高频）⭐
+
+| nubp 缩写 | UE5 蓝图节点 | 说明 |
+|-----------|--------------|------|
+| **CW** | Create Widget | 创建控件 |
+| **ATV** | Add to Viewport | 添加到视口 |
+| **RFP** | Remove from Parent | 从父级移除 |
+| **SV** | Set Visibility | 设置可见性 |
+| **ST** | Set Text | 设置文本 |
+| **GPC** | Get Player Controller | 获取玩家控制器 |
+| **SMM** | Set Input Mode UI Only | 仅UI输入模式 |
+| **SMG** | Set Input Mode Game Only | 仅游戏输入模式 |
+
+**使用示例**:
+```nu
+// 创建并显示主菜单
+E ShowMenu {
+    l widget = CW::<Class>(BP_MainMenu)
+    -> ATV(widget)
+    -> SMM  // 切换到UI输入
+}
+
+// 关闭UI
+E CloseMenu {
+    -> RFP
+    -> SMG  // 切换回游戏输入
+}
+```
+
+#### 5.1.7 AI/Behavior Tree（高频）
+
+| nubp 缩写 | UE5 蓝图节点 | 说明 |
+|-----------|--------------|------|
+| **MT** | Move To | 移动到 |
+| **MTA** | Move To Actor | 移动到Actor |
+| **MTS** | Stop Movement | 停止移动 |
+| **GBK** | Get Blackboard Key | 获取黑板键 |
+| **SBK** | Set Blackboard Key | 设置黑板键 |
+| **FP** | Find Path | 寻路 |
+| **GAI** | Get AI Controller | 获取AI控制器 |
+
+**使用示例**:
+```nu
+// AI 追击玩家
+E ChasePlayer {
+    l player = GBK::<Key>("TargetPlayer")
+    -> MTA(player)::<AcceptanceRadius>(100.0)
+}
+
+// 巡逻逻辑
+E Patrol {
+    l waypoint = GBK::<Key>("NextWaypoint")
+    -> MT(waypoint)
+}
+```
+
+#### 5.1.8 音频/特效（常用）
+
+| nubp 缩写 | UE5 蓝图节点 | 说明 |
+|-----------|--------------|------|
+| **PS** | Play Sound | 播放音效 |
+| **PSL** | Play Sound at Location | 在位置播放音效 |
+| **SPE** | Spawn Emitter | 生成粒子特效 |
+| **SPEL** | Spawn Emitter at Location | 在位置生成特效 |
+| **SPEA** | Spawn Emitter Attached | 生成附加特效 |
+
+**使用示例**:
+```nu
+// 播放音效和特效
+E OnFireWeapon {
+    -> PS(SFX_Gunshot)
+    -> SPEL::<Emitter>(FX_MuzzleFlash)::<Location>(GVL)
+}
+```
+
+#### 5.1.9 摄像机/视角（常用）
+
+| nubp 缩写 | UE5 蓝图节点 | 说明 |
+|-----------|--------------|------|
+| **GCC** | Get Control Rotation | 获取控制旋转 |
+| **SCC** | Set Control Rotation | 设置控制旋转 |
+| **GCV** | Get Camera Location | 获取摄像机位置 |
+| **LKA** | Look At | 看向 |
+| **ACP** | Add Controller Pitch | 添加俯仰 |
+| **ACY** | Add Controller Yaw | 添加偏航 |
+
+**使用示例**:
+```nu
+// 鼠标视角控制
+E Tick {
+    l mouseX = AXY  // Get Input Axis "Turn"
+    l mouseY = AXL  // Get Input Axis "LookUp"
+    -> ACY(mouseX)
+    -> ACP(mouseY)
+}
 ```
 
 ### 5.2 复杂节点（保持原名）

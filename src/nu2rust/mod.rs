@@ -51,15 +51,23 @@ impl Nu2RustConverter {
             if line.starts_with("#D") {
                 // 转换 #D(Debug) -> #[derive(Debug)]
                 let attr_content = line.trim_start_matches("#D");
-                output.push_str(&format!("#[derive{}]\n", attr_content));
+                // 修复派生属性中的空格: #D (Debug) -> #[derive(Debug)]
+                let fixed_content = attr_content.replace(" (", "(").replace(" )", ")").replace(" ,", ",");
+                output.push_str(&format!("#[derive{}]\n", fixed_content));
                 i += 1;
                 continue;
             }
 
-            // 其他属性（如 #[test], #[cfg(test)], #![cfg(...)]）保持原样
+            // 其他属性（如 #[test], #[cfg(test)], #![cfg(...)]）
             if (line.starts_with("#[") && line.ends_with("]")) ||
                (line.starts_with("#![") && line.ends_with("]")) {
-                output.push_str(line);
+                // 修复属性中的空格格式
+                // "# [cfg (not (feature = "kv"))]" -> "#[cfg(not(feature = "kv"))]"
+                let mut fixed_attr = line.to_string();
+                fixed_attr = fixed_attr.replace("# [", "#[").replace("# ![", "#![");
+                fixed_attr = fixed_attr.replace(" (", "(").replace(" )", ")");
+                fixed_attr = fixed_attr.replace(" ,", ",");
+                output.push_str(&fixed_attr);
                 output.push('\n');
                 i += 1;
                 continue;
@@ -169,11 +177,22 @@ impl Nu2RustConverter {
         }
 
         // 变量声明: l/v
+        // 注意：需要区分变量声明 "v name = ..." 和变量使用 "v.method()"
         if trimmed.starts_with("l ") {
             return Ok(Some(self.convert_let(trimmed)?));
         }
         if trimmed.starts_with("v ") {
-            return Ok(Some(self.convert_let_mut(trimmed)?));
+            // 检查是否是变量声明而不是变量使用
+            // 变量声明: "v name = ..." 或 "v name: Type = ..."
+            // 变量使用: "v.method()" 或 "v + ..." 等
+            let after_v = &trimmed[2..]; // 跳过 "v "
+            let is_declaration = after_v.chars().next().map(|c| c.is_alphabetic() || c == '_').unwrap_or(false)
+                && !after_v.starts_with('.');
+            
+            if is_declaration {
+                return Ok(Some(self.convert_let_mut(trimmed)?));
+            }
+            // 否则作为普通表达式处理
         }
 
         // Return语句: <
@@ -498,7 +517,16 @@ impl Nu2RustConverter {
 
     fn convert_use(&self, line: &str) -> Result<String> {
         let is_pub = line.starts_with("U ");
-        let content = &line[2..];
+        let mut content = line[2..].to_string();
+
+        // 修复 use 语句中花括号内的空格格式
+        // "use crate::{ a, b }" -> "use crate::{a, b}"
+        if content.contains("{ ") || content.contains(" }") {
+            content = content.replace("{ ", "{").replace(" }", "}");
+        }
+        
+        // 修复逗号前的空格: "a , b" -> "a, b"
+        content = content.replace(" ,", ",");
 
         let visibility = if is_pub { "pub " } else { "" };
         Ok(format!("{}use {}", visibility, content))
@@ -538,7 +566,11 @@ impl Nu2RustConverter {
 
     fn convert_type_alias(&self, line: &str) -> Result<String> {
         let content = &line[2..];
-        let converted = self.convert_types_in_string(content);
+        let mut converted = self.convert_types_in_string(content);
+        // 修复类型别名中的格式问题
+        // "Value < 'a > =" -> "Value<'a> ="
+        converted = converted.replace(" < ", "<").replace(" >", ">");
+        converted = converted.replace("= & ", "= &");
         Ok(format!("type {}", converted))
     }
 
@@ -837,9 +869,11 @@ impl Nu2RustConverter {
             .replace("X<", "Mutex<")
             .replace("B<", "Box<")
             .replace("&!", "&mut ")
+            .replace("& 'a!", "&'a mut")
             .replace(".~", ".await")
             .replace("$|", "move |")
             .replace(" wh ", " where ")
+            .replace("wh ", "where ")
             .replace(" I<", " impl<")
             .replace("I<", "impl<")
             .replace(")!", ")?")
@@ -855,13 +889,19 @@ impl Nu2RustConverter {
             result = result.replace(&format!("__CLOSURE_PARAMS_{}__", idx), closure);
         }
 
-        // 移除函数调用中的多余空格: ") (" -> ")("
+        // 移除函数调用中的多余空格，但保留方法调用: ") (" -> ")("
+        // 注意：不要移除 "变量 . 方法" 模式中的空格
         result = result.replace(") (", ")(");
+        
+        // 移除方法调用中的多余空格: " . " -> "."
+        // 但要小心不要破坏其他模式
+        result = result.replace(" . ", ".");
         
         // *** 修复空格格式化问题 ***
         // 移除 :: 周围的多余空格，但保护 ::< 模式
         result = result.replace(" :: ", "::");
         result = result.replace(" ::", "::");
+        result = result.replace(":: ", "::");
         
         // 修复错误的 ": in" 模式 -> "::"
         result = result.replace(": in ", "::");

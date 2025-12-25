@@ -59,7 +59,11 @@ for lib in "${LIBS[@]}"; do
   
   echo ""
   echo "步骤3: 编译还原的Cargo项目"
-  if (cd "$cargo_back_dir" && cargo build 2>&1 | tee "../../logs/opensource_libs/${lib}_build.log"); then
+  # 保存cargo build的输出和退出码
+  (cd "$cargo_back_dir" && cargo build 2>&1 | tee "../../logs/opensource_libs/${lib}_build.log"; exit ${PIPESTATUS[0]})
+  BUILD_EXIT_CODE=$?
+  
+  if [ $BUILD_EXIT_CODE -eq 0 ]; then
     echo "✅ 库测试完全成功 (含编译验证): $lib"
     success_count=$((success_count + 1))
   else
