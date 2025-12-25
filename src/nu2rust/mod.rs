@@ -728,13 +728,17 @@ impl Nu2RustConverter {
                     if next_char == ';' || next_char == ',' || next_char == ')' || next_char == '}' || next_char == '.' {
                         is_error_propagation = true;
                     } else if next_char == ' ' {
-                        // 检查空格后是否是 . (错误传播链式调用: ? . method())
+                        // v1.6.11: 检查空格后是否是 . , ; ) } (错误传播运算符: ? . 或 ? , 等)
                         let mut j = i + 2;
                         while j < chars.len() && chars[j] == ' ' {
                             j += 1;
                         }
-                        if j < chars.len() && chars[j] == '.' {
-                            is_error_propagation = true;
+                        if j < chars.len() {
+                            let char_after_spaces = chars[j];
+                            if char_after_spaces == '.' || char_after_spaces == ',' || char_after_spaces == ';'
+                                || char_after_spaces == ')' || char_after_spaces == '}' {
+                                is_error_propagation = true;
+                            }
                         }
                     }
                 }
@@ -846,6 +850,34 @@ impl Nu2RustConverter {
                         i += 2;
                         continue;
                     }
+                }
+            }
+
+            // v1.6.11: 修复 Rust2Nu 错误转换的 if, if; if) if} -> ?, ?; ?) ?}
+            // 当 Rust2Nu 错误地将 ? 转换为 if 时，会产生 if, if; 等非法语法
+            // 这里检测并修复这些模式
+            if remaining.starts_with("if,") || remaining.starts_with("if;")
+                || remaining.starts_with("if)") || remaining.starts_with("if}")
+                || remaining.starts_with("if.") {
+                // 检查前面是否是表达式结尾（闭括号、宏调用等）
+                // 需要跳过空格向前查找
+                let mut should_convert = false;
+                let mut j = i;
+                while j > 0 {
+                    j -= 1;
+                    if !chars[j].is_whitespace() {
+                        // ) ! } ] 后面的 if, 应该是错误传播的 ?
+                        if chars[j] == ')' || chars[j] == '!' || chars[j] == '}' || chars[j] == ']' {
+                            should_convert = true;
+                        }
+                        break;
+                    }
+                }
+                
+                if should_convert {
+                    result.push('?');
+                    i += 2; // 跳过 "if"
+                    continue;
                 }
             }
 

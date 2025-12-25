@@ -1497,18 +1497,29 @@ impl Parser {
 
     fn find_matching_paren(&self, s: &str, start: usize) -> usize {
         let mut depth = 0;
+        let mut in_string = false;
+        let mut prev_char = ' ';
+        
         for (i, c) in s[start..].chars().enumerate() {
-            match c {
-                '(' | '<' => depth += 1,
-                ')' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        return start + i;
-                    }
-                }
-                '>' => depth -= 1,
-                _ => {}
+            // 处理字符串字面量
+            if c == '"' && prev_char != '\\' {
+                in_string = !in_string;
             }
+            
+            if !in_string {
+                match c {
+                    '(' | '<' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return start + i;
+                        }
+                    }
+                    '>' => depth -= 1,
+                    _ => {}
+                }
+            }
+            prev_char = c;
         }
         s.len()
     }
