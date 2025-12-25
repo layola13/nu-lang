@@ -36,7 +36,7 @@ impl Rust2NuConverter {
 
         for line in &lines {
             let trimmed = line.trim();
-            
+
             // 检测 /*! 开始的inner doc注释块（syn会将其转换为#![doc]属性）
             if trimmed.starts_with("/*!") {
                 in_inner_doc = true;
@@ -44,7 +44,7 @@ impl Rust2NuConverter {
                 line_types.push(false); // 标记为非注释，让syn处理
                 continue;
             }
-            
+
             // 如果在inner doc块中，检测结束
             if in_inner_doc {
                 if trimmed.contains("*/") {
@@ -54,7 +54,7 @@ impl Rust2NuConverter {
                 line_types.push(false); // 标记为非注释，让syn处理
                 continue;
             }
-            
+
             // 检测普通块注释
             if trimmed.starts_with("/*") && !trimmed.starts_with("/*!") {
                 in_block_comment = true;
@@ -64,7 +64,7 @@ impl Rust2NuConverter {
                 line_types.push(true); // 普通块注释保留
                 continue;
             }
-            
+
             // 判断是否为纯注释行或空行
             // 注意：属性（#[...] 和 #![...]）不算注释，会被syn处理并在converted_code中输出
             let is_comment_or_empty = trimmed.is_empty()
@@ -109,7 +109,7 @@ impl Rust2NuConverter {
         if !found_non_comment && !converted_code.is_empty() {
             return Ok(converted_code);
         }
-        
+
         // 如果全是注释且转换后也是空的，返回注释
         if !found_non_comment {
             return Ok(output);
@@ -262,68 +262,78 @@ impl Rust2NuConverter {
             return String::new();
         }
 
-        let params: Vec<String> = generics.params.iter().map(|param| {
-            match param {
-                // 1. 生命周期参数：完整保留
-                syn::GenericParam::Lifetime(l) => {
-                    let lifetime_str = format!("'{}", l.lifetime.ident);
-                    // 处理生命周期约束 'a: 'b
-                    if !l.bounds.is_empty() {
-                        let bounds: Vec<String> = l.bounds.iter()
-                            .map(|b| format!("'{}", b.ident))
-                            .collect();
-                        format!("{}: {}", lifetime_str, bounds.join(" + "))
-                    } else {
-                        lifetime_str
+        let params: Vec<String> = generics
+            .params
+            .iter()
+            .map(|param| {
+                match param {
+                    // 1. 生命周期参数：完整保留
+                    syn::GenericParam::Lifetime(l) => {
+                        let lifetime_str = format!("'{}", l.lifetime.ident);
+                        // 处理生命周期约束 'a: 'b
+                        if !l.bounds.is_empty() {
+                            let bounds: Vec<String> =
+                                l.bounds.iter().map(|b| format!("'{}", b.ident)).collect();
+                            format!("{}: {}", lifetime_str, bounds.join(" + "))
+                        } else {
+                            lifetime_str
+                        }
                     }
-                },
-                // 2. 类型参数
-                syn::GenericParam::Type(t) => {
-                    let name = &t.ident;
-                    // 处理类型约束 T: Display + Debug
-                    let bounds = if t.bounds.is_empty() {
-                        String::new()
-                    } else {
-                        format!(": {}", self.convert_type_param_bounds(&t.bounds))
-                    };
-                    // v1.7.4: 处理泛型默认值 E = ()
-                    let default = if let Some(default_ty) = &t.default {
-                        format!(" = {}", self.convert_type(default_ty))
-                    } else {
-                        String::new()
-                    };
-                    format!("{}{}{}", name, bounds, default)
-                },
-                // 3. 常量泛型参数
-                syn::GenericParam::Const(c) => {
-                    format!("const {}: {}", c.ident, self.convert_type(&c.ty))
+                    // 2. 类型参数
+                    syn::GenericParam::Type(t) => {
+                        let name = &t.ident;
+                        // 处理类型约束 T: Display + Debug
+                        let bounds = if t.bounds.is_empty() {
+                            String::new()
+                        } else {
+                            format!(": {}", self.convert_type_param_bounds(&t.bounds))
+                        };
+                        // v1.7.4: 处理泛型默认值 E = ()
+                        let default = if let Some(default_ty) = &t.default {
+                            format!(" = {}", self.convert_type(default_ty))
+                        } else {
+                            String::new()
+                        };
+                        format!("{}{}{}", name, bounds, default)
+                    }
+                    // 3. 常量泛型参数
+                    syn::GenericParam::Const(c) => {
+                        format!("const {}: {}", c.ident, self.convert_type(&c.ty))
+                    }
                 }
-            }
-        }).collect();
+            })
+            .collect();
 
         format!("<{}>", params.join(", "))
     }
 
     /// v1.6.5: 转换类型参数约束
     /// v1.7.5: 修复 ?Sized 约束支持（核心修复！）
-    fn convert_type_param_bounds(&self, bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::token::Plus>) -> String {
-        bounds.iter().map(|bound| {
-            match bound {
-                syn::TypeParamBound::Trait(trait_bound) => {
-                    // 🔑 关键修复：处理 TraitBoundModifier::Maybe（即 ?Sized）
-                    let modifier = match trait_bound.modifier {
-                        syn::TraitBoundModifier::None => "",
-                        syn::TraitBoundModifier::Maybe(_) => "?",  // 保留 ?Sized 的 ? 前缀
-                    };
-                    let path_str = trait_bound.path.to_token_stream().to_string();
-                    format!("{}{}", modifier, path_str)
-                },
-                syn::TypeParamBound::Lifetime(lifetime) => {
-                    format!("'{}", lifetime.ident)
-                },
-                _ => bound.to_token_stream().to_string()
-            }
-        }).collect::<Vec<_>>().join(" + ")
+    fn convert_type_param_bounds(
+        &self,
+        bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::token::Plus>,
+    ) -> String {
+        bounds
+            .iter()
+            .map(|bound| {
+                match bound {
+                    syn::TypeParamBound::Trait(trait_bound) => {
+                        // 🔑 关键修复：处理 TraitBoundModifier::Maybe（即 ?Sized）
+                        let modifier = match trait_bound.modifier {
+                            syn::TraitBoundModifier::None => "",
+                            syn::TraitBoundModifier::Maybe(_) => "?", // 保留 ?Sized 的 ? 前缀
+                        };
+                        let path_str = trait_bound.path.to_token_stream().to_string();
+                        format!("{}{}", modifier, path_str)
+                    }
+                    syn::TypeParamBound::Lifetime(lifetime) => {
+                        format!("'{}", lifetime.ident)
+                    }
+                    _ => bound.to_token_stream().to_string(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" + ")
     }
 
     /// v1.6.5: 转换类型 - 完整保留生命周期信息
@@ -342,21 +352,27 @@ impl Rust2NuConverter {
                     String::new()
                 };
 
-                let mutability = if type_ref.mutability.is_some() { "!" } else { "" };
+                let mutability = if type_ref.mutability.is_some() {
+                    "!"
+                } else {
+                    ""
+                };
                 let inner = self.convert_type(&type_ref.elem);
 
                 format!("&{}{}{}", lifetime, mutability, inner)
-            },
+            }
             // 裸指针类型：*const T 或 *mut T
             Type::Ptr(type_ptr) => {
-                let mutability = if type_ptr.mutability.is_some() { "mut" } else { "const" };
+                let mutability = if type_ptr.mutability.is_some() {
+                    "mut"
+                } else {
+                    "const"
+                };
                 let inner = self.convert_type(&type_ptr.elem);
                 format!("*{} {}", mutability, inner)
-            },
+            }
             // 路径类型：处理泛型参数中的生命周期
-            Type::Path(type_path) => {
-                self.convert_type_path(type_path)
-            },
+            Type::Path(type_path) => self.convert_type_path(type_path),
             // 其他类型：使用默认处理
             _ => {
                 let type_str = ty.to_token_stream().to_string();
@@ -368,14 +384,14 @@ impl Rust2NuConverter {
     /// v1.6.5: 转换类型路径（处理泛型参数中的生命周期）
     fn convert_type_path(&self, type_path: &syn::TypePath) -> String {
         let mut result = String::new();
-        
+
         for (i, segment) in type_path.path.segments.iter().enumerate() {
             if i > 0 {
                 result.push_str("::");
             }
-            
+
             let seg_name = segment.ident.to_string();
-            
+
             // 检查是否是当前作用域中的泛型参数
             if self.is_generic_param(&seg_name) {
                 result.push_str(&seg_name);
@@ -388,55 +404,58 @@ impl Rust2NuConverter {
                     "Arc" => "A",
                     "Mutex" => "X",
                     "Box" => "B",
-                    _ => &seg_name
+                    _ => &seg_name,
                 };
                 result.push_str(abbreviated);
             }
-            
+
             // 处理泛型参数
             match &segment.arguments {
                 syn::PathArguments::AngleBracketed(args) => {
                     result.push('<');
-                    let arg_strs: Vec<String> = args.args.iter().map(|arg| {
-                        match arg {
-                            // 生命周期参数
-                            syn::GenericArgument::Lifetime(l) => {
-                                format!("'{}", l.ident)
-                            },
-                            // 类型参数
-                            syn::GenericArgument::Type(t) => {
-                                self.convert_type(t)
-                            },
-                            // 约束
-                            syn::GenericArgument::Constraint(c) => {
-                                format!("{}: {}", c.ident, self.convert_type_param_bounds(&c.bounds))
-                            },
-                            // 常量
-                            syn::GenericArgument::Const(c) => {
-                                c.to_token_stream().to_string()
-                            },
-                            _ => arg.to_token_stream().to_string()
-                        }
-                    }).collect();
+                    let arg_strs: Vec<String> = args
+                        .args
+                        .iter()
+                        .map(|arg| {
+                            match arg {
+                                // 生命周期参数
+                                syn::GenericArgument::Lifetime(l) => {
+                                    format!("'{}", l.ident)
+                                }
+                                // 类型参数
+                                syn::GenericArgument::Type(t) => self.convert_type(t),
+                                // 约束
+                                syn::GenericArgument::Constraint(c) => {
+                                    format!(
+                                        "{}: {}",
+                                        c.ident,
+                                        self.convert_type_param_bounds(&c.bounds)
+                                    )
+                                }
+                                // 常量
+                                syn::GenericArgument::Const(c) => c.to_token_stream().to_string(),
+                                _ => arg.to_token_stream().to_string(),
+                            }
+                        })
+                        .collect();
                     result.push_str(&arg_strs.join(", "));
                     result.push('>');
-                },
+                }
                 syn::PathArguments::Parenthesized(args) => {
                     result.push('(');
-                    let input_strs: Vec<String> = args.inputs.iter()
-                        .map(|t| self.convert_type(t))
-                        .collect();
+                    let input_strs: Vec<String> =
+                        args.inputs.iter().map(|t| self.convert_type(t)).collect();
                     result.push_str(&input_strs.join(", "));
                     result.push(')');
                     if let syn::ReturnType::Type(_, ty) = &args.output {
                         result.push_str(" -> ");
                         result.push_str(&self.convert_type(ty));
                     }
-                },
+                }
                 syn::PathArguments::None => {}
             }
         }
-        
+
         result
     }
 
@@ -444,7 +463,7 @@ impl Rust2NuConverter {
     fn convert_type_string(&self, type_str: &str) -> String {
         // 🔑 首先清理 to_token_stream() 产生的多余空格
         let type_str = self.clean_token_spaces(type_str);
-        
+
         // 检查是否是单个泛型参数
         let trimmed = type_str.trim();
         if trimmed.len() == 1 && self.is_generic_param(trimmed) {
@@ -467,8 +486,8 @@ impl Rust2NuConverter {
             .replace("Mutex<", "X<")
             .replace("Box<", "B<")
             .replace("&mut", "&!")
-            .replace("*mut", "*mut")  // 保持裸指针的mut关键字
-            .replace("*const", "*const")  // 保持裸指针的const关键字
+            .replace("*mut", "*mut") // 保持裸指针的mut关键字
+            .replace("*const", "*const") // 保持裸指针的const关键字
     }
 
     /// 转换语句
@@ -481,7 +500,7 @@ impl Rust2NuConverter {
                     self.write(&self.convert_attribute(attr));
                     self.write("\n");
                 }
-                
+
                 self.write(&self.indent());
 
                 // let vs let mut
@@ -495,7 +514,7 @@ impl Rust2NuConverter {
                 let converted_pat = self.convert_type_in_string(&pat_str);
                 // 只删除开头的 "mut "（变量名前的mut）
                 let clean_pat = if converted_pat.starts_with("mut ") {
-                    &converted_pat[4..]  // 跳过 "mut "
+                    &converted_pat[4..] // 跳过 "mut "
                 } else {
                     &converted_pat
                 };
@@ -514,7 +533,7 @@ impl Rust2NuConverter {
                 // syn会将其解析为特殊的结构。实际上在Rust中，属性后面跟的语句会被包装。
                 // 但对于我们当前遇到的情况，cfg属性+if语句在syn中可能被解析为其他形式。
                 // 这里我们先处理常规的表达式语句。
-                
+
                 // 处理unsafe块（包括嵌套在其他表达式中的unsafe块）
                 if let Expr::Unsafe(unsafe_expr) = expr {
                     self.write(&self.indent());
@@ -538,8 +557,7 @@ impl Rust2NuConverter {
                     self.write("\n");
                     return;
                 }
-                
-                
+
                 // 处理break和continue (使用br和ct)
                 if let Expr::Break(_) = expr {
                     self.write(&self.indent());
@@ -558,7 +576,7 @@ impl Rust2NuConverter {
                     self.write("\n");
                     return;
                 }
-                
+
                 // 原有的return和macro处理...
                 if let Expr::Return(ret) = expr {
                     self.write(&self.indent());
@@ -569,8 +587,9 @@ impl Rust2NuConverter {
                     self.write("\n");
                 } else if let Expr::Macro(_mac) = expr {
                     self.write(&self.indent());
-                    let macro_str = self.clean_token_spaces(&expr.to_token_stream().to_string())
-                        .replace("vec!", "V!");  // vec! -> V!
+                    let macro_str = self
+                        .clean_token_spaces(&expr.to_token_stream().to_string())
+                        .replace("vec!", "V!"); // vec! -> V!
                     self.write(&macro_str);
                     if semi.is_some() {
                         self.write(";");
@@ -590,8 +609,9 @@ impl Rust2NuConverter {
                 // v1.6: 宏语句，vec!转换为V!，其他保留（println!, assert!, etc.）
                 // 使用 clean_token_spaces 移除 to_token_stream() 插入的空格
                 self.write(&self.indent());
-                let macro_str = self.clean_token_spaces(&mac.mac.to_token_stream().to_string())
-                    .replace("vec!", "V!");  // vec! -> V!
+                let macro_str = self
+                    .clean_token_spaces(&mac.mac.to_token_stream().to_string())
+                    .replace("vec!", "V!"); // vec! -> V!
                 self.write(&macro_str);
                 if mac.semi_token.is_some() {
                     self.write(";");
@@ -664,7 +684,8 @@ impl Rust2NuConverter {
                 let mut result = format!("M {} {{\n", scrutinee);
                 for arm in &match_expr.arms {
                     result.push_str("        ");
-                    result.push_str(&self.clean_token_spaces(&arm.pat.to_token_stream().to_string()));
+                    result
+                        .push_str(&self.clean_token_spaces(&arm.pat.to_token_stream().to_string()));
                     if let Some((_, guard)) = &arm.guard {
                         result.push_str(" ? ");
                         result.push_str(&self.convert_expr(guard));
@@ -686,7 +707,9 @@ impl Rust2NuConverter {
                         Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
                         Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
                         _ => {
-                            result.push_str(&self.clean_token_spaces(&stmt.to_token_stream().to_string()));
+                            result.push_str(
+                                &self.clean_token_spaces(&stmt.to_token_stream().to_string()),
+                            );
                             result.push(' ');
                         }
                     }
@@ -750,7 +773,9 @@ impl Rust2NuConverter {
                             }
                         }
                         _ => {
-                            let stmt_str = self.clean_token_spaces(&stmt.to_token_stream().to_string()).replace("vec!", "V!");
+                            let stmt_str = self
+                                .clean_token_spaces(&stmt.to_token_stream().to_string())
+                                .replace("vec!", "V!");
                             result.push_str(&stmt_str);
                             result.push(' ');
                         }
@@ -796,7 +821,9 @@ impl Rust2NuConverter {
                             }
                         }
                         _ => {
-                            let stmt_str = self.clean_token_spaces(&stmt.to_token_stream().to_string()).replace("vec!", "V!");
+                            let stmt_str = self
+                                .clean_token_spaces(&stmt.to_token_stream().to_string())
+                                .replace("vec!", "V!");
                             result.push_str(&stmt_str);
                             result.push(' ');
                         }
@@ -805,15 +832,13 @@ impl Rust2NuConverter {
                 result.push('}');
                 self.convert_type_in_string(&result)
             }
-            Expr::Break(_) => {
-                String::from("br")
-            }
-            Expr::Continue(_) => {
-                String::from("ct")
-            }
+            Expr::Break(_) => String::from("br"),
+            Expr::Continue(_) => String::from("ct"),
             _ => {
                 // 默认：保持原样但替换类型和vec!宏
-                let expr_str = self.clean_token_spaces(&expr.to_token_stream().to_string()).replace("vec!", "V!");
+                let expr_str = self
+                    .clean_token_spaces(&expr.to_token_stream().to_string())
+                    .replace("vec!", "V!");
                 self.convert_type_in_string(&expr_str)
             }
         }
@@ -823,22 +848,22 @@ impl Rust2NuConverter {
     /// 例如: "V < i32 >" -> "V<i32>", "vec ! []" -> "vec![]", "x . method()" -> "x.method()"
     fn clean_token_spaces(&self, s: &str) -> String {
         let mut result = s.to_string();
-        
+
         // 移除 < > 周围的空格
         result = result.replace(" < ", "<");
         result = result.replace(" <", "<");
         result = result.replace("< ", "<");
-        result = result.replace(" > ", "> ");  // 保留 > 后的空格以便其他替换
+        result = result.replace(" > ", "> "); // 保留 > 后的空格以便其他替换
         result = result.replace(" >", ">");
-        
+
         // 移除 :: 周围的空格
         result = result.replace(" :: ", "::");
         result = result.replace(" ::", "::");
         result = result.replace(":: ", "::");
-        
+
         // 移除 ! 前的空格（用于宏调用如 vec ! [] -> vec![]）
         result = result.replace(" !", "!");
-        
+
         // 移除 [ ] ( ) { } 周围的空格
         result = result.replace(" [", "[");
         result = result.replace("[ ", "[");
@@ -848,49 +873,50 @@ impl Rust2NuConverter {
         result = result.replace(" )", ")");
         result = result.replace("{ ", "{");
         result = result.replace(" }", "}");
-        
+
         // 移除逗号前的空格，保留逗号后的空格
         result = result.replace(" ,", ",");
-        
+
         // 移除分号前的空格
         result = result.replace(" ;", ";");
-        
+
         // 移除方法调用中 . 周围的空格（如 "x . method()" -> "x.method()"）
         result = result.replace(" . ", ".");
         result = result.replace(" .", ".");
         result = result.replace(". ", ".");
-        
+
         // 但是要特别处理浮点数 - "1. 0" 不应该变成 "1.0"（syn不会这样输出，所以这里不需要特别处理）
-        
+
         // 移除类型注解冒号后面的多余空格（但保留一个空格）
         // "x : Type" -> "x: Type" (保持 ": " 的格式)
         result = result.replace(" : ", ": ");
-        
+
         // 修复 "identifier :(" -> "identifier: (" 的格式（元组类型注解）
         // 需要在冒号后添加空格
-        result = result.replace(": (", ": (");  // 已经正确了
-        result = result.replace(":(", ": (");   // 修复紧贴的情况
-        
+        result = result.replace(": (", ": ("); // 已经正确了
+        result = result.replace(":(", ": ("); // 修复紧贴的情况
+
         // 修复空闭包管道: "| |" -> "||"
         result = result.replace("| |", "||");
-        
+
         // 修复 *= += -= 等复合赋值运算符周围的空格
-        result = result.replace("* ", "*");  // 解引用符后不需要空格
-        
+        result = result.replace("* ", "*"); // 解引用符后不需要空格
+
         result
     }
-    
+
     fn convert_type_in_string(&self, s: &str) -> String {
         // v1.7.3: 智能类型替换，避免将泛型参数误替换为关键字
         // 例如：where M: Display 不应该变成 where match: Display
-        
+
         // 🔑 首先清理 to_token_stream() 产生的多余空格
         let s = self.clean_token_spaces(s);
-        
+
         // 先检查是否包含单字母泛型参数（如 <M>、<T>、where M:）
         // 这些情况下不进行类型名称的替换
-        let has_generic_param_context = s.contains("where ") || s.contains("impl<") || s.contains("impl <");
-        
+        let has_generic_param_context =
+            s.contains("where ") || s.contains("impl<") || s.contains("impl <");
+
         let mut result = s.to_string();
         let mut protected_parts = Vec::new();
 
@@ -948,7 +974,7 @@ impl Rust2NuConverter {
                 .replace("Mutex::", "__MUTEX_PATH__")
                 .replace("Box :: ", "__BOX_PATH_SP__")
                 .replace("Box::", "__BOX_PATH__");
-            
+
             // 执行类型名替换
             result = result
                 .replace("Vec", "V")
@@ -958,8 +984,8 @@ impl Rust2NuConverter {
                 .replace("Mutex", "X")
                 .replace("Box", "B")
                 .replace("& mut", "&!")
-                .replace("vec!", "V!");  // vec! -> V!
-            
+                .replace("vec!", "V!"); // vec! -> V!
+
             // 恢复路径前缀（保持完整类型名）
             result = result
                 .replace("__VEC_PATH_SP__", "Vec::")
@@ -996,14 +1022,17 @@ impl Rust2NuConverter {
         self.indent_level -= 1;
         self.writeln("}");
     }
-    
+
     /// 递归检测表达式中是否包含嵌套的unsafe块
     fn contains_nested_unsafe(expr: &Expr) -> bool {
         match expr {
             Expr::Unsafe(_) => true,
             Expr::Match(expr_match) => {
                 // 检查match的每个分支
-                expr_match.arms.iter().any(|arm| Self::contains_nested_unsafe(&arm.body))
+                expr_match
+                    .arms
+                    .iter()
+                    .any(|arm| Self::contains_nested_unsafe(&arm.body))
             }
             Expr::If(expr_if) => {
                 // 检查if的then分支
@@ -1015,9 +1044,10 @@ impl Rust2NuConverter {
                     }
                 });
                 // 检查else分支
-                let else_has_unsafe = expr_if.else_branch.as_ref().map_or(false, |(_, e)| {
-                    Self::contains_nested_unsafe(e)
-                });
+                let else_has_unsafe = expr_if
+                    .else_branch
+                    .as_ref()
+                    .map_or(false, |(_, e)| Self::contains_nested_unsafe(e));
                 then_has_unsafe || else_has_unsafe
             }
             Expr::Block(expr_block) => {
@@ -1030,37 +1060,31 @@ impl Rust2NuConverter {
                     }
                 })
             }
-            Expr::Loop(loop_expr) => {
-                loop_expr.body.stmts.iter().any(|stmt| {
-                    if let Stmt::Expr(e, _) = stmt {
-                        Self::contains_nested_unsafe(e)
-                    } else {
-                        false
-                    }
-                })
-            }
-            Expr::ForLoop(for_loop) => {
-                for_loop.body.stmts.iter().any(|stmt| {
-                    if let Stmt::Expr(e, _) = stmt {
-                        Self::contains_nested_unsafe(e)
-                    } else {
-                        false
-                    }
-                })
-            }
-            Expr::While(while_expr) => {
-                while_expr.body.stmts.iter().any(|stmt| {
-                    if let Stmt::Expr(e, _) = stmt {
-                        Self::contains_nested_unsafe(e)
-                    } else {
-                        false
-                    }
-                })
-            }
+            Expr::Loop(loop_expr) => loop_expr.body.stmts.iter().any(|stmt| {
+                if let Stmt::Expr(e, _) = stmt {
+                    Self::contains_nested_unsafe(e)
+                } else {
+                    false
+                }
+            }),
+            Expr::ForLoop(for_loop) => for_loop.body.stmts.iter().any(|stmt| {
+                if let Stmt::Expr(e, _) = stmt {
+                    Self::contains_nested_unsafe(e)
+                } else {
+                    false
+                }
+            }),
+            Expr::While(while_expr) => while_expr.body.stmts.iter().any(|stmt| {
+                if let Stmt::Expr(e, _) = stmt {
+                    Self::contains_nested_unsafe(e)
+                } else {
+                    false
+                }
+            }),
             _ => false,
         }
     }
-    
+
     /// 检查块是否包含unsafe代码（如unsafe块或unsafe static赋值）
     fn block_contains_unsafe(&self, block: &Block) -> bool {
         for stmt in &block.stmts {
@@ -1071,7 +1095,9 @@ impl Rust2NuConverter {
                 // 检查赋值语句是否涉及static变量
                 if let Expr::Assign(assign) = expr {
                     let left_str = assign.left.to_token_stream().to_string();
-                    if left_str.to_uppercase() == left_str && left_str.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    if left_str.to_uppercase() == left_str
+                        && left_str.chars().all(|c| c.is_alphanumeric() || c == '_')
+                    {
                         // 可能是LOGGER这样的static变量
                         return true;
                     }
@@ -1115,7 +1141,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(&cleaned_attr);
             }
         }
-        
+
         for item in &node.items {
             self.visit_item(item);
             self.output.push('\n');
@@ -1142,8 +1168,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     .replace(" )", ")")
                     .replace(" ,", ",")
                     .replace(" ;", ";")
-                    .replace("! {", "! {")  // 保持macro_rules!和{之间的空格
-                    .replace("macro_rules!", "macro_rules!");  // 确保宏名后无多余空格
+                    .replace("! {", "! {") // 保持macro_rules!和{之间的空格
+                    .replace("macro_rules!", "macro_rules!"); // 确保宏名后无多余空格
                 self.writeln(&cleaned_macro);
             }
             Item::Mod(m) => {
@@ -1164,12 +1190,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 }
 
                 // Nu v1.6.3: DM=pub mod, D=mod
-                let keyword = if self.is_public(&m.vis) {
-                    "DM"
-                } else {
-                    "D"
-                };
-                
+                let keyword = if self.is_public(&m.vis) { "DM" } else { "D" };
+
                 if let Some((_, items)) = &m.content {
                     // 内联模块：mod name { ... }
                     self.write(keyword);
@@ -1204,7 +1226,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         self.writeln(&cleaned_attr);
                     }
                 }
-                
+
                 let use_str = u.to_token_stream().to_string();
                 let nu_use = if self.is_public(&u.vis) {
                     use_str.replace("pub use", "U").replace("use", "U")
@@ -1264,12 +1286,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
     fn visit_item_struct(&mut self, node: &'ast ItemStruct) {
         // 进入泛型作用域
         self.push_generic_scope(&node.generics);
-        
+
         // Nu v1.6.3: 输出所有属性（derive、cfg等）
         for attr in &node.attrs {
             self.writeln(&self.convert_attribute(attr));
         }
-        
+
         // Nu v1.5.1: 只有 S（移除了 s）
         // 可见性由标识符首字母决定（Go风格）
         // 根据可见性决定使用 S 或 s (v1.7.2: pub(crate)也视为public)
@@ -1285,11 +1307,17 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         if !node.generics.params.is_empty() {
             self.write(&self.convert_generics(&node.generics));
         }
-        
+
         // v1.7.5: 结构体的 where 子句支持（关键修复！）
         if let Some(where_clause) = &node.generics.where_clause {
             self.write(" wh ");
-            self.write(&where_clause.to_token_stream().to_string().replace("where", "").trim());
+            self.write(
+                &where_clause
+                    .to_token_stream()
+                    .to_string()
+                    .replace("where", "")
+                    .trim(),
+            );
         }
 
         // 字段
@@ -1314,7 +1342,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                             self.writeln(&cleaned_attr);
                         }
                     }
-                    
+
                     self.write(&self.indent());
                     if let Some(ident) = &field.ident {
                         self.write(&ident.to_string());
@@ -1342,7 +1370,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(";");
             }
         }
-        
+
         // 退出泛型作用域
         self.pop_generic_scope();
     }
@@ -1434,11 +1462,11 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         self.write(&self.convert_attribute(attr));
                         self.write("\n");
                     }
-                    
+
                     let sig_str = self.convert_fn_signature(&method.sig, &Visibility::Inherited);
                     self.write(&self.indent());
                     self.write(&sig_str);
-                    
+
                     // 检查是否有默认实现（方法体）
                     if let Some(block) = &method.default {
                         // 有默认实现：输出函数体
@@ -1454,14 +1482,14 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.write(&self.indent());
                     self.write("t ");
                     self.write(&assoc_type.ident.to_string());
-                    
+
                     // 处理类型约束 (如 : 'a)
                     if !assoc_type.bounds.is_empty() {
                         self.write(": ");
                         let bounds_str = self.convert_type_param_bounds(&assoc_type.bounds);
                         self.write(&bounds_str);
                     }
-                    
+
                     self.writeln(";");
                 }
                 syn::TraitItem::Const(const_item) => {
@@ -1471,13 +1499,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.write(&const_item.ident.to_string());
                     self.write(": ");
                     self.write(&self.convert_type(&const_item.ty));
-                    
+
                     // 检查是否有默认值
                     if let Some((_, expr)) = &const_item.default {
                         self.write(" = ");
                         self.write(&expr.to_token_stream().to_string());
                     }
-                    
+
                     self.writeln(";");
                 }
                 _ => {
@@ -1493,7 +1521,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
     fn visit_item_impl(&mut self, node: &'ast ItemImpl) {
         // 进入泛型作用域，记录impl的泛型参数
         self.push_generic_scope(&node.generics);
-        
+
         // Nu v1.6.3: 保留 #[cfg] 属性
         for attr in &node.attrs {
             let attr_str = attr.to_token_stream().to_string();
@@ -1509,13 +1537,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(&cleaned_attr);
             }
         }
-        
+
         // v1.7.3: unsafe impl保持完整关键字，不缩写
         // 原因：避免与use语句混淆（"unsafe impl" vs "use I"）
         if node.unsafety.is_some() {
             self.write("unsafe ");
         }
-        
+
         self.write("impl");
 
         // v1.6.5: 泛型（完整保留生命周期）
@@ -1532,11 +1560,17 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         }
 
         self.write(&self.convert_type(&node.self_ty));
-        
+
         // where子句 - 保留trait约束
         if let Some(where_clause) = &node.generics.where_clause {
             self.write(" wh ");
-            self.write(&where_clause.to_token_stream().to_string().replace("where", "").trim());
+            self.write(
+                &where_clause
+                    .to_token_stream()
+                    .to_string()
+                    .replace("where", "")
+                    .trim(),
+            );
         }
 
         self.writeln(" {");
@@ -1561,7 +1595,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                             self.writeln(&cleaned_attr);
                         }
                     }
-                    
+
                     let sig_str = self.convert_fn_signature(&method.sig, &method.vis);
                     self.write(&self.indent());
                     self.write(&sig_str);
@@ -1596,7 +1630,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
 
         self.indent_level -= 1;
         self.writeln("}");
-        
+
         // 退出泛型作用域
         self.pop_generic_scope();
     }
@@ -1607,4 +1641,3 @@ impl Default for Rust2NuConverter {
         Self::new()
     }
 }
-

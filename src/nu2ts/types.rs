@@ -16,8 +16,8 @@ pub struct TsConfig {
 
 #[derive(Clone, PartialEq)]
 pub enum RuntimeMode {
-    Inline,  // 注入到每个文件
-    Import,  // 外部模块引用
+    Inline, // 注入到每个文件
+    Import, // 外部模块引用
 }
 
 #[derive(Clone, PartialEq)]
@@ -69,7 +69,7 @@ pub(crate) struct ImplInfo {
 pub(crate) struct ConversionContext {
     pub in_trait: bool,
     pub in_impl: bool,
-    pub in_enum_impl: bool,  // 新增：标记是否在enum的impl中（生成namespace）
+    pub in_enum_impl: bool, // 新增：标记是否在enum的impl中（生成namespace）
     pub in_function: bool,
     pub temp_var_counter: usize,
     pub current_class: Option<String>,
@@ -81,7 +81,7 @@ pub(crate) struct ConversionContext {
     pub current_struct: Option<String>,
     pub current_enum: Option<String>,
     pub current_impl: Option<String>,
-    pub current_impl_enum: Option<String>,  // 新增：当前enum impl的名称
+    pub current_impl_enum: Option<String>, // 新增：当前enum impl的名称
 }
 
 impl ConversionContext {
@@ -90,7 +90,7 @@ impl ConversionContext {
         self.temp_var_counter += 1;
         var
     }
-    
+
     pub fn reset_temp_counter(&mut self) {
         self.temp_var_counter = 0;
     }
@@ -109,8 +109,8 @@ pub(crate) struct MatchAst {
 #[derive(Debug, Clone)]
 pub(crate) struct MatchArm {
     pub pattern: MatchPattern,
-    pub guard: Option<String>,       // 守卫条件 (暂不支持)
-    pub body: String,                // 分支体代码
+    pub guard: Option<String>, // 守卫条件 (暂不支持)
+    pub body: String,          // 分支体代码
 }
 
 #[derive(Debug, Clone)]

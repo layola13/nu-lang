@@ -8,10 +8,7 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     /// use 声明: u std::io::{self, Write}
-    Use {
-        path: String,
-        items: Vec<String>,
-    },
+    Use { path: String, items: Vec<String> },
 
     /// 函数定义: F/f name(params) -> type { body }
     Function(FunctionDef),
@@ -71,7 +68,7 @@ pub struct EnumDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
-    pub fields: Option<Vec<Type>>,  // 元组变体的字段类型
+    pub fields: Option<Vec<Type>>, // 元组变体的字段类型
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,9 +127,7 @@ pub enum Expr {
     },
 
     /// Loop: L { body }
-    Loop {
-        body: Box<Expr>,
-    },
+    Loop { body: Box<Expr> },
 
     /// For 循环: for (i, item) in iter { body }
     For {
@@ -151,15 +146,10 @@ pub enum Expr {
     Continue,
 
     /// Try 操作符: expr!
-    TryOp {
-        expr: Box<Expr>,
-    },
+    TryOp { expr: Box<Expr> },
 
     /// 函数调用: func(args)
-    Call {
-        func: Box<Expr>,
-        args: Vec<Expr>,
-    },
+    Call { func: Box<Expr>, args: Vec<Expr> },
 
     /// 方法调用: expr.method(args)
     MethodCall {
@@ -169,16 +159,10 @@ pub enum Expr {
     },
 
     /// 字段访问: expr.field
-    Field {
-        object: Box<Expr>,
-        field: String,
-    },
+    Field { object: Box<Expr>, field: String },
 
     /// 索引访问: expr[index]
-    Index {
-        object: Box<Expr>,
-        index: Box<Expr>,
-    },
+    Index { object: Box<Expr>, index: Box<Expr> },
 
     /// 二元操作: left op right
     Binary {
@@ -188,10 +172,7 @@ pub enum Expr {
     },
 
     /// 一元操作: op expr
-    Unary {
-        op: UnOp,
-        expr: Box<Expr>,
-    },
+    Unary { op: UnOp, expr: Box<Expr> },
 
     /// 块表达式: { stmts }
     Block {
@@ -221,15 +202,10 @@ pub enum Expr {
     },
 
     /// 宏调用: name!(args)
-    Macro {
-        name: String,
-        args: String,
-    },
+    Macro { name: String, args: String },
 
     /// 路径表达式: Type::method
-    Path {
-        segments: Vec<String>,
-    },
+    Path { segments: Vec<String> },
 
     /// 标识符
     Ident(String),
@@ -267,10 +243,7 @@ pub enum Pattern {
     /// None
     OptionNone,
     /// 枚举变体: Enum::Variant(bindings)
-    EnumVariant {
-        path: String,
-        bindings: Vec<String>,
-    },
+    EnumVariant { path: String, bindings: Vec<String> },
     /// 字面量
     Literal(Literal),
     /// 通配符 _
@@ -292,10 +265,7 @@ pub enum Type {
     /// 基础类型
     Named(String),
     /// 泛型: Vec<T>
-    Generic {
-        base: String,
-        params: Vec<Type>,
-    },
+    Generic { base: String, params: Vec<Type> },
     /// 元组: (A, B)
     Tuple(Vec<Type>),
     /// 函数类型: fn(A) -> B
@@ -304,10 +274,7 @@ pub enum Type {
         return_type: Box<Type>,
     },
     /// 引用: &T, &!T
-    Reference {
-        is_mut: bool,
-        inner: Box<Type>,
-    },
+    Reference { is_mut: bool, inner: Box<Type> },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -321,30 +288,30 @@ pub enum Literal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
-    Add,      // +
-    Sub,      // -
-    Mul,      // *
-    Div,      // /
-    Mod,      // %
-    And,      // &&
-    Or,       // ||
-    Eq,       // ==
-    Ne,       // !=
-    Lt,       // <
-    Le,       // <=
-    Gt,       // >
-    Ge,       // >=
-    Assign,   // =
-    Range,    // ..
+    Add,    // +
+    Sub,    // -
+    Mul,    // *
+    Div,    // /
+    Mod,    // %
+    And,    // &&
+    Or,     // ||
+    Eq,     // ==
+    Ne,     // !=
+    Lt,     // <
+    Le,     // <=
+    Gt,     // >
+    Ge,     // >=
+    Assign, // =
+    Range,  // ..
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnOp {
-    Not,      // !
-    Neg,      // -
-    Deref,    // *
-    Ref,      // &
-    RefMut,   // &!
+    Not,    // !
+    Neg,    // -
+    Deref,  // *
+    Ref,    // &
+    RefMut, // &!
 }
 
 // ============ 文件 ============
@@ -367,7 +334,9 @@ impl fmt::Display for Expr {
             Expr::If { .. } => write!(f, "if {{ ... }}"),
             Expr::Block { stmts, .. } => write!(f, "{{ {} stmts }}", stmts.len()),
             Expr::Macro { name, .. } => write!(f, "{}!(...)", name),
-            Expr::EnumVariant { enum_name, variant, .. } => write!(f, "{}::{}", enum_name, variant),
+            Expr::EnumVariant {
+                enum_name, variant, ..
+            } => write!(f, "{}::{}", enum_name, variant),
             _ => write!(f, "<expr>"),
         }
     }
@@ -425,7 +394,10 @@ impl fmt::Display for Type {
                     write!(f, "&{}", inner)
                 }
             }
-            Type::Function { params, return_type } => {
+            Type::Function {
+                params,
+                return_type,
+            } => {
                 write!(f, "fn(")?;
                 for (i, p) in params.iter().enumerate() {
                     if i > 0 {

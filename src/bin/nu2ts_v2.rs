@@ -5,7 +5,7 @@ use nu_compiler::nu2ts::{Nu2TsConverterV2, TsConfig};
 
 fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().collect();
-    
+
     if args.len() < 2 {
         eprintln!("Usage: nu2ts_v2 <input.nu>");
         std::process::exit(1);
@@ -18,6 +18,6 @@ fn main() -> anyhow::Result<()> {
     let ts_code = converter.convert(&nu_code)?;
 
     println!("{}", ts_code);
-    
+
     Ok(())
 }

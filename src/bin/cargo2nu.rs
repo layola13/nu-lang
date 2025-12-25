@@ -77,7 +77,7 @@ fn get_workspace_members(cargo_toml_path: &Path) -> Result<Vec<String>> {
 
     for line in content.lines() {
         let line = line.trim();
-        
+
         if line.starts_with("[workspace]") {
             in_workspace = true;
             continue;
@@ -93,7 +93,7 @@ fn get_workspace_members(cargo_toml_path: &Path) -> Result<Vec<String>> {
             if line.contains('[') && line.contains(']') {
                 let start = line.find('[').unwrap();
                 let end = line.find(']').unwrap();
-                let members_str = &line[start+1..end];
+                let members_str = &line[start + 1..end];
                 for member in members_str.split(',') {
                     let member = member.trim().trim_matches('"').trim_matches('\'');
                     if !member.is_empty() {
@@ -126,11 +126,11 @@ fn convert_project(input_dir: &Path, output_dir: &Path) -> Result<()> {
     fs::create_dir_all(output_dir)?;
 
     let cargo_toml = input_dir.join("Cargo.toml");
-    
+
     // 检查是否为workspace
     if cargo_toml.exists() && is_workspace(&cargo_toml)? {
         println!("检测到Workspace结构");
-        
+
         // 转换根Cargo.toml -> Nu.toml
         let cargo_content = fs::read_to_string(&cargo_toml)?;
         let nu_content = convert_cargo_toml_to_nu_toml(&cargo_content)?;
@@ -145,7 +145,7 @@ fn convert_project(input_dir: &Path, output_dir: &Path) -> Result<()> {
         for member in members {
             let member_input = input_dir.join(&member);
             let member_output = output_dir.join(&member);
-            
+
             if member_input.exists() {
                 println!("\n转换成员: {}", member);
                 convert_single_project(&member_input, &member_output)?;
@@ -213,7 +213,7 @@ fn convert_rust_files_recursive(
             let nu_content = converter.convert(&rust_content)?;
 
             fs::write(&output_path, nu_content)?;
-            
+
             // 计算相对路径用于显示
             let relative_path = path.strip_prefix(base_src_dir).unwrap_or(&path);
             let nu_relative = relative_path.with_extension("nu");

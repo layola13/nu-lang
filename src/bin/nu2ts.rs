@@ -317,7 +317,13 @@ fn convert_project(
     // 转换src目录下的所有.nu文件
     let input_src = input_dir.join("src");
     if input_src.exists() {
-        convert_directory_recursive(converter, &input_src, Some(&src_dir), cli.force, cli.verbose)?;
+        convert_directory_recursive(
+            converter,
+            &input_src,
+            Some(&src_dir),
+            cli.force,
+            cli.verbose,
+        )?;
     }
 
     // 生成package.json
@@ -333,7 +339,7 @@ fn convert_project(
         use nu_compiler::nu2ts::runtime;
         fs::write(
             src_dir.join("nu_runtime.ts"),
-            runtime::generate_runtime_file_content()
+            runtime::generate_runtime_file_content(),
         )?;
         println!("✓ Generated nu_runtime.ts");
     }
@@ -385,10 +391,7 @@ fn generate_package_json(output_dir: &PathBuf, input_dir: &PathBuf) -> Result<()
             .unwrap_or("0.1.0");
         (name.to_string(), version.to_string())
     } else {
-        (
-            "nu-project".to_string(),
-            "0.1.0".to_string(),
-        )
+        ("nu-project".to_string(), "0.1.0".to_string())
     };
 
     let package_json = format!(

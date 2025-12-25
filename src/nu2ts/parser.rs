@@ -3,7 +3,7 @@
 // 策略：精确解析核心语法（Match、函数签名），透传复杂结构
 
 use super::ast::*;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 
 // ============ Parser ============
 
@@ -48,18 +48,20 @@ impl Parser {
     /// 解析 Stmt 列表（向后兼容）
     pub fn parse(&mut self) -> Result<Vec<Stmt>> {
         let file = self.parse_file()?;
-        
+
         // 将 Item 转换为 Stmt（用于旧的接口）
-        let stmts: Vec<Stmt> = file.items.into_iter().filter_map(|item| {
-            match item {
+        let stmts: Vec<Stmt> = file
+            .items
+            .into_iter()
+            .filter_map(|item| match item {
                 Item::Function(f) => Some(Stmt::ExprStmt(Box::new(Expr::Block {
                     stmts: vec![],
                     trailing_expr: None,
                 }))),
                 Item::Raw(s) => Some(Stmt::Raw(s)),
                 _ => None,
-            }
-        }).collect();
+            })
+            .collect();
 
         Ok(stmts)
     }
@@ -147,7 +149,7 @@ impl Parser {
 
         // 解析函数签名
         let (name, params, return_type) = self.parse_function_signature(content)?;
-        
+
         // 解析前必须推进到下一行，因为 parse_block_body 期望开始于内容行或大括号
         // 如果当前行包含 {，在 parse_block_body 中会处理但我们这里已经解析过签名
         // 然而 parse_block_body 检查当前行开始。
@@ -184,18 +186,18 @@ impl Parser {
         // 解析字段
         let fields_raw = self.collect_block()?;
         let mut fields = vec![];
-        
+
         for field_line in &fields_raw {
             let field_line = field_line.trim();
             if field_line.is_empty() || field_line.starts_with("//") {
                 continue;
             }
-            
+
             // 格式: name: type ,
             let field_line = field_line.trim_end_matches(',').trim();
             if let Some(colon_pos) = field_line.find(':') {
                 let fname = field_line[..colon_pos].trim().to_string();
-                let ftype_str = field_line[colon_pos+1..].trim();
+                let ftype_str = field_line[colon_pos + 1..].trim();
                 let ftype = self.parse_type(ftype_str);
                 fields.push(Field {
                     name: fname,
@@ -328,7 +330,10 @@ impl Parser {
 
     // ============ 函数签名解析 ============
 
-    fn parse_function_signature(&self, content: &str) -> Result<(String, Vec<Param>, Option<Type>)> {
+    fn parse_function_signature(
+        &self,
+        content: &str,
+    ) -> Result<(String, Vec<Param>, Option<Type>)> {
         let name = content.split('(').next().unwrap_or("").trim().to_string();
 
         let mut params = vec![];
@@ -338,13 +343,13 @@ impl Parser {
         if let Some(start) = content.find('(') {
             let end = self.find_matching_paren(content, start);
             if end > start {
-                let params_str = &content[start+1..end];
+                let params_str = &content[start + 1..end];
                 if !params_str.trim().is_empty() {
                     for param_str in self.split_params(params_str) {
                         let param_str = param_str.trim();
                         if let Some(colon_pos) = param_str.find(':') {
                             let param_name = param_str[..colon_pos].trim();
-                            let param_type_str = param_str[colon_pos+1..].trim();
+                            let param_type_str = param_str[colon_pos + 1..].trim();
 
                             // 检查是否是引用或可变引用
                             let (is_ref, is_mut, type_str) = if param_name.starts_with("&!") {
@@ -369,7 +374,7 @@ impl Parser {
 
         // 解析返回类型
         if let Some(arrow_pos) = content.find("->") {
-            let after_arrow = &content[arrow_pos+2..];
+            let after_arrow = &content[arrow_pos + 2..];
             let type_str = after_arrow.split('{').next().unwrap_or("").trim();
             if !type_str.is_empty() {
                 return_type = Some(self.parse_type(type_str));
@@ -387,7 +392,11 @@ impl Parser {
 
         // 检查当前行是否包含 {
         let current = self.current_line().to_string();
-        println!("DEBUG: block start line='{}' depth={}", current.trim(), brace_depth);
+        println!(
+            "DEBUG: block start line='{}' depth={}",
+            current.trim(),
+            brace_depth
+        );
         if current.contains('{') {
             brace_depth = 1;
             // 如果仅是 {，跳过
@@ -410,23 +419,24 @@ impl Parser {
                     break;
                 }
             }
-            
+
             // 更新深度跟踪
             if line.contains('{') {
-                 brace_depth += line.matches('{').count();
+                brace_depth += line.matches('{').count();
             }
-            if line.contains('}') && line != "}" { // mixed line
-                 brace_depth = brace_depth.saturating_sub(line.matches('}').count());
-                 if brace_depth == 0 {
-                     // End of block in mixed line?
-                     // Usually handled by parse_stmt.
-                 }
+            if line.contains('}') && line != "}" {
+                // mixed line
+                brace_depth = brace_depth.saturating_sub(line.matches('}').count());
+                if brace_depth == 0 {
+                    // End of block in mixed line?
+                    // Usually handled by parse_stmt.
+                }
             }
-            
+
             // 简单的结束检查
             if brace_depth == 0 && (line == "}" || line == "};") {
-                 self.advance();
-                 break;
+                self.advance();
+                break;
             }
 
             let start_line = self.current_line;
@@ -437,12 +447,12 @@ impl Parser {
                     self.advance();
                 }
             } else {
-                 if self.current_line().trim() != "}" {
+                if self.current_line().trim() != "}" {
                     self.advance();
-                 }
+                }
             }
         }
-        
+
         Ok(stmts)
     }
 
@@ -473,7 +483,6 @@ impl Parser {
         }
 
         // ... existing match/if code ...
-
 
         // If 表达式
         if line.starts_with("? ") {
@@ -506,16 +515,16 @@ impl Parser {
 
         // 结构体初始化: Name { field: value } - 必须是顶层的 Name { ... }
         // 排除：宏调用(!), 函数调用中的结构体({在(之后), 格式字符串("{}")
-        let is_struct_init = line.contains('{') && 
-            line.contains(':') && 
-            !line.contains("=>") && 
-            !line.starts_with("//") &&
-            !line.contains("!(") && 
-            !line.contains("! (") &&
-            !line.contains("![") &&
-            !line.contains("\"{") && // 格式字符串
-            !line.contains("{}");    // 格式占位符
-        
+        let is_struct_init = line.contains('{')
+            && line.contains(':')
+            && !line.contains("=>")
+            && !line.starts_with("//")
+            && !line.contains("!(")
+            && !line.contains("! (")
+            && !line.contains("![")
+            && !line.contains("\"{")
+            && !line.contains("{}"); // 格式占位符
+
         if is_struct_init {
             // 进一步检查：{ 应该在函数括号之前，或者没有函数括号
             let brace_pos = line.find('{').unwrap_or(line.len());
@@ -528,10 +537,16 @@ impl Parser {
         }
 
         // 宏调用和一般表达式 - 尝试解析
-        if line.contains("!(") || line.contains("! (") || 
-           line.contains("![") || line.contains("! [") ||
-           line.contains('(') || line.contains('.') ||
-           line.contains("::") || line.contains('+') || line.contains('-') {
+        if line.contains("!(")
+            || line.contains("! (")
+            || line.contains("![")
+            || line.contains("! [")
+            || line.contains('(')
+            || line.contains('.')
+            || line.contains("::")
+            || line.contains('+')
+            || line.contains('-')
+        {
             if let Ok(expr) = self.parse_expr_string(&line) {
                 if !matches!(expr, Expr::Ident(ref s) if s == &line) {
                     return Ok(Some(Stmt::ExprStmt(Box::new(expr))));
@@ -563,7 +578,7 @@ impl Parser {
         // 提取变量名和类型
         let (name, ty) = if let Some(colon_pos) = name_part.find(':') {
             let n = name_part[..colon_pos].trim().to_string();
-            let t = self.parse_type(&name_part[colon_pos+1..]);
+            let t = self.parse_type(&name_part[colon_pos + 1..]);
             (n, Some(t))
         } else {
             (name_part.to_string(), None)
@@ -574,7 +589,7 @@ impl Parser {
             Expr::Literal(Literal::Null)
         } else {
             let value_trimmed = value_str.trim_end_matches(';').trim();
-            
+
             // 检查是否是闭包: |params| body 或 $|params| body
             if value_trimmed.starts_with('|') || value_trimmed.starts_with("$|") {
                 // 闭包可能跨越多行，需要收集完整的闭包体
@@ -586,10 +601,13 @@ impl Parser {
                 self.parse_match_from_value(value_trimmed)?
             }
             // 检查是否是结构体初始化: Name { field: value }
-            else if value_trimmed.contains('{') && value_trimmed.contains(':') && !value_trimmed.contains("=>") && !value_trimmed.contains('|') {
+            else if value_trimmed.contains('{')
+                && value_trimmed.contains(':')
+                && !value_trimmed.contains("=>")
+                && !value_trimmed.contains('|')
+            {
                 self.parse_struct_init(value_trimmed)?
-            }
-            else {
+            } else {
                 self.parse_expr_string(value_trimmed)?
             }
         };
@@ -604,29 +622,33 @@ impl Parser {
 
     fn parse_struct_init(&self, s: &str) -> Result<Expr> {
         let trimmed = s.trim();
-        
+
         // 格式: Name { field: value, ... }
         if let Some(brace_pos) = trimmed.find('{') {
             let name = trimmed[..brace_pos].trim().to_string();
-            let fields_str = &trimmed[brace_pos+1..].trim_end_matches('}').trim_end_matches(',');
-            
+            let fields_str = &trimmed[brace_pos + 1..]
+                .trim_end_matches('}')
+                .trim_end_matches(',');
+
             let mut fields = vec![];
             // 简化解析: 按逗号分割
             for field_def in self.split_params(fields_str) {
                 let field_def = field_def.trim();
-                if field_def.is_empty() { continue; }
-                
+                if field_def.is_empty() {
+                    continue;
+                }
+
                 if let Some(colon_pos) = field_def.find(':') {
                     let fname = field_def[..colon_pos].trim().to_string();
-                    let fvalue_str = field_def[colon_pos+1..].trim();
+                    let fvalue_str = field_def[colon_pos + 1..].trim();
                     let fvalue = self.parse_expr_string(fvalue_str)?;
                     fields.push((fname, fvalue));
                 }
             }
-            
+
             return Ok(Expr::StructInit { name, fields });
         }
-        
+
         // 回退
         self.parse_expr_string(trimmed)
     }
@@ -636,17 +658,17 @@ impl Parser {
         if first_line.ends_with("};") || first_line.ends_with('}') {
             return Ok(first_line.to_string());
         }
-        
+
         // 找到当前行后收集需要的行
         // 简化：由于Parser是按行处理的，这里直接返回第一行
         // 多行闭包在实际使用中应该由parse_block_body处理
-        
+
         // 检查是否有开始的 {
         if first_line.contains('{') {
             // 闭包体开始，需要收集到对应的 }
             let mut full = first_line.to_string();
             let mut brace_depth = first_line.matches('{').count() - first_line.matches('}').count();
-            
+
             // 注意：这里我们不能前进Parser，只能返回当前行
             // 实际的多行收集需要在parse_let层面处理
             if brace_depth > 0 {
@@ -655,14 +677,14 @@ impl Parser {
             }
             return Ok(full);
         }
-        
+
         Ok(first_line.to_string())
     }
 
     fn parse_closure_expr(&self, s: &str) -> Result<Expr> {
         let trimmed = s.trim();
         println!("DEBUG: parse_closure_expr input='{}'", trimmed);
-        
+
         // 检查是否是 move 闭包: $|params|
         let is_move = trimmed.starts_with("$|");
         let content = if is_move {
@@ -670,21 +692,23 @@ impl Parser {
         } else {
             &trimmed[1..] // 跳过 "|"
         };
-        
+
         // 找到参数结束的 |
         let param_end = content.find('|').unwrap_or(0);
         let params_str = &content[..param_end];
-        let rest = &content[param_end+1..].trim();
-        
+        let rest = &content[param_end + 1..].trim();
+
         // 解析参数
         let mut params = vec![];
         for param_str in self.split_params(params_str) {
             let param_str = param_str.trim();
-            if param_str.is_empty() { continue; }
-            
+            if param_str.is_empty() {
+                continue;
+            }
+
             if let Some(colon_pos) = param_str.find(':') {
                 let name = param_str[..colon_pos].trim().to_string();
-                let ty = self.parse_type(&param_str[colon_pos+1..]);
+                let ty = self.parse_type(&param_str[colon_pos + 1..]);
                 params.push(Param {
                     name,
                     ty,
@@ -700,7 +724,7 @@ impl Parser {
                 });
             }
         }
-        
+
         // 检查返回类型: -> type
         let (return_type, body_str) = if rest.starts_with("->") {
             let after_arrow = rest[2..].trim();
@@ -716,12 +740,15 @@ impl Parser {
         } else {
             (None, *rest)
         };
-        
+
         // 解析body
         // println!("DEBUG: parsing closure expression body='{}'", body_str);
         let body = if body_str.starts_with('{') {
             // 块体
-            let inner = body_str.trim_start_matches('{').trim_end_matches('}').trim();
+            let inner = body_str
+                .trim_start_matches('{')
+                .trim_end_matches('}')
+                .trim();
             if inner.is_empty() {
                 // 多行闭包：body内容在后续行，返回TODO注释
                 Expr::Raw("/* TODO: multiline body */".to_string())
@@ -729,7 +756,10 @@ impl Parser {
                 match self.parse_expr_string(inner) {
                     Ok(e) => e,
                     Err(e) => {
-                        println!("DEBUG: failed to parse block body expr inner='{}': {:?}", inner, e);
+                        println!(
+                            "DEBUG: failed to parse block body expr inner='{}': {:?}",
+                            inner, e
+                        );
                         return Err(e);
                     }
                 }
@@ -740,15 +770,18 @@ impl Parser {
         } else {
             // 表达式体
             match self.parse_expr_string(body_str) {
-                 Ok(e) => e,
-                 Err(e) => {
-                     println!("DEBUG: failed to parse expression body='{}': {:?}", body_str, e);
-                     // Fallback: 使用 Raw 表达式而不是失败
-                     Expr::Raw(body_str.to_string())
-                 }
+                Ok(e) => e,
+                Err(e) => {
+                    println!(
+                        "DEBUG: failed to parse expression body='{}': {:?}",
+                        body_str, e
+                    );
+                    // Fallback: 使用 Raw 表达式而不是失败
+                    Expr::Raw(body_str.to_string())
+                }
             }
         };
-        
+
         Ok(Expr::Closure {
             params,
             return_type,
@@ -866,9 +899,9 @@ impl Parser {
             let mut s = trimmed[1..].to_string();
             s = s.trim_end().to_string();
             if s.ends_with("},") {
-                s = s[..s.len()-2].to_string();
+                s = s[..s.len() - 2].to_string();
             } else if s.ends_with('}') {
-                s = s[..s.len()-1].to_string();
+                s = s[..s.len() - 1].to_string();
             }
             s
         } else {
@@ -885,7 +918,7 @@ impl Parser {
         if trimmed.starts_with("Ok(") || trimmed.starts_with("Ok (") {
             let start = trimmed.find('(').unwrap();
             let end = trimmed.rfind(')').unwrap_or(trimmed.len());
-            let binding = trimmed[start+1..end].trim().to_string();
+            let binding = trimmed[start + 1..end].trim().to_string();
             return Ok(Pattern::ResultOk(binding));
         }
 
@@ -893,7 +926,7 @@ impl Parser {
         if trimmed.starts_with("Err(") || trimmed.starts_with("Err (") {
             let start = trimmed.find('(').unwrap();
             let end = trimmed.rfind(')').unwrap_or(trimmed.len());
-            let binding = trimmed[start+1..end].trim().to_string();
+            let binding = trimmed[start + 1..end].trim().to_string();
             return Ok(Pattern::ResultErr(binding));
         }
 
@@ -901,7 +934,7 @@ impl Parser {
         if trimmed.starts_with("Some(") || trimmed.starts_with("Some (") {
             let start = trimmed.find('(').unwrap();
             let end = trimmed.rfind(')').unwrap_or(trimmed.len());
-            let binding = trimmed[start+1..end].trim().to_string();
+            let binding = trimmed[start + 1..end].trim().to_string();
             return Ok(Pattern::OptionSome(binding));
         }
 
@@ -921,7 +954,7 @@ impl Parser {
             let path = format!("{}::{}", parts[0], parts.get(1).unwrap_or(&""));
             let bindings = if let Some(paren_start) = path.find('(') {
                 if let Some(paren_end) = path.rfind(')') {
-                    path[paren_start+1..paren_end]
+                    path[paren_start + 1..paren_end]
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .collect()
@@ -937,7 +970,7 @@ impl Parser {
         // 字符串字面量
         if trimmed.starts_with('"') && trimmed.ends_with('"') {
             return Ok(Pattern::Literal(Literal::String(
-                trimmed[1..trimmed.len()-1].to_string()
+                trimmed[1..trimmed.len() - 1].to_string(),
             )));
         }
 
@@ -961,7 +994,7 @@ impl Parser {
         // Find block start
         let brace_pos = content.find('{').unwrap_or(content.len());
         let condition_str = content[..brace_pos].trim();
-        
+
         // Handle if let vs normal if
         let mut if_let_info = None;
         let mut condition_expr = None;
@@ -970,7 +1003,7 @@ impl Parser {
             let inner = condition_str[4..].trim();
             if let Some(eq_pos) = inner.find('=') {
                 let pattern_str = inner[..eq_pos].trim();
-                let expr_str = inner[eq_pos+1..].trim();
+                let expr_str = inner[eq_pos + 1..].trim();
                 let pattern = self.parse_pattern(pattern_str)?;
                 let expr = self.parse_expr_string(expr_str)?;
                 if_let_info = Some((pattern, expr));
@@ -1012,38 +1045,50 @@ impl Parser {
                 if !block_inner.trim().is_empty() {
                     then_body_stmts = self.parse_stmts_from_string(block_inner)?;
                 }
-                
+
                 // Check for else on same line
-                let after_block = &rest[end+1..];
+                let after_block = &rest[end + 1..];
                 if after_block.trim().starts_with("else") {
                     let else_rest = after_block.trim()[4..].trim(); // skip "else"
                     if else_rest.starts_with('{') {
-                         if else_rest == "{" {
-                             // else block starts here but continues next line
-                             self.advance();
-                             // Parse else body (multiline)
-                             let else_stmts = self.parse_block_body()?;
-                             let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
-                             else_body = Some(Box::new(Expr::Block { stmts: else_s, trailing_expr: else_t }));
-                         } else {
-                             // Inline else block
-                             let inner = else_rest.trim_start_matches('{').trim_end_matches('}').trim();
-                             if !inner.is_empty() {
-                                 let else_stmts = self.parse_stmts_from_string(inner)?;
-                                 let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
-                                 else_body = Some(Box::new(Expr::Block { stmts: else_s, trailing_expr: else_t }));
-                             }
-                         }
+                        if else_rest == "{" {
+                            // else block starts here but continues next line
+                            self.advance();
+                            // Parse else body (multiline)
+                            let else_stmts = self.parse_block_body()?;
+                            let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
+                            else_body = Some(Box::new(Expr::Block {
+                                stmts: else_s,
+                                trailing_expr: else_t,
+                            }));
+                        } else {
+                            // Inline else block
+                            let inner = else_rest
+                                .trim_start_matches('{')
+                                .trim_end_matches('}')
+                                .trim();
+                            if !inner.is_empty() {
+                                let else_stmts = self.parse_stmts_from_string(inner)?;
+                                let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
+                                else_body = Some(Box::new(Expr::Block {
+                                    stmts: else_s,
+                                    trailing_expr: else_t,
+                                }));
+                            }
+                        }
                     } else if else_rest.is_empty() {
                         // else on next line?
-                         self.advance();
-                         let current = self.current_line().trim();
-                         if current.starts_with('{') {
-                             // else block
-                             let else_stmts = self.parse_block_body()?;
-                             let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
-                             else_body = Some(Box::new(Expr::Block { stmts: else_s, trailing_expr: else_t }));
-                         }
+                        self.advance();
+                        let current = self.current_line().trim();
+                        if current.starts_with('{') {
+                            // else block
+                            let else_stmts = self.parse_block_body()?;
+                            let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
+                            else_body = Some(Box::new(Expr::Block {
+                                stmts: else_s,
+                                trailing_expr: else_t,
+                            }));
+                        }
                     } else {
                         self.advance();
                     }
@@ -1065,32 +1110,44 @@ impl Parser {
 
         // extract trailing
         let (then_stmts, then_trailing) = self.extract_trailing_expr(then_body_stmts);
-        let then_expr = Expr::Block { stmts: then_stmts, trailing_expr: then_trailing };
+        let then_expr = Expr::Block {
+            stmts: then_stmts,
+            trailing_expr: then_trailing,
+        };
 
         // If else_body not parsed yet, check lines
         if else_body.is_none() {
-             let binding = self.current_line().clone().to_string(); // clone to avoid borrow check issues
-             let current = binding.as_str().trim();
-             if current.starts_with("else") {
-                 let after_else = current[4..].trim();
-                 if after_else == "{" || after_else.starts_with('{') {
-                     // else {
-                     if after_else == "{" {
-                         self.advance(); // consume else {
-                         let else_stmts_raw = self.parse_block_body()?;
-                         let (else_s, else_t) = self.extract_trailing_expr(else_stmts_raw);
-                         else_body = Some(Box::new(Expr::Block { stmts: else_s, trailing_expr: else_t }));
-                     } else {
-                         // inline else on new line?
-                         // else { stmt }
-                         let inner = after_else.trim_start_matches('{').trim_end_matches('}').trim();
-                         let else_stmts = self.parse_stmts_from_string(inner)?;
-                         let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
-                         else_body = Some(Box::new(Expr::Block { stmts: else_s, trailing_expr: else_t }));
-                         self.advance();
-                     }
-                 }
-             }
+            let binding = self.current_line().clone().to_string(); // clone to avoid borrow check issues
+            let current = binding.as_str().trim();
+            if current.starts_with("else") {
+                let after_else = current[4..].trim();
+                if after_else == "{" || after_else.starts_with('{') {
+                    // else {
+                    if after_else == "{" {
+                        self.advance(); // consume else {
+                        let else_stmts_raw = self.parse_block_body()?;
+                        let (else_s, else_t) = self.extract_trailing_expr(else_stmts_raw);
+                        else_body = Some(Box::new(Expr::Block {
+                            stmts: else_s,
+                            trailing_expr: else_t,
+                        }));
+                    } else {
+                        // inline else on new line?
+                        // else { stmt }
+                        let inner = after_else
+                            .trim_start_matches('{')
+                            .trim_end_matches('}')
+                            .trim();
+                        let else_stmts = self.parse_stmts_from_string(inner)?;
+                        let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
+                        else_body = Some(Box::new(Expr::Block {
+                            stmts: else_s,
+                            trailing_expr: else_t,
+                        }));
+                        self.advance();
+                    }
+                }
+            }
         }
 
         if let Some((pattern, target)) = if_let_info {
@@ -1104,8 +1161,15 @@ impl Parser {
                 MatchArm {
                     pattern: Pattern::Wildcard,
                     guard: None,
-                    body: if let Some(e) = else_body { e } else { Box::new(Expr::Block { stmts: vec![], trailing_expr: None }) },
-                }
+                    body: if let Some(e) = else_body {
+                        e
+                    } else {
+                        Box::new(Expr::Block {
+                            stmts: vec![],
+                            trailing_expr: None,
+                        })
+                    },
+                },
             ];
             Ok(Expr::Match {
                 target: Box::new(target),
@@ -1126,11 +1190,13 @@ impl Parser {
         // 简化：split by ;
         for part in s.split(';') {
             let trimmed = part.trim();
-            if trimmed.is_empty() { continue; }
+            if trimmed.is_empty() {
+                continue;
+            }
             if let Ok(expr) = self.parse_expr_string(trimmed) {
-                 stmts.push(Stmt::ExprStmt(Box::new(expr)));
+                stmts.push(Stmt::ExprStmt(Box::new(expr)));
             } else {
-                 stmts.push(Stmt::Raw(trimmed.to_string()));
+                stmts.push(Stmt::Raw(trimmed.to_string()));
             }
         }
         Ok(stmts)
@@ -1145,7 +1211,11 @@ impl Parser {
             return Ok(Expr::Return(None));
         }
 
-        let content = line.trim_start_matches('<').trim().trim_end_matches(';').trim();
+        let content = line
+            .trim_start_matches('<')
+            .trim()
+            .trim_end_matches(';')
+            .trim();
         if content.is_empty() {
             return Ok(Expr::Return(None));
         }
@@ -1156,28 +1226,28 @@ impl Parser {
 
     fn parse_loop(&mut self) -> Result<Expr> {
         let line = self.current_line().trim().to_string();
-        
+
         // 检查是否是 for 循环: L pattern in iterator { body }
         if line.starts_with("L ") && line.contains(" in ") {
             // For 循环
             let content = &line[2..]; // 跳过 "L "
-            
+
             // 找到 "in" 的位置
             if let Some(in_pos) = content.find(" in ") {
                 let pattern = content[..in_pos].trim().to_string();
-                
+
                 // 提取迭代器表达式（在 "in" 和 "{" 之间）
-                let after_in = &content[in_pos+4..];
+                let after_in = &content[in_pos + 4..];
                 let brace_pos = after_in.find('{').unwrap_or(after_in.len());
                 let iterator_str = after_in[..brace_pos].trim();
-                
+
                 let iterator = self.parse_expr_string(iterator_str)?;
-                
+
                 // 解析循环体
                 self.advance();
                 let body_stmts = self.parse_block_body()?;
                 let (stmts, trailing) = self.extract_trailing_expr(body_stmts);
-                
+
                 return Ok(Expr::For {
                     pattern,
                     iterator: Box::new(iterator),
@@ -1188,12 +1258,12 @@ impl Parser {
                 });
             }
         }
-        
+
         // 否则是无限循环: L { body }
         self.advance();
         let body_stmts = self.parse_block_body()?;
         let (stmts, trailing) = self.extract_trailing_expr(body_stmts);
-        
+
         Ok(Expr::Loop {
             body: Box::new(Expr::Block {
                 stmts,
@@ -1218,17 +1288,18 @@ impl Parser {
     fn parse_expr_string(&self, expr_str: &str) -> Result<Expr> {
         println!("DEBUG: parse_expr_string input='{}'", expr_str);
         // 规范化：去除 :: 周围空格，去除函数调用前空格
-        let normalized = expr_str.trim()
+        let normalized = expr_str
+            .trim()
             .replace(" :: ", "::")
             .replace(" . ", ".")
             .replace(" (", "(")
             .replace("( ", "(")
             .replace(" )", ")")
             .replace(") ", ")");
-        
+
         // 转换 Rust turbofish 语法: method::<Type>() -> method<Type>()
         let normalized = normalized.replace("::<", "<");
-        
+
         let trimmed = normalized.trim().trim_end_matches(';').trim();
 
         if trimmed.is_empty() {
@@ -1282,14 +1353,17 @@ impl Parser {
         // 字符串
         if trimmed.starts_with('"') && trimmed.ends_with('"') {
             return Ok(Expr::Literal(Literal::String(
-                trimmed[1..trimmed.len()-1].to_string()
+                trimmed[1..trimmed.len() - 1].to_string(),
             )));
         }
 
         // 宏调用: name!(...) 或 name ! (...) 或 name![...] 或 name ! [...]
-        if trimmed.contains("!(") || trimmed.contains("! (") ||
-           trimmed.contains("![") || trimmed.contains("! [") ||
-           trimmed.ends_with("!()") {
+        if trimmed.contains("!(")
+            || trimmed.contains("! (")
+            || trimmed.contains("![")
+            || trimmed.contains("! [")
+            || trimmed.ends_with("!()")
+        {
             // 找到 ! 的位置
             let exclaim_pos = trimmed.find('!').unwrap();
             let name = trimmed[..exclaim_pos].trim().to_string();
@@ -1341,14 +1415,18 @@ impl Parser {
                 if parts.len() == 2 {
                     let method_or_variant = parts[0].to_string();
                     let type_name = parts[1].to_string();
-                    
+
                     // 检查是否是构造函数/静态方法调用（如 BinaryHeap::new(), String::from()）
                     // 特征：方法名是小写开头（new, from, default等）或全小写
-                    let is_static_method = method_or_variant.chars().next().map(|c| c.is_lowercase()).unwrap_or(false);
-                    
+                    let is_static_method = method_or_variant
+                        .chars()
+                        .next()
+                        .map(|c| c.is_lowercase())
+                        .unwrap_or(false);
+
                     if is_static_method {
                         // 这是静态方法调用，解析为 Call 表达式
-                        let args_str = &trimmed[paren_pos+1..].trim_end_matches(')');
+                        let args_str = &trimmed[paren_pos + 1..].trim_end_matches(')');
                         let args: Vec<Expr> = if args_str.is_empty() {
                             vec![]
                         } else {
@@ -1357,23 +1435,27 @@ impl Parser {
                                 .map(|a| self.parse_expr_string(a.trim()))
                                 .collect::<Result<Vec<_>>>()?
                         };
-                        
+
                         // 构造 Type::method 路径作为函数
                         let func_path = Expr::Path {
-                            segments: vec![type_name.trim().to_string(), method_or_variant.trim().to_string()],
+                            segments: vec![
+                                type_name.trim().to_string(),
+                                method_or_variant.trim().to_string(),
+                            ],
                         };
-                        
+
                         return Ok(Expr::Call {
                             func: Box::new(func_path),
                             args,
                         });
                     } else {
                         // 这是枚举变体构造
-                        let args_str = &trimmed[paren_pos+1..].trim_end_matches(')');
+                        let args_str = &trimmed[paren_pos + 1..].trim_end_matches(')');
                         let args = if args_str.is_empty() {
                             Some(vec![])
                         } else {
-                            let parsed_args: Result<Vec<Expr>> = self.split_args(args_str)
+                            let parsed_args: Result<Vec<Expr>> = self
+                                .split_args(args_str)
                                 .into_iter()
                                 .map(|a| self.parse_expr_string(a.trim()))
                                 .collect();
@@ -1390,9 +1472,7 @@ impl Parser {
             }
 
             // 纯路径 - 清理空格
-            let segments: Vec<String> = trimmed.split("::")
-                .map(|s| s.trim().to_string())
-                .collect();
+            let segments: Vec<String> = trimmed.split("::").map(|s| s.trim().to_string()).collect();
             return Ok(Expr::Path { segments });
         }
 
@@ -1406,12 +1486,13 @@ impl Parser {
                 if !before_brace.is_empty()
                     && before_brace.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
                     && !before_brace.contains('(')  // 排除函数调用
-                    && !before_brace.contains('.')  // 排除方法调用
+                    && !before_brace.contains('.')
+                // 排除方法调用
                 {
                     // 提取字段列表
                     let end_brace = trimmed.rfind('}').unwrap();
                     let fields_str = &trimmed[brace_pos + 1..end_brace];
-                    
+
                     // 解析字段: field: value, field2: value2
                     let mut fields = Vec::new();
                     for field_str in fields_str.split(',') {
@@ -1419,7 +1500,7 @@ impl Parser {
                         if field_str.is_empty() {
                             continue;
                         }
-                        
+
                         if let Some(colon_pos) = field_str.find(':') {
                             let name = field_str[..colon_pos].trim().to_string();
                             let value_str = field_str[colon_pos + 1..].trim();
@@ -1427,7 +1508,7 @@ impl Parser {
                             fields.push((name, value));
                         }
                     }
-                    
+
                     return Ok(Expr::StructInit {
                         name: before_brace.to_string(),
                         fields,
@@ -1443,7 +1524,7 @@ impl Parser {
             let mut depth = 0;
             let mut found = false;
             // Scan backwards from character before the last ')'
-            for (i, c) in trimmed[..trimmed.len()-1].char_indices().rev() {
+            for (i, c) in trimmed[..trimmed.len() - 1].char_indices().rev() {
                 match c {
                     ')' => depth += 1,
                     '(' => {
@@ -1460,7 +1541,7 @@ impl Parser {
 
             if found {
                 let func_str = trimmed[..paren_pos].trim();
-                let args_str = &trimmed[paren_pos+1..trimmed.len()-1];
+                let args_str = &trimmed[paren_pos + 1..trimmed.len() - 1];
 
                 // Recursively parse function part (supports chaining)
                 let func_expr = self.parse_expr_string(func_str)?;
@@ -1498,9 +1579,12 @@ impl Parser {
         ] {
             if let Some(pos) = trimmed.find(op_str) {
                 // Ignore if at start (Unary)
-                if pos > 0 && !self.is_inside_parens(trimmed, pos) && !self.is_inside_string(trimmed, pos) {
+                if pos > 0
+                    && !self.is_inside_parens(trimmed, pos)
+                    && !self.is_inside_string(trimmed, pos)
+                {
                     let left_str = &trimmed[..pos];
-                    let right_str = &trimmed[pos+op_str.len()..];
+                    let right_str = &trimmed[pos + op_str.len()..];
                     return Ok(Expr::Binary {
                         left: Box::new(self.parse_expr_string(left_str)?),
                         op,
@@ -1512,20 +1596,35 @@ impl Parser {
 
         // Unary Operators
         if trimmed.starts_with('!') {
-             return Ok(Expr::Unary { op: UnOp::Not, expr: Box::new(self.parse_expr_string(&trimmed[1..])?) });
+            return Ok(Expr::Unary {
+                op: UnOp::Not,
+                expr: Box::new(self.parse_expr_string(&trimmed[1..])?),
+            });
         }
         if trimmed.starts_with('&') {
-             let inner = trimmed[1..].trim();
-             if inner.starts_with("mut ") {
-                 return Ok(Expr::Unary { op: UnOp::RefMut, expr: Box::new(self.parse_expr_string(&inner[4..])?) });
-             }
-             return Ok(Expr::Unary { op: UnOp::Ref, expr: Box::new(self.parse_expr_string(inner)?) });
+            let inner = trimmed[1..].trim();
+            if inner.starts_with("mut ") {
+                return Ok(Expr::Unary {
+                    op: UnOp::RefMut,
+                    expr: Box::new(self.parse_expr_string(&inner[4..])?),
+                });
+            }
+            return Ok(Expr::Unary {
+                op: UnOp::Ref,
+                expr: Box::new(self.parse_expr_string(inner)?),
+            });
         }
         if trimmed.starts_with('*') {
-             return Ok(Expr::Unary { op: UnOp::Deref, expr: Box::new(self.parse_expr_string(&trimmed[1..])?) });
+            return Ok(Expr::Unary {
+                op: UnOp::Deref,
+                expr: Box::new(self.parse_expr_string(&trimmed[1..])?),
+            });
         }
         if trimmed.starts_with('-') {
-             return Ok(Expr::Unary { op: UnOp::Neg, expr: Box::new(self.parse_expr_string(&trimmed[1..])?) });
+            return Ok(Expr::Unary {
+                op: UnOp::Neg,
+                expr: Box::new(self.parse_expr_string(&trimmed[1..])?),
+            });
         }
 
         // Closure
@@ -1552,14 +1651,17 @@ impl Parser {
 
     fn parse_if_expr_string(&self, s: &str) -> Result<Expr> {
         let content = s.trim().trim_start_matches('?').trim();
-        
+
         let brace_pos = content.find('{').unwrap_or(content.len());
         let condition_str = content[..brace_pos].trim();
         let condition = self.parse_expr_string(condition_str)?;
-        
-        let mut then_body = Expr::Block { stmts: vec![], trailing_expr: None };
+
+        let mut then_body = Expr::Block {
+            stmts: vec![],
+            trailing_expr: None,
+        };
         let mut else_body = None;
-        
+
         if brace_pos < content.len() {
             let rest = &content[brace_pos..];
             // Find closing brace of then block
@@ -1578,28 +1680,37 @@ impl Parser {
                     _ => {}
                 }
             }
-            
+
             if let Some(end) = then_close {
                 let inner = rest[1..end].trim();
                 let params = self.split_params(inner); // Misuse split_params? No, use parse_stmts logic.
-                // Assuming inline expression body for simplicity or semicolon separated
+                                                       // Assuming inline expression body for simplicity or semicolon separated
                 let stmts = self.parse_stmts_from_string(inner)?;
                 let (s, t) = self.extract_trailing_expr(stmts);
-                then_body = Expr::Block { stmts: s, trailing_expr: t };
-                
-                let after = rest[end+1..].trim();
+                then_body = Expr::Block {
+                    stmts: s,
+                    trailing_expr: t,
+                };
+
+                let after = rest[end + 1..].trim();
                 if after.starts_with("else") {
                     let else_inner = after[4..].trim();
                     if else_inner.starts_with('{') {
-                        let inner = else_inner.trim_start_matches('{').trim_end_matches('}').trim();
+                        let inner = else_inner
+                            .trim_start_matches('{')
+                            .trim_end_matches('}')
+                            .trim();
                         let stmts = self.parse_stmts_from_string(inner)?;
                         let (s, t) = self.extract_trailing_expr(stmts);
-                        else_body = Some(Box::new(Expr::Block { stmts: s, trailing_expr: t }));
+                        else_body = Some(Box::new(Expr::Block {
+                            stmts: s,
+                            trailing_expr: t,
+                        }));
                     }
                 }
             }
         }
-        
+
         Ok(Expr::If {
             condition: Box::new(condition),
             then_body: Box::new(then_body),
@@ -1629,8 +1740,9 @@ impl Parser {
             let gt_pos = self.find_matching_bracket(trimmed, lt_pos);
             if gt_pos > lt_pos {
                 let base = trimmed[..lt_pos].to_string();
-                let params_str = &trimmed[lt_pos+1..gt_pos];
-                let params: Vec<Type> = self.split_params(params_str)
+                let params_str = &trimmed[lt_pos + 1..gt_pos];
+                let params: Vec<Type> = self
+                    .split_params(params_str)
                     .into_iter()
                     .map(|s| self.parse_type(s.trim()))
                     .collect();
@@ -1646,13 +1758,13 @@ impl Parser {
         let mut in_string = false;
         let mut prev_char = ' ';
         let mut byte_pos = start;
-        
+
         for c in s[start..].chars() {
             // 处理字符串字面量
             if c == '"' && prev_char != '\\' {
                 in_string = !in_string;
             }
-            
+
             if !in_string {
                 match c {
                     '(' | '<' => depth += 1,
@@ -1725,7 +1837,9 @@ impl Parser {
     fn is_inside_parens(&self, s: &str, pos: usize) -> bool {
         let mut depth = 0;
         for (i, c) in s.chars().enumerate() {
-            if i >= pos { break; }
+            if i >= pos {
+                break;
+            }
             match c {
                 '(' => depth += 1,
                 ')' => depth -= 1,
@@ -1738,8 +1852,12 @@ impl Parser {
     fn is_inside_string(&self, s: &str, pos: usize) -> bool {
         let mut in_string = false;
         for (i, c) in s.chars().enumerate() {
-            if i >= pos { break; }
-            if c == '"' { in_string = !in_string; }
+            if i >= pos {
+                break;
+            }
+            if c == '"' {
+                in_string = !in_string;
+            }
         }
         in_string
     }
@@ -1823,7 +1941,9 @@ mod tests {
         let pat = parser.parse_pattern("Operator::Add").unwrap();
         assert!(matches!(pat, Pattern::EnumVariant { .. }));
 
-        let pat = parser.parse_pattern("CalcError::InvalidOperator(op)").unwrap();
+        let pat = parser
+            .parse_pattern("CalcError::InvalidOperator(op)")
+            .unwrap();
         assert!(matches!(pat, Pattern::EnumVariant { .. }));
     }
 
