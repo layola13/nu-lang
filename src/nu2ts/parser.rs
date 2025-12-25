@@ -1807,7 +1807,7 @@ impl Parser {
         let mut in_closure = false;
         let mut start = 0;
 
-        for (i, c) in params_str.chars().enumerate() {
+        for (i, c) in params_str.char_indices() {
             match c {
                 '|' => {
                     // 闭包边界：|param| body
