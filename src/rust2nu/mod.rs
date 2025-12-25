@@ -205,7 +205,14 @@ impl Rust2NuConverter {
 
             match input {
                 FnArg::Receiver(r) => {
-                    if r.reference.is_some() {
+                    // 检查是否有显式self类型 (如 self: &Rc<Self>)
+                    // Receiver的reference和mutability只在没有显式类型时有效
+                    // 如果有显式类型(r.colon_token存在)，则使用完整的类型信息
+                    if r.colon_token.is_some() {
+                        // 显式类型：输出完整的 self: Type
+                        result.push_str("self: ");
+                        result.push_str(&self.convert_type(&r.ty));
+                    } else if r.reference.is_some() {
                         result.push('&');
                         if r.mutability.is_some() {
                             result.push('!'); // &mut -> &!
@@ -235,14 +242,15 @@ impl Rust2NuConverter {
         }
 
         // where子句 - 使用 wh 而不是 w（避免与单字母变量冲突）
+        // v1.7.4: 保护泛型参数名，避免被误替换
         if let Some(where_clause) = &sig.generics.where_clause {
             result.push_str(" wh ");
-            result.push_str(
-                &where_clause
-                    .to_token_stream()
-                    .to_string()
-                    .replace("where", ""),
-            );
+            let where_str = where_clause
+                .to_token_stream()
+                .to_string()
+                .replace("where", "");
+            // 不对where子句内容进行类型转换，保持泛型参数原样
+            result.push_str(&where_str);
         }
 
         result
@@ -278,7 +286,13 @@ impl Rust2NuConverter {
                     } else {
                         format!(": {}", self.convert_type_param_bounds(&t.bounds))
                     };
-                    format!("{}{}", name, bounds)
+                    // v1.7.4: 处理泛型默认值 E = ()
+                    let default = if let Some(default_ty) = &t.default {
+                        format!(" = {}", self.convert_type(default_ty))
+                    } else {
+                        String::new()
+                    };
+                    format!("{}{}{}", name, bounds, default)
                 },
                 // 3. 常量泛型参数
                 syn::GenericParam::Const(c) => {
@@ -291,11 +305,18 @@ impl Rust2NuConverter {
     }
 
     /// v1.6.5: 转换类型参数约束
+    /// v1.7.5: 修复 ?Sized 约束支持（核心修复！）
     fn convert_type_param_bounds(&self, bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::token::Plus>) -> String {
         bounds.iter().map(|bound| {
             match bound {
                 syn::TypeParamBound::Trait(trait_bound) => {
-                    trait_bound.path.to_token_stream().to_string()
+                    // 🔑 关键修复：处理 TraitBoundModifier::Maybe（即 ?Sized）
+                    let modifier = match trait_bound.modifier {
+                        syn::TraitBoundModifier::None => "",
+                        syn::TraitBoundModifier::Maybe(_) => "?",  // 保留 ?Sized 的 ? 前缀
+                    };
+                    let path_str = trait_bound.path.to_token_stream().to_string();
+                    format!("{}{}", modifier, path_str)
                 },
                 syn::TypeParamBound::Lifetime(lifetime) => {
                     format!("'{}", lifetime.ident)
@@ -325,6 +346,12 @@ impl Rust2NuConverter {
                 let inner = self.convert_type(&type_ref.elem);
 
                 format!("&{}{}{}", lifetime, mutability, inner)
+            },
+            // 裸指针类型：*const T 或 *mut T
+            Type::Ptr(type_ptr) => {
+                let mutability = if type_ptr.mutability.is_some() { "mut" } else { "const" };
+                let inner = self.convert_type(&type_ptr.elem);
+                format!("*{} {}", mutability, inner)
             },
             // 路径类型：处理泛型参数中的生命周期
             Type::Path(type_path) => {
@@ -443,7 +470,8 @@ impl Rust2NuConverter {
             .replace("Box <", "B<")
             .replace("Box<", "B<")
             .replace("& mut", "&!")
-            .replace(" mut", "!")
+            .replace("* mut", "*mut")  // 保持裸指针的mut关键字
+            .replace("* const", "*const")  // 保持裸指针的const关键字
             .replace(" >", ">");
         
         // 清理多余空格
@@ -474,17 +502,23 @@ impl Rust2NuConverter {
                 let pat_str = local.pat.to_token_stream().to_string();
                 let is_mut = pat_str.contains("mut");
 
-                if local.init.is_some() {
-                    self.write(if is_mut { "v " } else { "l " });
+                // 变量声明（无论是否有初始化值）
+                self.write(if is_mut { "v " } else { "l " });
 
-                    // 变量名（去掉mut）
-                    let clean_pat = pat_str.replace("mut ", "");
-                    self.write(&clean_pat);
+                // 先转换类型（保护裸指针的mut关键字），再去掉变量名前的mut
+                let converted_pat = self.convert_type_in_string(&pat_str);
+                // 只删除开头的 "mut "（变量名前的mut）
+                let clean_pat = if converted_pat.starts_with("mut ") {
+                    &converted_pat[4..]  // 跳过 "mut "
+                } else {
+                    &converted_pat
+                };
+                self.write(clean_pat);
 
+                // 如果有初始化值，输出赋值部分
+                if let Some(init) = &local.init {
                     self.write(" = ");
-                    if let Some(init) = &local.init {
-                        self.write(&self.convert_expr(&init.expr));
-                    }
+                    self.write(&self.convert_expr(&init.expr));
                 }
 
                 self.write(";\n");
@@ -811,7 +845,13 @@ impl Rust2NuConverter {
     }
 
     fn convert_type_in_string(&self, s: &str) -> String {
-        // 智能类型替换：保护 turbofish 语法中的类型标注（如 collect::<String>()）
+        // v1.7.3: 智能类型替换，避免将泛型参数误替换为关键字
+        // 例如：where M: Display 不应该变成 where match: Display
+        
+        // 先检查是否包含单字母泛型参数（如 <M>、<T>、where M:）
+        // 这些情况下不进行类型名称的替换
+        let has_generic_param_context = s.contains("where ") || s.contains("impl<") || s.contains("impl <");
+        
         let mut result = s.to_string();
         let mut protected_parts = Vec::new();
 
@@ -849,50 +889,53 @@ impl Rust2NuConverter {
             result = result.replacen(part, &format!("__TURBOFISH_PLACEHOLDER_{}__", idx), 1);
         }
 
-        // 执行类型替换和宏替换
-        // v1.7: String不再缩写为Str
-        // v1.7.1: 保护类型路径前缀（Result::Ok等）不被替换
-        // 注意：to_token_stream()会输出带空格的 "Result :: Ok"，需要同时保护
-        // 先保护路径前缀（带空格和不带空格两种形式）
-        result = result
-            .replace("Vec :: ", "__VEC_PATH_SP__")
-            .replace("Vec::", "__VEC_PATH__")
-            .replace("Option :: ", "__OPTION_PATH_SP__")
-            .replace("Option::", "__OPTION_PATH__")
-            .replace("Result :: ", "__RESULT_PATH_SP__")
-            .replace("Result::", "__RESULT_PATH__")
-            .replace("Arc :: ", "__ARC_PATH_SP__")
-            .replace("Arc::", "__ARC_PATH__")
-            .replace("Mutex :: ", "__MUTEX_PATH_SP__")
-            .replace("Mutex::", "__MUTEX_PATH__")
-            .replace("Box :: ", "__BOX_PATH_SP__")
-            .replace("Box::", "__BOX_PATH__");
-        
-        // 执行类型名替换
-        result = result
-            .replace("Vec", "V")
-            .replace("Option", "O")
-            .replace("Result", "R")
-            .replace("Arc", "A")
-            .replace("Mutex", "X")
-            .replace("Box", "B")
-            .replace("& mut", "&!")
-            .replace("vec!", "V!");  // vec! -> V!
-        
-        // 恢复路径前缀（保持完整类型名）
-        result = result
-            .replace("__VEC_PATH_SP__", "Vec::")
-            .replace("__VEC_PATH__", "Vec::")
-            .replace("__OPTION_PATH_SP__", "Option::")
-            .replace("__OPTION_PATH__", "Option::")
-            .replace("__RESULT_PATH_SP__", "Result::")
-            .replace("__RESULT_PATH__", "Result::")
-            .replace("__ARC_PATH_SP__", "Arc::")
-            .replace("__ARC_PATH__", "Arc::")
-            .replace("__MUTEX_PATH_SP__", "Mutex::")
-            .replace("__MUTEX_PATH__", "Mutex::")
-            .replace("__BOX_PATH_SP__", "Box::")
-            .replace("__BOX_PATH__", "Box::");
+        // v1.7.3: 如果在泛型参数上下文中（where子句、impl<T>等），不进行类型替换
+        if !has_generic_param_context {
+            // 执行类型替换和宏替换
+            // v1.7: String不再缩写为Str
+            // v1.7.1: 保护类型路径前缀（Result::Ok等）不被替换
+            // 注意：to_token_stream()会输出带空格的 "Result :: Ok"，需要同时保护
+            // 先保护路径前缀（带空格和不带空格两种形式）
+            result = result
+                .replace("Vec :: ", "__VEC_PATH_SP__")
+                .replace("Vec::", "__VEC_PATH__")
+                .replace("Option :: ", "__OPTION_PATH_SP__")
+                .replace("Option::", "__OPTION_PATH__")
+                .replace("Result :: ", "__RESULT_PATH_SP__")
+                .replace("Result::", "__RESULT_PATH__")
+                .replace("Arc :: ", "__ARC_PATH_SP__")
+                .replace("Arc::", "__ARC_PATH__")
+                .replace("Mutex :: ", "__MUTEX_PATH_SP__")
+                .replace("Mutex::", "__MUTEX_PATH__")
+                .replace("Box :: ", "__BOX_PATH_SP__")
+                .replace("Box::", "__BOX_PATH__");
+            
+            // 执行类型名替换
+            result = result
+                .replace("Vec", "V")
+                .replace("Option", "O")
+                .replace("Result", "R")
+                .replace("Arc", "A")
+                .replace("Mutex", "X")
+                .replace("Box", "B")
+                .replace("& mut", "&!")
+                .replace("vec!", "V!");  // vec! -> V!
+            
+            // 恢复路径前缀（保持完整类型名）
+            result = result
+                .replace("__VEC_PATH_SP__", "Vec::")
+                .replace("__VEC_PATH__", "Vec::")
+                .replace("__OPTION_PATH_SP__", "Option::")
+                .replace("__OPTION_PATH__", "Option::")
+                .replace("__RESULT_PATH_SP__", "Result::")
+                .replace("__RESULT_PATH__", "Result::")
+                .replace("__ARC_PATH_SP__", "Arc::")
+                .replace("__ARC_PATH__", "Arc::")
+                .replace("__MUTEX_PATH_SP__", "Mutex::")
+                .replace("__MUTEX_PATH__", "Mutex::")
+                .replace("__BOX_PATH_SP__", "Box::")
+                .replace("__BOX_PATH__", "Box::");
+        }
 
         // 恢复 turbofish（保持原样，不进行类型替换）
         for (idx, part) in protected_parts.iter().enumerate() {
@@ -1047,6 +1090,23 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             Item::Enum(e) => self.visit_item_enum(e),
             Item::Trait(t) => self.visit_item_trait(t),
             Item::Impl(i) => self.visit_item_impl(i),
+            Item::Macro(m) => {
+                // v1.7.4: 保留macro_rules!宏定义，但清理to_token_stream()添加的多余空格
+                // to_token_stream()会在 #, [, (, ), !, 周围插入空格，需要移除
+                let macro_str = m.to_token_stream().to_string();
+                let cleaned_macro = macro_str
+                    .replace("# [", "#[")
+                    .replace("# !", "#!")
+                    .replace(" [", "[")
+                    .replace(" ]", "]")
+                    .replace(" (", "(")
+                    .replace(" )", ")")
+                    .replace(" ,", ",")
+                    .replace(" ;", ";")
+                    .replace("! {", "! {")  // 保持macro_rules!和{之间的空格
+                    .replace("macro_rules!", "macro_rules!");  // 确保宏名后无多余空格
+                self.writeln(&cleaned_macro);
+            }
             Item::Mod(m) => {
                 // Nu v1.6.3: 保留 #[cfg] 属性
                 for attr in &m.attrs {
@@ -1057,7 +1117,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" [", "[")
                         .replace(" ]", "]")
                         .replace(" (", "(")
-                        .replace(" )", ")");
+                        .replace(" )", ")")
+                        .replace(" ,", ",");
                     if cleaned_attr.starts_with("#[cfg") {
                         self.writeln(&cleaned_attr);
                     }
@@ -1098,7 +1159,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" [", "[")
                         .replace(" ]", "]")
                         .replace(" (", "(")
-                        .replace(" )", ")");
+                        .replace(" )", ")")
+                        .replace(" ,", ",");
                     if cleaned_attr.starts_with("#[cfg") {
                         self.writeln(&cleaned_attr);
                     }
@@ -1187,6 +1249,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         if !node.generics.params.is_empty() {
             self.write(&self.convert_generics(&node.generics));
         }
+        
+        // v1.7.5: 结构体的 where 子句支持（关键修复！）
+        if let Some(where_clause) = &node.generics.where_clause {
+            self.write(" wh ");
+            self.write(&where_clause.to_token_stream().to_string().replace("where", "").trim());
+        }
 
         // 字段
         match &node.fields {
@@ -1203,7 +1271,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                             .replace(" [", "[")
                             .replace(" ]", "]")
                             .replace(" (", "(")
-                            .replace(" )", ")");
+                            .replace(" )", ")")
+                            .replace(" ,", ",");
                         if cleaned_attr.starts_with("#[cfg") {
                             self.write(&self.indent());
                             self.writeln(&cleaned_attr);
@@ -1321,11 +1390,63 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.indent_level += 1;
 
         for item in &node.items {
-            if let syn::TraitItem::Fn(method) = item {
-                let sig_str = self.convert_fn_signature(&method.sig, &Visibility::Inherited);
-                self.write(&self.indent());
-                self.write(&sig_str);
-                self.writeln(";");
+            match item {
+                syn::TraitItem::Fn(method) => {
+                    // 处理方法的属性（如 #[allow(dead_code)]）
+                    for attr in &method.attrs {
+                        self.write(&self.indent());
+                        self.write(&self.convert_attribute(attr));
+                        self.write("\n");
+                    }
+                    
+                    let sig_str = self.convert_fn_signature(&method.sig, &Visibility::Inherited);
+                    self.write(&self.indent());
+                    self.write(&sig_str);
+                    
+                    // 检查是否有默认实现（方法体）
+                    if let Some(block) = &method.default {
+                        // 有默认实现：输出函数体
+                        self.convert_block(block);
+                        self.output.push('\n');
+                    } else {
+                        // 无实现：只输出签名+分号
+                        self.writeln(";");
+                    }
+                }
+                syn::TraitItem::Type(assoc_type) => {
+                    // 关联类型: type Output: 'a; → t Output: 'a;
+                    self.write(&self.indent());
+                    self.write("t ");
+                    self.write(&assoc_type.ident.to_string());
+                    
+                    // 处理类型约束 (如 : 'a)
+                    if !assoc_type.bounds.is_empty() {
+                        self.write(": ");
+                        let bounds_str = self.convert_type_param_bounds(&assoc_type.bounds);
+                        self.write(&bounds_str);
+                    }
+                    
+                    self.writeln(";");
+                }
+                syn::TraitItem::Const(const_item) => {
+                    // Trait关联常量: const PI: f64 = 3.14159;
+                    self.write(&self.indent());
+                    self.write("C ");
+                    self.write(&const_item.ident.to_string());
+                    self.write(": ");
+                    self.write(&self.convert_type(&const_item.ty));
+                    
+                    // 检查是否有默认值
+                    if let Some((_, expr)) = &const_item.default {
+                        self.write(" = ");
+                        self.write(&expr.to_token_stream().to_string());
+                    }
+                    
+                    self.writeln(";");
+                }
+                _ => {
+                    // 忽略其他trait item类型
+                }
             }
         }
 
@@ -1346,18 +1467,20 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 .replace(" [", "[")
                 .replace(" ]", "]")
                 .replace(" (", "(")
-                .replace(" )", ")");
+                .replace(" )", ")")
+                .replace(" ,", ",");
             if cleaned_attr.starts_with("#[cfg") {
                 self.writeln(&cleaned_attr);
             }
         }
         
-        // Nu v1.6.3: U I = unsafe impl
+        // v1.7.3: unsafe impl保持完整关键字，不缩写
+        // 原因：避免与use语句混淆（"unsafe impl" vs "use I"）
         if node.unsafety.is_some() {
-            self.write("U ");
+            self.write("unsafe ");
         }
         
-        self.write("I");
+        self.write("impl");
 
         // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
@@ -1395,7 +1518,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                             .replace(" [", "[")
                             .replace(" ]", "]")
                             .replace(" (", "(")
-                            .replace(" )", ")");
+                            .replace(" )", ")")
+                            .replace(" ,", ",");
                         if cleaned_attr.starts_with("#[cfg") {
                             self.write(&self.indent());
                             self.writeln(&cleaned_attr);

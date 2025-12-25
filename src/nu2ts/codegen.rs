@@ -307,7 +307,17 @@ impl TsCodegen {
                     self.write_indent();
                     // Implicit return
                     self.write("return ");
-                    self.emit_expr(e)?;
+                    // 如果表达式是Ident且包含闭包，先转换
+                    if let Expr::Ident(s) = e.as_ref() {
+                        if s.contains('|') && s.contains('(') {
+                            let converted = self.convert_closures_in_raw(s);
+                            self.write(&converted);
+                        } else {
+                            self.emit_expr(e)?;
+                        }
+                    } else {
+                        self.emit_expr(e)?;
+                    }
                     self.writeln(";");
                 }
             }
@@ -579,6 +589,10 @@ impl TsCodegen {
                 // 清理空格，并尝试识别函数调用模式
                 if name == "new" {
                     self.write("_new");
+                } else if name.contains('|') && name.contains('(') {
+                    // Ident中包含闭包 - 转换闭包语法
+                    let converted = self.convert_closures_in_raw(name);
+                    self.write(&converted);
                 } else {
                     self.write(name);
                 }
@@ -607,7 +621,13 @@ impl TsCodegen {
                 self.write("]");
             }
             Expr::Raw(s) => {
-                self.write(&format!("/* {} */", s));
+                // 尝试转换包含闭包的Raw表达式
+                if s.contains('|') && s.contains('(') {
+                    let converted = self.convert_closures_in_raw(s);
+                    self.write(&converted);
+                } else {
+                    self.write(&format!("/* {} */", s));
+                }
             }
         }
         Ok(())
@@ -860,8 +880,68 @@ impl TsCodegen {
 
     // ============ 辅助方法 ============
 
+    fn convert_closures_in_raw(&self, s: &str) -> String {
+        let mut result = String::new();
+        let mut chars = s.chars().peekable();
+        let mut in_closure_params = false;
+        let mut closure_start = 0;
+        
+        let s_chars: Vec<char> = s.chars().collect();
+        let mut i = 0;
+        
+        while i < s_chars.len() {
+            let c = s_chars[i];
+            
+            if c == '|' && !in_closure_params {
+                // 闭包参数开始
+                in_closure_params = true;
+                closure_start = i;
+                result.push('(');
+                i += 1;
+            } else if c == '|' && in_closure_params {
+                // 闭包参数结束
+                in_closure_params = false;
+                result.push(')');
+                result.push_str(" =>");
+                i += 1;
+            } else {
+                result.push(c);
+                i += 1;
+            }
+        }
+        
+        result
+    }
+
     fn write(&mut self, s: &str) {
-        self.output.push_str(s);
+        // 全局转换：
+        // 1. 闭包转换 |param| -> (param) =>
+        // 2. 泛型语法修复 .< Type > -> <Type>
+        // 3. 路径分隔符 :: -> . (TypeScript不使用::)
+        // 4. 修复常见解析错误
+        let mut result = s.to_string();
+        
+        // 转换闭包
+        if result.contains('|') && result.contains('(') && result.contains('.') {
+            result = self.convert_closures_in_raw(&result);
+        }
+        
+        // 转换路径分隔符 :: 为 . (TypeScript使用.作为成员访问)
+        // 同时移除 :: 周围的空格
+        result = result.replace(" :: ", ".").replace("::", ".");
+        
+        // 修复泛型语法：移除 .< 之间的点号和空格
+        result = result.replace(".< ", "<").replace(". <", "<");
+        // 移除泛型参数中的多余空格
+        result = result.replace("< ", "<").replace(" >", ">");
+        
+        // 修复try运算符后的多余括号和分号: !); -> !;
+        result = result.replace("!);", "!;");
+        
+        // 修复重复的return: return return -> return
+        result = result.replace("return return ", "return ");
+        
+        self.output.push_str(&result);
     }
 
     fn writeln(&mut self, s: &str) {

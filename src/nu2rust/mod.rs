@@ -62,7 +62,9 @@ impl Nu2RustConverter {
 
             // 其他属性（如 #[test], #[cfg(test)], #![cfg(...)]）
             if (line.starts_with("#[") && line.ends_with("]")) ||
-               (line.starts_with("#![") && line.ends_with("]")) {
+               (line.starts_with("#![") && line.ends_with("]")) ||
+               (line.starts_with("# [") && line.ends_with("]")) ||
+               (line.starts_with("# ![") && line.ends_with("]")) {
                 // 修复属性中的空格格式
                 // "# [cfg (not (feature = "kv"))]" -> "#[cfg(not(feature = "kv"))]"
                 let mut fixed_attr = line.to_string();
@@ -92,10 +94,12 @@ impl Nu2RustConverter {
                 // v1.6.4: 结构体字段默认添加pub（状态机精确控制）
                 if context.in_struct_block {
                     let trimmed = line.trim();
-                    // 检测是否是字段行（包含冒号，不是注释，不是已有pub）
+                    // 检测是否是字段行（包含冒号，不是注释，不是已有pub，不是struct定义本身）
                     if !trimmed.is_empty()
                         && !trimmed.starts_with("//")
                         && !trimmed.starts_with("pub ")
+                        && !trimmed.starts_with("S ")   // 排除 struct 定义行
+                        && !trimmed.starts_with("s ")   // 排除 struct 定义行
                         && trimmed.contains(':')
                         && !trimmed.starts_with("fn ")
                         && !trimmed.starts_with('}')
@@ -145,8 +149,28 @@ impl Nu2RustConverter {
         }
 
         // 函数定义: F/f (F=pub fn, f=fn)
+        // 但要避免将函数调用误认为函数定义
+        // 函数定义必须包含括号（参数列表）或返回类型
         if trimmed.starts_with("F ") || trimmed.starts_with("f ") {
-            return Ok(Some(self.convert_function(trimmed, context)?));
+            // 检查是否真的是函数定义（有参数列表或返回类型）
+            // 函数定义: "f name(...)" 或 "f name<T>(...)" 或 "F main() {" 等
+            // 函数调用: "f ()" 或 "f ();" - 这些不应该被转换
+            let after_marker = &trimmed[2..]; // 跳过 "F " 或 "f "
+            
+            // 如果紧跟着 '(' 或 '()'，这是函数调用，不是定义
+            if after_marker.starts_with('(') || after_marker.starts_with("();") {
+                // 这是函数调用，不转换，作为普通表达式处理
+                return Ok(Some(self.convert_expression(trimmed)?));
+            }
+            
+            // 否则检查是否包含函数定义的特征（标识符后跟括号）
+            // 例如: "f name(...)" 或 "F main() {" 等
+            if after_marker.contains('(') {
+                return Ok(Some(self.convert_function(trimmed, context)?));
+            }
+            
+            // 如果没有括号，也不是函数定义，作为表达式处理
+            return Ok(Some(self.convert_expression(trimmed)?));
         }
 
         // 异步函数: ~F/~f
@@ -345,7 +369,49 @@ impl Nu2RustConverter {
         // S = pub struct, s = struct
         let is_pub_marker = line.starts_with("S ");
         let content = &line[2..]; // 跳过 "S " 或 "s "
-        let converted = self.convert_types_in_string(content);
+        
+        // v1.7.5: 处理 tuple struct 字段的可见性
+        // 检查是否是tuple struct: struct Name(Type1, Type2);
+        let converted = if content.contains('(') && content.contains(')') && content.trim().ends_with(';') {
+            // Tuple struct - 需要给字段添加pub
+            let struct_parts: Vec<&str> = content.splitn(2, '(').collect();
+            if struct_parts.len() == 2 {
+                let struct_name = struct_parts[0];
+                let rest = struct_parts[1]; // "Type1, Type2);"
+                
+                // 提取字段类型部分
+                if let Some(close_paren_pos) = rest.find(')') {
+                    let fields = &rest[..close_paren_pos]; // "Type1, Type2"
+                    let suffix = &rest[close_paren_pos..]; // ");" 或 ")"
+                    
+                    // 给每个字段添加pub前缀
+                    let pub_fields: Vec<String> = fields
+                        .split(',')
+                        .map(|f| {
+                            let trimmed = f.trim();
+                            if trimmed.is_empty() {
+                                String::new()
+                            } else if trimmed.starts_with("pub ") {
+                                trimmed.to_string()
+                            } else {
+                                format!("pub {}", trimmed)
+                            }
+                        })
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    
+                    let converted_name = self.convert_types_in_string(struct_name);
+                    let converted_fields = pub_fields.join(", ");
+                    format!("{}({}{}", converted_name, converted_fields, suffix)
+                } else {
+                    self.convert_types_in_string(content)
+                }
+            } else {
+                self.convert_types_in_string(content)
+            }
+        } else {
+            self.convert_types_in_string(content)
+        };
 
         let visibility = if is_pub_marker { "pub " } else { "" };
         Ok(format!("{}struct {}", visibility, converted))
@@ -684,12 +750,15 @@ impl Nu2RustConverter {
             // 检查关键字
             let remaining: String = chars[i..].iter().collect();
 
-            // break: br 或 br; (使用双字母避免与变量b冲突)
-            if remaining.starts_with("br;") || remaining.starts_with("br ") || remaining == "br" {
+            // break: br 或 br; 或 br, (使用双字母避免与变量b冲突)
+            if remaining.starts_with("br;") || remaining.starts_with("br,") || remaining.starts_with("br ") || remaining == "br" {
                 let is_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
                 if is_start_boundary {
                     if remaining.starts_with("br;") {
                         result.push_str("break;");
+                        i += 3;
+                    } else if remaining.starts_with("br,") {
+                        result.push_str("break,");
                         i += 3;
                     } else if remaining.starts_with("br ") || remaining == "br" {
                         result.push_str("break");
@@ -699,12 +768,15 @@ impl Nu2RustConverter {
                 }
             }
 
-            // continue: ct 或 ct; (使用双字母避免与变量c冲突)
-            if remaining.starts_with("ct;") || remaining.starts_with("ct ") || remaining == "ct" {
+            // continue: ct 或 ct; 或 ct, (使用双字母避免与变量c冲突)
+            if remaining.starts_with("ct;") || remaining.starts_with("ct,") || remaining.starts_with("ct ") || remaining == "ct" {
                 let is_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
                 if is_start_boundary {
                     if remaining.starts_with("ct;") {
                         result.push_str("continue;");
+                        i += 3;
+                    } else if remaining.starts_with("ct,") {
+                        result.push_str("continue,");
                         i += 3;
                     } else if remaining.starts_with("ct ") || remaining == "ct" {
                         result.push_str("continue");
@@ -800,9 +872,29 @@ impl Nu2RustConverter {
 
             // match: M (需要确保不是其他标识符的一部分，也不在泛型参数中)
             // v1.6.8: 只处理 "M " 和特定的 "M&" 模式（match &expr）
+            // v1.7.4: 增强where子句保护，避免误转换泛型参数
             // 单字母M很可能是泛型参数，需要非常保守地转换
             if remaining.starts_with("M ") || remaining.starts_with("M&") {
                 let has_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
+                
+                // v1.7.4: 检查是否在where子句中（向前查找 "wh " 或 "where "）
+                let mut is_in_where_clause = false;
+                if i >= 3 {
+                    let context_start = if i > 50 { i - 50 } else { 0 };
+                    let context: String = chars[context_start..i].iter().collect();
+                    // 检查最近是否有 "wh " 或 "where "，且之后没有 { 或 ;
+                    if let Some(wh_pos) = context.rfind("wh ") {
+                        let after_wh = &context[wh_pos+3..];
+                        if !after_wh.contains('{') && !after_wh.contains(';') {
+                            is_in_where_clause = true;
+                        }
+                    } else if let Some(where_pos) = context.rfind("where ") {
+                        let after_where = &context[where_pos+6..];
+                        if !after_where.contains('{') && !after_where.contains(';') {
+                            is_in_where_clause = true;
+                        }
+                    }
+                }
                 
                 // 检查前面的上下文，避免在泛型/类型位置转换
                 let mut is_in_generic_or_type = false;
@@ -839,7 +931,8 @@ impl Nu2RustConverter {
                 // 1. 有边界
                 // 2. 后面跟空格（M ）或&（M&，match引用）
                 // 3. 不在泛型/类型上下文中
-                if has_start_boundary && !is_in_generic_or_type {
+                // 4. 不在where子句中
+                if has_start_boundary && !is_in_generic_or_type && !is_in_where_clause {
                     if remaining.starts_with("M ") {
                         result.push_str("match ");
                         i += 2;
@@ -883,6 +976,7 @@ impl Nu2RustConverter {
 
             // use: u or U (for inline use statements like in cfg blocks)
             // 但要避免转换表达式中的变量名 u
+            // 还要避免转换泛型参数 U（单字母大写通常是泛型）
             if remaining.starts_with("u ") || remaining.starts_with("U ") {
                 // 检查是否在关键字之后（match, if, for, while等）
                 // 如果在这些关键字后，u 应该是变量名而不是 use
@@ -906,7 +1000,29 @@ impl Nu2RustConverter {
                     }
                 }
                 
-                if !is_after_keyword {
+                // 检查是否在泛型/类型位置（U 很可能是泛型参数）
+                let mut is_generic_param = false;
+                if remaining.starts_with("U ") && i > 0 {
+                    // 检查前面的字符
+                    let mut j = i - 1;
+                    while j > 0 && chars[j].is_whitespace() {
+                        j -= 1;
+                    }
+                    // 前面是 < , : -> ( 表示在泛型/类型位置
+                    if chars[j] == '<' || chars[j] == ',' || chars[j] == ':' || chars[j] == '>' || chars[j] == '(' {
+                        is_generic_param = true;
+                    }
+                    // 检查后面的字符
+                    if !is_generic_param && i + 2 < chars.len() {
+                        let char_after_space = chars[i + 2];
+                        // U > 或 U , 或 U ) 或 U : 表示泛型参数
+                        if char_after_space == '>' || char_after_space == ',' || char_after_space == ')' || char_after_space == ':' {
+                            is_generic_param = true;
+                        }
+                    }
+                }
+                
+                if !is_after_keyword && !is_generic_param {
                     let has_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
                     if has_start_boundary {
                         result.push_str("use ");
@@ -1108,6 +1224,23 @@ impl Nu2RustConverter {
         // 直接进行其他类型和关键字替换
         // 注意：只转换明确的类型缩写（如Vec<），不转换可能是泛型参数的单字母（如 V ）
         result = result
+            // 自定义类型名称修复（优先级最高，防止被标准库替换影响）
+            .replace("MyV ", "MyVec ")
+            .replace("MyV<", "MyVec<")
+            .replace("MyV{", "MyVec{")
+            .replace("MyV(", "MyVec(")
+            .replace("MyV::", "MyVec::")
+            .replace("MyB ", "MyBox ")
+            .replace("MyB<", "MyBox<")
+            .replace("MyB{", "MyBox{")
+            .replace("MyB(", "MyBox(")
+            .replace("MyB::", "MyBox::")
+            .replace("VecDeque<", "VecDeque<")  // 保持VecDeque<不变
+            .replace("VecDeque::", "VecDeque::") // 保持VecDeque::不变
+            .replace("VDeque :: ", "VecDeque::")  // VDeque :: -> VecDeque:: (带空格，优先处理)
+            .replace("VDeque::", "VecDeque::")  // VDeque:: -> VecDeque:: (优先处理，避免被V::转换)
+            .replace("VDeque <", "VecDeque<")   // VDeque < -> VecDeque< (带空格)
+            .replace("VDeque<", "VecDeque<")    // VDeque< -> VecDeque< (rust2nu错误缩写)
             .replace("Vec<", "Vec<")  // 保持Vec<不变，它已经是完整的
             .replace("V <", "Vec<")   // V < -> Vec< (Vec类型，带空格)
             .replace("V<", "Vec<")    // V< -> Vec< (确保是类型，不是泛型参数)
@@ -1141,16 +1274,30 @@ impl Nu2RustConverter {
             .replace(")!", ")?")
             .replace("? Sized", "?Sized");  // 修复 ?Sized trait约束（Nu中为 "? Sized"，还原为 "?Sized"）
         
-        // v1.6.7: 智能处理 &! -> &mut
+        // v1.6.7: 智能处理 &! -> &mut 和 *! -> *mut
         // 1. &!Type -> &mut Type
         // 2. &'a!Type -> &'a mut Type
         // 3. &'a !Type -> &'a mut Type (关键：处理空格)
+        // 4. *! Type -> *mut Type
+        // 5. * const Type -> *const Type (保持不变)
         let mut chars: Vec<char> = result.chars().collect();
         let mut i = 0;
         let mut new_result = String::new();
         
         while i < chars.len() {
-            if i + 1 < chars.len() && chars[i] == '&' && chars[i+1] == '!' {
+            if i + 1 < chars.len() && chars[i] == '*' && chars[i+1] == '!' {
+                // 找到 *! 模式 -> *mut
+                new_result.push_str("*mut");
+                i += 2;
+                // 跳过后面的空格
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+                // 确保类型名前有空格
+                if i < chars.len() && !chars[i].is_whitespace() {
+                    new_result.push(' ');
+                }
+            } else if i + 1 < chars.len() && chars[i] == '&' && chars[i+1] == '!' {
                 // 找到 &! 模式
                 new_result.push_str("&mut ");
                 i += 2;

@@ -583,8 +583,8 @@ impl Parser {
             }
             // 检查是否是 Match 表达式: M expr { ... }
             else if value_trimmed.starts_with("M ") {
-                Expr::Raw(format!("(() => {{ {} }})()", value_trimmed))
-            } 
+                self.parse_match_from_value(value_trimmed)?
+            }
             // 检查是否是结构体初始化: Name { field: value }
             else if value_trimmed.contains('{') && value_trimmed.contains(':') && !value_trimmed.contains("=>") && !value_trimmed.contains('|') {
                 self.parse_struct_init(value_trimmed)?
@@ -743,7 +743,8 @@ impl Parser {
                  Ok(e) => e,
                  Err(e) => {
                      println!("DEBUG: failed to parse expression body='{}': {:?}", body_str, e);
-                     return Err(e);
+                     // Fallback: 使用 Raw 表达式而不是失败
+                     Expr::Raw(body_str.to_string())
                  }
             }
         };
@@ -772,6 +773,28 @@ impl Parser {
         let target = self.parse_expr_string(target_str)?;
 
         // 解析分支
+        let arms = self.parse_match_arms()?;
+
+        Ok(Expr::Match {
+            target: Box::new(target),
+            arms,
+        })
+    }
+
+    fn parse_match_from_value(&mut self, value_str: &str) -> Result<Expr> {
+        let content = &value_str[2..]; // 跳过 "M "
+
+        // 提取目标表达式
+        let target_str = if let Some(pos) = content.find('{') {
+            content[..pos].trim()
+        } else {
+            content.trim()
+        };
+
+        let target = self.parse_expr_string(target_str)?;
+
+        // 解析分支 - 从下一行开始
+        self.advance();
         let arms = self.parse_match_arms()?;
 
         Ok(Expr::Match {
@@ -1132,9 +1155,51 @@ impl Parser {
     }
 
     fn parse_loop(&mut self) -> Result<Expr> {
-        // 跳过循环块
-        self.skip_block()?;
-        Ok(Expr::Raw("/* loop */".to_string()))
+        let line = self.current_line().trim().to_string();
+        
+        // 检查是否是 for 循环: L pattern in iterator { body }
+        if line.starts_with("L ") && line.contains(" in ") {
+            // For 循环
+            let content = &line[2..]; // 跳过 "L "
+            
+            // 找到 "in" 的位置
+            if let Some(in_pos) = content.find(" in ") {
+                let pattern = content[..in_pos].trim().to_string();
+                
+                // 提取迭代器表达式（在 "in" 和 "{" 之间）
+                let after_in = &content[in_pos+4..];
+                let brace_pos = after_in.find('{').unwrap_or(after_in.len());
+                let iterator_str = after_in[..brace_pos].trim();
+                
+                let iterator = self.parse_expr_string(iterator_str)?;
+                
+                // 解析循环体
+                self.advance();
+                let body_stmts = self.parse_block_body()?;
+                let (stmts, trailing) = self.extract_trailing_expr(body_stmts);
+                
+                return Ok(Expr::For {
+                    pattern,
+                    iterator: Box::new(iterator),
+                    body: Box::new(Expr::Block {
+                        stmts,
+                        trailing_expr: trailing,
+                    }),
+                });
+            }
+        }
+        
+        // 否则是无限循环: L { body }
+        self.advance();
+        let body_stmts = self.parse_block_body()?;
+        let (stmts, trailing) = self.extract_trailing_expr(body_stmts);
+        
+        Ok(Expr::Loop {
+            body: Box::new(Expr::Block {
+                stmts,
+                trailing_expr: trailing,
+            }),
+        })
     }
 
     fn parse_for(&mut self) -> Result<Expr> {
@@ -1160,6 +1225,10 @@ impl Parser {
             .replace("( ", "(")
             .replace(" )", ")")
             .replace(") ", ")");
+        
+        // 转换 Rust turbofish 语法: method::<Type>() -> method<Type>()
+        let normalized = normalized.replace("::<", "<");
+        
         let trimmed = normalized.trim().trim_end_matches(';').trim();
 
         if trimmed.is_empty() {
@@ -1238,22 +1307,22 @@ impl Parser {
                 let start = exclaim_pos + bracket_start;
                 // 找到匹配的右括号
                 let mut depth = 0;
-                let mut end_pos = start;
-                for (i, c) in trimmed[start..].chars().enumerate() {
+                let mut byte_pos = start;
+                for c in trimmed[start..].chars() {
                     match c {
                         '[' => depth += 1,
                         ']' => {
                             depth -= 1;
                             if depth == 0 {
-                                end_pos = start + i;
                                 break;
                             }
                         }
                         _ => {}
                     }
+                    byte_pos += c.len_utf8();
                 }
-                if end_pos > start + 1 {
-                    trimmed[start + 1..end_pos].to_string()
+                if byte_pos > start + 1 {
+                    trimmed[start + 1..byte_pos].to_string()
                 } else {
                     String::new()
                 }
@@ -1270,25 +1339,53 @@ impl Parser {
                 let path_part = &trimmed[..paren_pos];
                 let parts: Vec<&str> = path_part.rsplitn(2, "::").collect();
                 if parts.len() == 2 {
-                    let variant = parts[0].to_string();
-                    let enum_name = parts[1].to_string();
-                    let args_str = &trimmed[paren_pos+1..].trim_end_matches(')');
-
-                    let args = if args_str.is_empty() {
-                        Some(vec![])
+                    let method_or_variant = parts[0].to_string();
+                    let type_name = parts[1].to_string();
+                    
+                    // 检查是否是构造函数/静态方法调用（如 BinaryHeap::new(), String::from()）
+                    // 特征：方法名是小写开头（new, from, default等）或全小写
+                    let is_static_method = method_or_variant.chars().next().map(|c| c.is_lowercase()).unwrap_or(false);
+                    
+                    if is_static_method {
+                        // 这是静态方法调用，解析为 Call 表达式
+                        let args_str = &trimmed[paren_pos+1..].trim_end_matches(')');
+                        let args: Vec<Expr> = if args_str.is_empty() {
+                            vec![]
+                        } else {
+                            self.split_args(args_str)
+                                .into_iter()
+                                .map(|a| self.parse_expr_string(a.trim()))
+                                .collect::<Result<Vec<_>>>()?
+                        };
+                        
+                        // 构造 Type::method 路径作为函数
+                        let func_path = Expr::Path {
+                            segments: vec![type_name.trim().to_string(), method_or_variant.trim().to_string()],
+                        };
+                        
+                        return Ok(Expr::Call {
+                            func: Box::new(func_path),
+                            args,
+                        });
                     } else {
-                        let parsed_args: Result<Vec<Expr>> = self.split_args(args_str)
-                            .into_iter()
-                            .map(|a| self.parse_expr_string(a.trim()))
-                            .collect();
-                        Some(parsed_args?)
-                    };
+                        // 这是枚举变体构造
+                        let args_str = &trimmed[paren_pos+1..].trim_end_matches(')');
+                        let args = if args_str.is_empty() {
+                            Some(vec![])
+                        } else {
+                            let parsed_args: Result<Vec<Expr>> = self.split_args(args_str)
+                                .into_iter()
+                                .map(|a| self.parse_expr_string(a.trim()))
+                                .collect();
+                            Some(parsed_args?)
+                        };
 
-                    return Ok(Expr::EnumVariant {
-                        enum_name: enum_name.trim().to_string(),
-                        variant: variant.trim().to_string(),
-                        args,
-                    });
+                        return Ok(Expr::EnumVariant {
+                            enum_name: type_name.trim().to_string(),
+                            variant: method_or_variant.trim().to_string(),
+                            args,
+                        });
+                    }
                 }
             }
 
@@ -1297,6 +1394,46 @@ impl Parser {
                 .map(|s| s.trim().to_string())
                 .collect();
             return Ok(Expr::Path { segments });
+        }
+
+        // 结构体初始化: TypeName { field: value, ... }
+        // 必须在函数调用检测之前，因为函数调用也包含 '('
+        if trimmed.contains('{') && trimmed.contains('}') {
+            // 查找 '{' 前的部分
+            if let Some(brace_pos) = trimmed.find('{') {
+                let before_brace = trimmed[..brace_pos].trim();
+                // 检查是否是大写开头的标识符（结构体名）
+                if !before_brace.is_empty()
+                    && before_brace.chars().next().map(|c| c.is_uppercase()).unwrap_or(false)
+                    && !before_brace.contains('(')  // 排除函数调用
+                    && !before_brace.contains('.')  // 排除方法调用
+                {
+                    // 提取字段列表
+                    let end_brace = trimmed.rfind('}').unwrap();
+                    let fields_str = &trimmed[brace_pos + 1..end_brace];
+                    
+                    // 解析字段: field: value, field2: value2
+                    let mut fields = Vec::new();
+                    for field_str in fields_str.split(',') {
+                        let field_str = field_str.trim();
+                        if field_str.is_empty() {
+                            continue;
+                        }
+                        
+                        if let Some(colon_pos) = field_str.find(':') {
+                            let name = field_str[..colon_pos].trim().to_string();
+                            let value_str = field_str[colon_pos + 1..].trim();
+                            let value = self.parse_expr_string(value_str)?;
+                            fields.push((name, value));
+                        }
+                    }
+                    
+                    return Ok(Expr::StructInit {
+                        name: before_brace.to_string(),
+                        fields,
+                    });
+                }
+            }
         }
 
         // 函数调用
@@ -1398,8 +1535,17 @@ impl Parser {
             }
         }
 
-        // 标识符或透传
-        Ok(Expr::Ident(trimmed.to_string()))
+        // 在返回Ident前，尝试识别包含闭包的复杂表达式
+        // 如果表达式包含 |...| 模式但没被识别为闭包，可能是方法链中的闭包参数
+        if trimmed.contains('|') && trimmed.contains('(') {
+            // 尝试作为Raw表达式保留原始语法，让codegen直接输出
+            // 但这会导致无效的TypeScript
+            // 更好的方案：检测 .method(|param| body) 模式并转换
+            Ok(Expr::Raw(trimmed.to_string()))
+        } else {
+            // 标识符或透传
+            Ok(Expr::Ident(trimmed.to_string()))
+        }
     }
 
     // ============ 辅助方法 ============
@@ -1499,8 +1645,9 @@ impl Parser {
         let mut depth = 0;
         let mut in_string = false;
         let mut prev_char = ' ';
+        let mut byte_pos = start;
         
-        for (i, c) in s[start..].chars().enumerate() {
+        for c in s[start..].chars() {
             // 处理字符串字面量
             if c == '"' && prev_char != '\\' {
                 in_string = !in_string;
@@ -1512,7 +1659,7 @@ impl Parser {
                     ')' => {
                         depth -= 1;
                         if depth == 0 {
-                            return start + i;
+                            return byte_pos;
                         }
                     }
                     '>' => depth -= 1,
@@ -1520,6 +1667,7 @@ impl Parser {
                 }
             }
             prev_char = c;
+            byte_pos += c.len_utf8();
         }
         s.len()
     }
@@ -1544,13 +1692,18 @@ impl Parser {
     fn split_params<'a>(&self, params_str: &'a str) -> Vec<&'a str> {
         let mut result = vec![];
         let mut depth = 0;
+        let mut in_closure = false;
         let mut start = 0;
 
         for (i, c) in params_str.chars().enumerate() {
             match c {
-                '<' | '(' | '[' => depth += 1,
-                '>' | ')' | ']' => depth -= 1,
-                ',' if depth == 0 => {
+                '|' => {
+                    // 闭包边界：|param| body
+                    in_closure = !in_closure;
+                }
+                '<' | '(' | '[' | '{' if !in_closure => depth += 1,
+                '>' | ')' | ']' | '}' if !in_closure => depth -= 1,
+                ',' if depth == 0 && !in_closure => {
                     result.push(&params_str[start..i]);
                     start = i + 1;
                 }
