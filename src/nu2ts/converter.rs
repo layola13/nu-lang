@@ -1830,8 +1830,13 @@ mod tests {
         let converter = Nu2TsConverter::with_default_config();
         let nu_code = "l x = 5;";
 
-        let result = converter.convert(nu_code).unwrap();
-        assert!(result.contains("const x = 5"));
+        // Use convert_legacy which has line-level Nu syntax processing
+        let result = converter.convert_legacy(nu_code).unwrap();
+        assert!(
+            result.contains("const x = 5"),
+            "Expected 'const x = 5' in result: {}",
+            result
+        );
     }
 
     #[test]
