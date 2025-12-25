@@ -1,9 +1,11 @@
 // Nu to TypeScript Converter
-// 将Nu代码转换为TypeScript代码（v1.6.2 Micro-Runtime策略）
+// 将Nu代码转换为TypeScript代码（v1.6.2 AST架构）
 
-use anyhow::Result;
+use anyhow::{Result, Context};
 use super::types::{TsConfig, ConversionContext, RuntimeMode};
 use super::runtime::{generate_micro_runtime, generate_runtime_import};
+use super::parser::Parser;
+use super::codegen::TsCodegen;
 
 pub struct Nu2TsConverter {
     config: TsConfig,
@@ -28,8 +30,23 @@ impl Nu2TsConverter {
         &self.config
     }
 
-    /// 主转换方法：将Nu代码转换为TypeScript
+    /// 主转换方法：将Nu代码转换为TypeScript（使用AST架构）
     pub fn convert(&self, nu_code: &str) -> Result<String> {
+        // 1. 解析 Nu 代码为 AST
+        let mut parser = Parser::new(nu_code);
+        let file = parser.parse_file()
+            .context("Failed to parse Nu code")?;
+
+        // 2. 生成 TypeScript 代码
+        let mut codegen = TsCodegen::new(self.config.clone());
+        let ts_code = codegen.generate_file(&file)
+            .context("Failed to generate TypeScript code")?;
+
+        Ok(ts_code)
+    }
+
+    /// 旧版转换方法（兼容性保留）
+    pub fn convert_legacy(&self, nu_code: &str) -> Result<String> {
         let mut output = String::new();
         let mut context = ConversionContext::default();
 

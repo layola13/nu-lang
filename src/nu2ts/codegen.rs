@@ -104,8 +104,9 @@ impl TsCodegen {
     fn emit_function(&mut self, f: &FunctionDef) -> Result<()> {
         let export = if f.is_pub { "export " } else { "" };
         let asyncc = if f.is_async { "async " } else { "" };
-
-        self.write(&format!("{}{}function {}(", export, asyncc, f.name));
+        
+        let func_name = if f.name == "new" { "_new" } else { &f.name };
+        self.write(&format!("{}{}function {}(", export, asyncc, func_name));
 
         // 参数
         for (i, param) in f.params.iter().enumerate() {
@@ -267,8 +268,10 @@ impl TsCodegen {
             }
             Stmt::ExprStmt(expr) => {
                 self.write_indent();
-                self.emit_expr(expr)?;
-                if !self.is_block_expr(expr) {
+                if self.is_block_expr(expr) {
+                    self.emit_expr_unwrapped(expr)?;
+                } else {
+                    self.emit_expr(expr)?;
                     self.write(";");
                 }
                 self.writeln("");
@@ -302,11 +305,10 @@ impl TsCodegen {
                 }
                 if let Some(e) = trailing_expr {
                     self.write_indent();
+                    // Implicit return
+                    self.write("return ");
                     self.emit_expr(e)?;
-                    if !self.is_block_expr(e) {
-                        self.write(";");
-                    }
-                    self.writeln("");
+                    self.writeln(";");
                 }
             }
             _ => {
@@ -328,6 +330,21 @@ impl TsCodegen {
     // ============ 表达式生成 ============
 
     fn emit_expr(&mut self, expr: &Expr) -> Result<()> {
+        if self.is_block_expr(expr) {
+            self.write("(() => {");
+            self.writeln("");
+            self.indent += 1;
+            self.emit_expr_unwrapped(expr)?;
+            self.indent -= 1;
+            self.write_indent();
+            self.write("})()");
+        } else {
+            self.emit_expr_unwrapped(expr)?;
+        }
+        Ok(())
+    }
+
+    fn emit_expr_unwrapped(&mut self, expr: &Expr) -> Result<()> {
         match expr {
             Expr::Match { target, arms } => {
                 self.emit_match(target, arms)?;
@@ -366,15 +383,47 @@ impl TsCodegen {
                 self.write(")");
             }
             Expr::Call { func, args } => {
-                self.emit_expr(func)?;
-                self.write("(");
-                for (i, arg) in args.iter().enumerate() {
-                    if i > 0 {
-                        self.write(", ");
+                // Check for V::new or Vec::new -> [] or new Array()
+                let mut handled = false;
+                if let Expr::Path { segments } = &**func {
+                    if segments.len() == 2 {
+                        let first = segments[0].trim();
+                        let second = segments[1].trim();
+                        if (first == "V" || first == "Vec") && second == "new" {
+                            if args.is_empty() {
+                                self.write("[]");
+                                handled = true;
+                            } else {
+                                self.write("new Array(");
+                                for (i, arg) in args.iter().enumerate() {
+                                    if i > 0 { self.write(", "); }
+                                    self.emit_expr(arg)?;
+                                }
+                                self.write(")");
+                                handled = true;
+                            }
+                        } else if (first == "V" || first == "Vec") && second == "with_capacity" {
+                            self.write("new Array(");
+                            if !args.is_empty() {
+                                self.emit_expr(&args[0])?;
+                            }
+                            self.write(")");
+                            handled = true;
+                        }
                     }
-                    self.emit_expr(arg)?;
                 }
-                self.write(")");
+
+                if !handled {
+                    self.emit_expr(func)?;
+                    self.write("(");
+                    for (i, arg) in args.iter().enumerate() {
+                        if i > 0 {
+                            self.write(", ");
+                        }
+                        self.emit_expr(arg)?;
+                    }
+                    self.write(")");
+                }
             }
             Expr::MethodCall { object, method, args } => {
                 self.emit_expr(object)?;
@@ -446,7 +495,56 @@ impl TsCodegen {
                 self.write(" }");
             }
             Expr::EnumVariant { enum_name, variant, args } => {
+                // Check for String::new -> ""
+                if enum_name == "String" && variant == "new" {
+                    self.write("\"\"");
+                    return Ok(());
+                }
+
+                // Check for V::new/Vec::new special case
+                if (enum_name == "V" || enum_name == "Vec") && (variant == "new" || variant == "with_capacity") {
+                    if variant == "new" && (args.is_none() || args.as_ref().unwrap().is_empty()) {
+                        self.write("[]");
+                    } else {
+                        self.write("new Array(");
+                        if let Some(arg_list) = args {
+                            for (i, arg) in arg_list.iter().enumerate() {
+                                if i > 0 { self.write(", "); }
+                                self.emit_expr(arg)?;
+                            }
+                        }
+                        self.write(")");
+                    }
+                    return Ok(());
+                }
+
                 if let Some(arg_list) = args {
+                    // Constructor-style variant: Variant(args)
+                    // In TS output, these are often functions like CalcError_InvalidOperator(val)
+                    // But if we want Namespaced access like Operator.Add, we might need adjustments.
+                    // For now, keep existing behavior but verify if it works for other Enums.
+                    // It seems calculator test expects `CalcError.InvalidOperator(...)` but existing code emits `InvalidOperator(...)`?
+                    // Let's check calculator output.
+                    // Calculator output: `return Err(CalcError.InvalidOperator(s.to_string()));`
+                    // This implies it was NOT parsed as EnumVariant? 
+                    // Or EnumVariant logic is correct for top-level?
+                    // Calculator code: `CalcError::InvalidOperator(...)` -> parsed as EnumVariant `CalcError`, `InvalidOperator`.
+                    // If output is `CalcError.InvalidOperator(...)`, then this logic `variant(...)` is WRONG unless `variant` includes namespace? No.
+                    
+                    // Wait, calculator manual check showed: `return Err(CalcError.InvalidOperator(...))`? 
+                    // Let's re-verify calculator output.
+                    // If it was `EnumVariant`, it would be `InvalidOperator(...)`.
+                    // If it matches `CalcError.InvalidOperator`, it must be MethodCall or Field access?
+                    // `CalcError::InvalidOperator` is parsed as EnumVariant by parser logic.
+                    
+                    // So `self.write(&format!("{}(", variant));` generates `InvalidOperator(...)`. 
+                    // Does `nu_runtime` or imports allow this?
+                    // In `calculator`: `export const CalcError_InvalidOperator = ...`. 
+                    // But `CalcError` namespace doesn't export constructors?
+                    // If standard Nu patterns use Namespace, `EnumVariant` generation here is likely incomplete.
+                    
+                    // However, to fix `V::new`, we only need to handle the special case above.
+                    // I will stick to fixing V::new first.
                     self.write(&format!("{}(", variant));
                     for (i, arg) in arg_list.iter().enumerate() {
                         if i > 0 {
@@ -468,14 +566,22 @@ impl TsCodegen {
                     .map(|s| s.trim())
                     .collect::<Vec<_>>()
                     .join(".");
-                self.write(&path);
+                // Check if last segment is "new" -> "_new"
+                if path.ends_with(".new") {
+                    self.write(&path.replace(".new", "._new"));
+                } else if path == "new" {
+                    self.write("_new");
+                } else {
+                    self.write(&path);
+                }
             }
             Expr::Ident(name) => {
                 // 清理空格，并尝试识别函数调用模式
-                // TODO: fix clean_expr_string method signature mismatch
-                // let cleaned = self.clean_expr_string(name);
-                // self.write(&cleaned);
-                self.write(name);
+                if name == "new" {
+                    self.write("_new");
+                } else {
+                    self.write(name);
+                }
             }
             Expr::Literal(lit) => {
                 self.write(&self.literal_to_ts(lit));
@@ -537,8 +643,10 @@ impl TsCodegen {
             // 如果不是块表达式，添加 return
             if !self.is_block_expr(&arm.body) {
                 self.write("return ");
+                self.emit_expr(&arm.body)?;
+            } else {
+                self.emit_expr_unwrapped(&arm.body)?;
             }
-            self.emit_expr(&arm.body)?;
             self.writeln(";");
 
             self.indent -= 1;
@@ -637,14 +745,14 @@ impl TsCodegen {
 
     fn emit_macro(&mut self, name: &str, args: &str) -> Result<()> {
         let name = name.trim();
-        let args = self.clean_expr_string(args.trim());
+        let args = args.trim();
         
         match name {
             "println" => {
-                self.write(&format!("console.log({})", self.convert_format_string(&args)));
+                self.write(&format!("console.log({})", args));
             }
             "print" => {
-                self.write(&format!("process.stdout.write({})", self.convert_format_string(&args)));
+                self.write(&format!("process.stdout.write({})", args));
             }
             "format" => {
                 self.write(&format!("$fmt({})", args));
@@ -660,12 +768,6 @@ impl TsCodegen {
             }
         }
         Ok(())
-    }
-
-    fn convert_format_string(&self, args: &str) -> String {
-        // 简化：直接透传
-        // 实际应该将 "{}" 转换为模板字符串
-        args.to_string()
     }
 
     // ============ 类型转换 ============
@@ -690,7 +792,7 @@ impl TsCodegen {
             Type::Generic { base, params } => {
                 let base_ts = match base.as_str() {
                     "Vec" | "V" => "Array",
-                    "Option" => "Option",
+                    "Option" | "O" => "Option",
                     "Result" | "R" => "Result",
                     "HashMap" => "Map",
                     "HashSet" => "Set",
@@ -750,9 +852,9 @@ impl TsCodegen {
         match op {
             UnOp::Not => "!",
             UnOp::Neg => "-",
-            UnOp::Deref => "/* * */",
-            UnOp::Ref => "/* & */",
-            UnOp::RefMut => "/* &mut */",
+            UnOp::Deref => "",
+            UnOp::Ref => "",
+            UnOp::RefMut => "",
         }
     }
 

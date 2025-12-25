@@ -78,7 +78,7 @@ fn main() -> Result<()> {
         source_map: false,
     };
 
-    let mut converter = Nu2TsConverter::with_config(config.clone());
+    let mut converter = Nu2TsConverter::new(config.clone());
 
     if cli.project {
         // 项目模式：转换整个Nu项目

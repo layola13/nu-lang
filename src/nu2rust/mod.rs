@@ -720,12 +720,24 @@ impl Nu2RustConverter {
             // 2. 转换 ? Sized（trait约束）
             // 3. 错误传播运算符 expr? （后面跟 ; , ) } 等）
             if chars[i] == '?' {
-                // 首先检查是否是错误传播运算符（后面不是空格，或后面是; , ) }）
-                let is_error_propagation = if i + 1 < chars.len() {
-                    chars[i+1] == ';' || chars[i+1] == ',' || chars[i+1] == ')' || chars[i+1] == '}'
-                } else {
-                    false
-                };
+                // 首先检查是否是错误传播运算符
+                // 需要检测: ?; ?, ?) ?} ?. 以及 ? . (空格后的点)
+                let mut is_error_propagation = false;
+                if i + 1 < chars.len() {
+                    let next_char = chars[i+1];
+                    if next_char == ';' || next_char == ',' || next_char == ')' || next_char == '}' || next_char == '.' {
+                        is_error_propagation = true;
+                    } else if next_char == ' ' {
+                        // 检查空格后是否是 . (错误传播链式调用: ? . method())
+                        let mut j = i + 2;
+                        while j < chars.len() && chars[j] == ' ' {
+                            j += 1;
+                        }
+                        if j < chars.len() && chars[j] == '.' {
+                            is_error_propagation = true;
+                        }
+                    }
+                }
                 
                 if is_error_propagation {
                     // 保持原样，这是错误传播运算符

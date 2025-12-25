@@ -10,6 +10,10 @@ export type Result<T, E> =
   | { tag: 'ok'; val: T }
   | { tag: 'err'; err: E };
 
+// Option Type
+export type Option<T> = T | null;
+export type O<T> = Option<T>; // Alias for O<T>
+
 // Result Constructors
 export const Ok = <T>(val: T): Result<T, any> => ({ tag: 'ok', val });
 export const Err = <E>(err: E): Result<any, E> => ({ tag: 'err', err });

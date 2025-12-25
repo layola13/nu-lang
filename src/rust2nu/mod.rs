@@ -146,12 +146,19 @@ impl Rust2NuConverter {
             .any(|scope| scope.contains(name))
     }
 
-    /// 进入泛型作用域，记录泛型参数名
+    /// 进入泛型作用域，记录泛型参数名和生命周期参数名
     fn push_generic_scope(&mut self, generics: &syn::Generics) {
         let mut scope = HashSet::new();
         for param in &generics.params {
-            if let syn::GenericParam::Type(type_param) = param {
-                scope.insert(type_param.ident.to_string());
+            match param {
+                syn::GenericParam::Type(type_param) => {
+                    scope.insert(type_param.ident.to_string());
+                }
+                syn::GenericParam::Lifetime(lifetime_param) => {
+                    // 也记录生命周期参数（如'a）以便识别
+                    scope.insert(format!("'{}", lifetime_param.lifetime.ident));
+                }
+                _ => {}
             }
         }
         self.generic_scope_stack.push(scope);
@@ -182,16 +189,9 @@ impl Rust2NuConverter {
         result.push(' ');
         result.push_str(&sig.ident.to_string());
 
-        // 泛型参数保持不变，但需要清理空格
+        // v1.6.5: 完整保留泛型参数（包括生命周期）
         if !sig.generics.params.is_empty() {
-            let generics_str = sig.generics.to_token_stream().to_string();
-            // 清理泛型中的多余空格
-            let cleaned = generics_str
-                .replace(" <", "<")
-                .replace("< ", "<")
-                .replace(" >", ">")
-                .replace(" ,", ",");
-            result.push_str(&cleaned);
+            result.push_str(&self.convert_generics(&sig.generics));
         }
 
         // 参数列表
@@ -248,29 +248,187 @@ impl Rust2NuConverter {
         result
     }
 
-    /// 转换类型 - 保留泛型参数中的类型标注，避免将泛型参数误转换
-    fn convert_type(&self, ty: &Type) -> String {
-        let type_str = ty.to_token_stream().to_string();
+    /// v1.6.5: 转换泛型参数（完整保留生命周期）
+    fn convert_generics(&self, generics: &syn::Generics) -> String {
+        if generics.params.is_empty() {
+            return String::new();
+        }
 
-        // 检查是否是单个泛型参数（如 "S", "D", "A" 等）
-        // 如果是当前作用域中的泛型参数，则不进行转换
+        let params: Vec<String> = generics.params.iter().map(|param| {
+            match param {
+                // 1. 生命周期参数：完整保留
+                syn::GenericParam::Lifetime(l) => {
+                    let lifetime_str = format!("'{}", l.lifetime.ident);
+                    // 处理生命周期约束 'a: 'b
+                    if !l.bounds.is_empty() {
+                        let bounds: Vec<String> = l.bounds.iter()
+                            .map(|b| format!("'{}", b.ident))
+                            .collect();
+                        format!("{}: {}", lifetime_str, bounds.join(" + "))
+                    } else {
+                        lifetime_str
+                    }
+                },
+                // 2. 类型参数
+                syn::GenericParam::Type(t) => {
+                    let name = &t.ident;
+                    // 处理类型约束 T: Display + Debug
+                    let bounds = if t.bounds.is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", self.convert_type_param_bounds(&t.bounds))
+                    };
+                    format!("{}{}", name, bounds)
+                },
+                // 3. 常量泛型参数
+                syn::GenericParam::Const(c) => {
+                    format!("const {}: {}", c.ident, self.convert_type(&c.ty))
+                }
+            }
+        }).collect();
+
+        format!("<{}>", params.join(", "))
+    }
+
+    /// v1.6.5: 转换类型参数约束
+    fn convert_type_param_bounds(&self, bounds: &syn::punctuated::Punctuated<syn::TypeParamBound, syn::token::Plus>) -> String {
+        bounds.iter().map(|bound| {
+            match bound {
+                syn::TypeParamBound::Trait(trait_bound) => {
+                    trait_bound.path.to_token_stream().to_string()
+                },
+                syn::TypeParamBound::Lifetime(lifetime) => {
+                    format!("'{}", lifetime.ident)
+                },
+                _ => bound.to_token_stream().to_string()
+            }
+        }).collect::<Vec<_>>().join(" + ")
+    }
+
+    /// v1.6.5: 转换类型 - 完整保留生命周期信息
+    fn convert_type(&self, ty: &Type) -> String {
+        match ty {
+            // 引用类型：完整保留生命周期
+            Type::Reference(type_ref) => {
+                let lifetime = if let Some(l) = &type_ref.lifetime {
+                    // v1.6.5: 'static 可选缩写为 'S（但为了兼容性暂时保持完整）
+                    if l.ident == "static" {
+                        "'static ".to_string()
+                    } else {
+                        format!("'{} ", l.ident)
+                    }
+                } else {
+                    String::new()
+                };
+
+                let mutability = if type_ref.mutability.is_some() { "!" } else { "" };
+                let inner = self.convert_type(&type_ref.elem);
+
+                format!("&{}{}{}", lifetime, mutability, inner)
+            },
+            // 路径类型：处理泛型参数中的生命周期
+            Type::Path(type_path) => {
+                self.convert_type_path(type_path)
+            },
+            // 其他类型：使用默认处理
+            _ => {
+                let type_str = ty.to_token_stream().to_string();
+                self.convert_type_string(&type_str)
+            }
+        }
+    }
+
+    /// v1.6.5: 转换类型路径（处理泛型参数中的生命周期）
+    fn convert_type_path(&self, type_path: &syn::TypePath) -> String {
+        let mut result = String::new();
+        
+        for (i, segment) in type_path.path.segments.iter().enumerate() {
+            if i > 0 {
+                result.push_str("::");
+            }
+            
+            let seg_name = segment.ident.to_string();
+            
+            // 检查是否是当前作用域中的泛型参数
+            if self.is_generic_param(&seg_name) {
+                result.push_str(&seg_name);
+            } else {
+                // 应用类型缩写
+                let abbreviated = match seg_name.as_str() {
+                    "Vec" => "V",
+                    "Option" => "O",
+                    "Result" => "R",
+                    "Arc" => "A",
+                    "Mutex" => "X",
+                    "Box" => "B",
+                    _ => &seg_name
+                };
+                result.push_str(abbreviated);
+            }
+            
+            // 处理泛型参数
+            match &segment.arguments {
+                syn::PathArguments::AngleBracketed(args) => {
+                    result.push('<');
+                    let arg_strs: Vec<String> = args.args.iter().map(|arg| {
+                        match arg {
+                            // 生命周期参数
+                            syn::GenericArgument::Lifetime(l) => {
+                                format!("'{}", l.ident)
+                            },
+                            // 类型参数
+                            syn::GenericArgument::Type(t) => {
+                                self.convert_type(t)
+                            },
+                            // 约束
+                            syn::GenericArgument::Constraint(c) => {
+                                format!("{}: {}", c.ident, self.convert_type_param_bounds(&c.bounds))
+                            },
+                            // 常量
+                            syn::GenericArgument::Const(c) => {
+                                c.to_token_stream().to_string()
+                            },
+                            _ => arg.to_token_stream().to_string()
+                        }
+                    }).collect();
+                    result.push_str(&arg_strs.join(", "));
+                    result.push('>');
+                },
+                syn::PathArguments::Parenthesized(args) => {
+                    result.push('(');
+                    let input_strs: Vec<String> = args.inputs.iter()
+                        .map(|t| self.convert_type(t))
+                        .collect();
+                    result.push_str(&input_strs.join(", "));
+                    result.push(')');
+                    if let syn::ReturnType::Type(_, ty) = &args.output {
+                        result.push_str(" -> ");
+                        result.push_str(&self.convert_type(ty));
+                    }
+                },
+                syn::PathArguments::None => {}
+            }
+        }
+        
+        result
+    }
+
+    /// v1.6.5: 转换类型字符串（向后兼容旧逻辑）
+    fn convert_type_string(&self, type_str: &str) -> String {
+        // 检查是否是单个泛型参数
         let trimmed = type_str.trim();
         if trimmed.len() == 1 && self.is_generic_param(trimmed) {
-            // 这是一个泛型参数，保持原样
             return trimmed.to_string();
         }
 
-        // 检查是否包含泛型参数（如 "S::Error"）
-        // 如果类型路径的第一段是泛型参数，则保持整个路径不转换
+        // 检查是否包含泛型参数路径
         if let Some(first_segment) = trimmed.split("::").next() {
             if self.is_generic_param(first_segment) {
-                // 路径以泛型参数开头，保持原样
-                return type_str.clone();
+                return type_str.to_string();
             }
         }
 
-        // 替换常见类型，注意处理泛型参数
-        // v1.7: String不再缩写为Str
+        // 应用类型缩写
         let result = type_str
             .replace("Vec <", "V<")
             .replace("Vec<", "V<")
@@ -288,13 +446,13 @@ impl Rust2NuConverter {
             .replace(" mut", "!")
             .replace(" >", ">");
         
-        // 清理多余空格: 移除 :: < > , 周围的空格
+        // 清理多余空格
         result
             .replace(" :: ", "::")
             .replace(" ::", "::")
             .replace(":: ", "::")
             .replace(" <", "<")
-            .replace("< ", "<")  // 移除 < 后的空格
+            .replace("< ", "<")
             .replace(" >", ">")
             .replace(" ,", ",")
     }
@@ -1025,9 +1183,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.write(" ");
         self.write(&node.ident.to_string());
 
-        // 泛型
+        // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
-            self.write(&node.generics.to_token_stream().to_string());
+            self.write(&self.convert_generics(&node.generics));
         }
 
         // 字段
@@ -1096,8 +1254,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.write(" ");
         self.write(&node.ident.to_string());
 
+        // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
-            self.write(&node.generics.to_token_stream().to_string());
+            self.write(&self.convert_generics(&node.generics));
         }
 
         self.writeln(" {");
@@ -1153,8 +1312,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.write(" ");
         self.write(&node.ident.to_string());
 
+        // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
-            self.write(&node.generics.to_token_stream().to_string());
+            self.write(&self.convert_generics(&node.generics));
         }
 
         self.writeln(" {");
@@ -1199,9 +1359,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         
         self.write("I");
 
-        // 泛型
+        // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
-            self.write(&node.generics.to_token_stream().to_string());
+            self.write(&self.convert_generics(&node.generics));
         }
 
         self.write(" ");
