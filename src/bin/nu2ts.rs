@@ -1,6 +1,10 @@
 // nu2ts - Nu to TypeScript Converter CLI
 // 将Nu代码转换为TypeScript代码
 
+// Development-phase warnings (same as lib.rs)
+#![allow(dead_code)]
+#![allow(clippy::ptr_arg)]
+
 use anyhow::{Context, Result};
 use clap::Parser;
 use nu_compiler::nu2ts::{Nu2TsConverter, RuntimeMode, Target, TsConfig};

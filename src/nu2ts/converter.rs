@@ -1500,7 +1500,7 @@ impl Nu2TsConverter {
         lines: &[&str],
         start: usize,
     ) -> Result<super::types::MatchAst> {
-        use super::types::{MatchArm, MatchAst, MatchPattern};
+        use super::types::{MatchArm, MatchAst};
 
         let first_line = lines[start].trim();
 
@@ -1684,8 +1684,6 @@ impl Nu2TsConverter {
         match_ast: &super::types::MatchAst,
         context: &mut ConversionContext,
     ) -> Result<String> {
-        use super::types::MatchPattern;
-
         let temp_var = format!("_match{}", context.temp_var_counter);
         context.temp_var_counter += 1;
 

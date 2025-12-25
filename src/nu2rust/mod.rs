@@ -1452,7 +1452,7 @@ impl Nu2RustConverter {
         // 3. &'a !Type -> &'a mut Type (关键：处理空格)
         // 4. *! Type -> *mut Type
         // 5. * const Type -> *const Type (保持不变)
-        let mut chars: Vec<char> = result.chars().collect();
+        let chars: Vec<char> = result.chars().collect();
         let mut i = 0;
         let mut new_result = String::new();
 

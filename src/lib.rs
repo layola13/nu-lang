@@ -1,6 +1,28 @@
 // Nu Language Compiler Library
-// Version: 1.6.2
+// Version: 1.6.3
 // High-Density Rust Dialect Transpiler
+
+// Allow development-phase warnings (can be removed when code is finalized)
+// Rust warnings
+#![allow(dead_code)]
+#![allow(unused_variables)]
+#![allow(unused_mut)]
+#![allow(unused_assignments)]
+#![allow(noop_method_call)]
+// Clippy lints (development phase)
+#![allow(clippy::collapsible_else_if)]
+#![allow(clippy::get_first)]
+#![allow(clippy::if_same_then_else)]
+#![allow(clippy::implicit_saturating_sub)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::map_clone)]
+#![allow(clippy::needless_borrow)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::no_effect_replace)]
+#![allow(clippy::ptr_arg)]
+#![allow(clippy::single_char_add_str)]
+#![allow(clippy::unnecessary_map_or)]
+#![allow(clippy::unwrap_or_default)]
 
 pub mod ast;
 pub mod codegen;

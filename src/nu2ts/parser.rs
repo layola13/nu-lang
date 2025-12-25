@@ -3,7 +3,7 @@
 // 策略：精确解析核心语法（Match、函数签名），透传复杂结构
 
 use super::ast::*;
-use anyhow::{bail, Result};
+use anyhow::Result;
 
 // ============ Parser ============
 
