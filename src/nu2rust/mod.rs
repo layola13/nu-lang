@@ -310,12 +310,19 @@ impl Nu2RustConverter {
         let is_pub = line.starts_with("U F ");
         let content = if is_pub { &line[4..] } else { &line[3..] }; // 跳过 "U F " 或 "U f "
 
-        // 在trait或impl块内，不添加pub修饰符
-        let visibility = if is_pub && !context.in_impl && !context.in_trait {
-            "pub "
+        // v1.6.4: 与convert_function保持一致的可见性逻辑
+        let visibility = if context.in_trait {
+            "" // trait定义中的方法不能有pub
+        } else if context.in_trait_impl {
+            "" // trait实现中的方法不能有pub
+        } else if context.in_impl {
+            "pub " // 固有impl中的方法默认pub
+        } else if is_pub {
+            "pub " // 顶层的U F标记
         } else {
-            ""
+            "" // 顶层的U f标记（私有函数）
         };
+        
         let mut converted = self.convert_types_in_string(content);
 
         // 处理 !self -> mut self (按值接收的可变self)
@@ -708,62 +715,125 @@ impl Nu2RustConverter {
             }
 
             // if: ? (检查是否是三元表达式或模式守卫的开始)
-            // 但要避免在宏规则中转换（宏规则中 ? 是可选项标记）
-            // 还要避免转换 ? Sized（trait约束）
-            if chars[i] == '?' && i + 1 < chars.len() && chars[i+1] == ' ' {
-                // 检查是否是 ? Sized 模式
-                let mut is_sized_trait = false;
-                if i + 7 < chars.len() {
-                    let next_6: String = chars[i+2..i+8].iter().collect();
-                    if next_6 == "Sized " || next_6 == "Sized+" || next_6 == "Sized," || next_6 == "Sized>" {
-                        is_sized_trait = true;
+            // 但要避免：
+            // 1. 在宏规则中转换（宏规则中 ? 是可选项标记）
+            // 2. 转换 ? Sized（trait约束）
+            // 3. 错误传播运算符 expr? （后面跟 ; , ) } 等）
+            if chars[i] == '?' {
+                // 首先检查是否是错误传播运算符（后面不是空格，或后面是; , ) }）
+                let is_error_propagation = if i + 1 < chars.len() {
+                    chars[i+1] == ';' || chars[i+1] == ',' || chars[i+1] == ')' || chars[i+1] == '}'
+                } else {
+                    false
+                };
+                
+                if is_error_propagation {
+                    // 保持原样，这是错误传播运算符
+                    result.push(chars[i]);
+                    i += 1;
+                    continue;
+                }
+                
+                // 只有后面有空格时才考虑转换为if
+                if i + 1 < chars.len() && chars[i+1] == ' ' {
+                    // 检查是否是 ? Sized 模式
+                    let mut is_sized_trait = false;
+                    if i + 7 < chars.len() {
+                        let next_6: String = chars[i+2..i+8].iter().collect();
+                        if next_6 == "Sized " || next_6 == "Sized+" || next_6 == "Sized," || next_6 == "Sized>" {
+                            is_sized_trait = true;
+                        }
+                    }
+                    
+                    // 检查后面是否紧跟 $（宏变量），如果是则不转换
+                    let mut is_macro_optional = false;
+                    if i + 2 < chars.len() && chars[i+2] == '$' {
+                        is_macro_optional = true;
+                    }
+                    
+                    // 检查是否在宏规则上下文中
+                    let mut is_in_macro = false;
+                    if !is_macro_optional {
+                        // 向前查找，看是否在macro_rules上下文中
+                        let context_start = if i > 50 { i - 50 } else { 0 };
+                        let context: String = chars[context_start..i].iter().collect();
+                        
+                        // 如果上下文包含macro_rules或大量$符号，认为是宏
+                        if context.contains("macro_rules") || context.matches('$').count() > 2 {
+                            // 进一步检查前面的非空白字符
+                            let mut j = i;
+                            while j > 0 {
+                                j -= 1;
+                                if !chars[j].is_whitespace() {
+                                    // 在宏规则中，) ? 或 * ? 或 + ? 或 ] ? 是可选项标记
+                                    is_in_macro = (chars[j] == ')' || chars[j] == '*' || chars[j] == '+' || chars[j] == ']')
+                                        && context.contains("macro_rules");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if !is_in_macro && !is_macro_optional && !is_sized_trait {
+                        result.push_str("if ");
+                        i += 2;
+                        continue;
                     }
                 }
+            }
+
+            // match: M (需要确保不是其他标识符的一部分，也不在泛型参数中)
+            // v1.6.8: 只处理 "M " 和特定的 "M&" 模式（match &expr）
+            // 单字母M很可能是泛型参数，需要非常保守地转换
+            if remaining.starts_with("M ") || remaining.starts_with("M&") {
+                let has_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
                 
-                // 检查后面是否紧跟 $（宏变量），如果是则不转换
-                let mut is_macro_optional = false;
-                if i + 2 < chars.len() && chars[i+2] == '$' {
-                    is_macro_optional = true;
-                }
-                
-                // 检查是否在宏规则上下文中
-                let mut is_in_macro = false;
-                if !is_macro_optional {
-                    // 向前查找，看是否在macro_rules上下文中
-                    let context_start = if i > 50 { i - 50 } else { 0 };
-                    let context: String = chars[context_start..i].iter().collect();
-                    
-                    // 如果上下文包含macro_rules或大量$符号，认为是宏
-                    if context.contains("macro_rules") || context.matches('$').count() > 2 {
-                        // 进一步检查前面的非空白字符
-                        let mut j = i;
-                        while j > 0 {
+                // 检查前面的上下文，避免在泛型/类型位置转换
+                let mut is_in_generic_or_type = false;
+                if i > 0 {
+                    // 前面是 < , : 表示在泛型/类型上下文中
+                    if chars[i-1] == '<' || chars[i-1] == ',' || chars[i-1] == ':' {
+                        is_in_generic_or_type = true;
+                    } else if chars[i-1].is_whitespace() {
+                        // 如果前面是空格，向前查找最近的非空格字符
+                        let mut j = i - 1;
+                        while j > 0 && chars[j].is_whitespace() {
                             j -= 1;
-                            if !chars[j].is_whitespace() {
-                                // 在宏规则中，) ? 或 * ? 或 + ? 或 ] ? 是可选项标记
-                                is_in_macro = (chars[j] == ')' || chars[j] == '*' || chars[j] == '+' || chars[j] == ']')
-                                    && context.contains("macro_rules");
-                                break;
-                            }
+                        }
+                        // 检查空格前的字符是否是泛型分隔符
+                        if chars[j] == '<' || chars[j] == ',' || chars[j] == ':' {
+                            is_in_generic_or_type = true;
                         }
                     }
                 }
                 
-                if !is_in_macro && !is_macro_optional && !is_sized_trait {
-                    result.push_str("if ");
-                    i += 2;
-                    continue;
+                // 检查后面的上下文，避免在泛型位置转换（如 M >）
+                if !is_in_generic_or_type && i + 2 < chars.len() {
+                    let next_char = chars[i + 1]; // M后第一个字符
+                    if next_char == ' ' && i + 2 < chars.len() {
+                        let char_after_space = chars[i + 2];
+                        // M > 或 M , 或 M ) 表示泛型参数
+                        if char_after_space == '>' || char_after_space == ',' || char_after_space == ')' {
+                            is_in_generic_or_type = true;
+                        }
+                    }
                 }
-            }
-
-            // match: M (需要确保不是其他标识符的一部分)
-            // M必须前后都有明确的边界
-            if remaining.starts_with("M ") {
-                let has_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
-                if has_start_boundary {
-                    result.push_str("match ");
-                    i += 2;
-                    continue;
+                
+                // 只在以下情况转换为match：
+                // 1. 有边界
+                // 2. 后面跟空格（M ）或&（M&，match引用）
+                // 3. 不在泛型/类型上下文中
+                if has_start_boundary && !is_in_generic_or_type {
+                    if remaining.starts_with("M ") {
+                        result.push_str("match ");
+                        i += 2;
+                        continue;
+                    } else if remaining.starts_with("M&") {
+                        // 特殊处理 M& -> match &
+                        result.push_str("match &");
+                        i += 2;
+                        continue;
+                    }
                 }
             }
 
@@ -803,8 +873,33 @@ impl Nu2RustConverter {
             }
 
             // mod: D (for inline mod statements)
-            // 同样避免在关键字后转换
-            if remaining.starts_with("D ") {
+            // 需要避免：
+            // 1. 在关键字后转换
+            // 2. 在泛型参数/类型位置转换（如 &mut D, Option<D>）
+            // 3. 单字符大写标识符很可能是泛型参数（D, T, E等），不应转换
+            // 关键修复：只转换 "D " 开头且确实是mod语句的情况
+            // 单字符泛型参数（D, T, E, R等）绝对不应该被转换
+            if remaining.starts_with("D ") || remaining.starts_with("D>") || remaining.starts_with("D,") || remaining.starts_with("D)") {
+                // 检查是否是单独的 "D " 模式（后面跟空格）
+                let is_d_space = remaining.starts_with("D ");
+                
+                // 检查后面的字符，如果是 >, , ) 则必定是泛型参数
+                let next_char_is_generic_delimiter = remaining.starts_with("D>") || remaining.starts_with("D,") || remaining.starts_with("D)");
+                
+                if next_char_is_generic_delimiter {
+                    // 确定是泛型参数，直接复制不转换
+                    result.push(chars[i]);
+                    i += 1;
+                    continue;
+                }
+                
+                // 只处理 "D " 的情况
+                if !is_d_space {
+                    result.push(chars[i]);
+                    i += 1;
+                    continue;
+                }
+                
                 let mut is_after_keyword = false;
                 if i >= 6 {
                     let prev_6: String = chars[i-6..i].iter().collect();
@@ -813,7 +908,53 @@ impl Nu2RustConverter {
                     }
                 }
                 
-                if !is_after_keyword {
+                // 检查是否在类型位置：前面是 mut、<、,、:、!、& 等
+                let mut is_in_type_position = false;
+                if i > 0 {
+                    // 关键修复：直接检查D前面的字符，不跳过空格
+                    // 因为 "!D" 或 "! D" 都应该被识别为类型位置
+                    let j = i - 1;
+                    
+                    // 首先检查紧邻的前一个字符
+                    if chars[j] == '!' || chars[j] == '&' || chars[j] == '<' ||
+                       chars[j] == '>' || chars[j] == ',' || chars[j] == ':' {
+                        is_in_type_position = true;
+                    } else if chars[j].is_whitespace() {
+                        // 如果前面是空格，向前查找最近的非空格字符
+                        let mut k = j;
+                        while k > 0 && chars[k].is_whitespace() {
+                            k -= 1;
+                        }
+                        if k < chars.len() {
+                            // 检查空格前的字符
+                            if chars[k] == '!' || chars[k] == '&' || chars[k] == '<' ||
+                               chars[k] == '>' || chars[k] == ',' || chars[k] == ':' {
+                                is_in_type_position = true;
+                            } else {
+                                // 检查是否是 "mut" 关键字
+                                let prev_chars: String = if k >= 2 { chars[k-2..=k].iter().collect() } else { chars[0..=k].iter().collect() };
+                                is_in_type_position = prev_chars.ends_with("mut");
+                            }
+                        }
+                    } else {
+                        // 检查是否是 "mut" 等关键字的结尾
+                        let prev_chars: String = if j >= 2 { chars[j-2..=j].iter().collect() } else { chars[0..=j].iter().collect() };
+                        is_in_type_position = prev_chars.ends_with("mut");
+                    }
+                }
+                
+                // 关键修复：检查后面是否紧跟逗号、>、)、空格等，这些都表示D是泛型参数
+                let mut is_generic_param = false;
+                if i + 1 < chars.len() {
+                    let next_char = chars[i + 1]; // D后面的字符
+                    // 如果后面跟着空格，再检查空格后的字符
+                    if next_char == ' ' && i + 2 < chars.len() {
+                        let char_after_space = chars[i + 2];
+                        is_generic_param = char_after_space == '>' || char_after_space == ',' || char_after_space == ')';
+                    }
+                }
+                
+                if !is_after_keyword && !is_in_type_position && !is_generic_param {
                     let has_start_boundary = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
                     if has_start_boundary {
                         result.push_str("mod ");
@@ -934,6 +1075,8 @@ impl Nu2RustConverter {
             .replace("R <", "Result<")  // R < -> Result< (带空格)
             .replace("R<", "Result<")
             .replace("R::", "Result::")  // R:: -> Result:: (Result的关联函数)
+            .replace("::R ", "::Result ")  // ::R  -> ::Result (模块路径后的Result，带空格)
+            .replace("::R<", "::Result<")  // ::R< -> ::Result< (模块路径后的Result泛型)
             .replace("A<", "Arc<")
             .replace("A::", "Arc::")  // A:: -> Arc:: (Arc的关联函数)
             .replace("X<", "Mutex<")
@@ -943,16 +1086,85 @@ impl Nu2RustConverter {
             .replace("B<", "Box<")
             .replace("B :: ", "Box::")  // B :: -> Box:: (Box的关联函数，带空格)
             .replace("B::", "Box::")  // B:: -> Box:: (Box的关联函数，无空格) - 修复regex库错误
-            .replace("&!", "&mut ")
-            .replace("& 'a!", "&'a mut")
             .replace(".~", ".await")
             .replace("$|", "move |")
             .replace(" wh ", " where ")
             .replace("wh ", "where ")
             .replace(" I<", " impl<")
             .replace("I<", "impl<")
+            .replace(" U I<", " unsafe impl<")
+            .replace("\nU I<", "\nunsafe impl<")
             .replace(")!", ")?")
             .replace("? Sized", "?Sized");  // 修复 ?Sized trait约束（Nu中为 "? Sized"，还原为 "?Sized"）
+        
+        // v1.6.7: 智能处理 &! -> &mut
+        // 1. &!Type -> &mut Type
+        // 2. &'a!Type -> &'a mut Type
+        // 3. &'a !Type -> &'a mut Type (关键：处理空格)
+        let mut chars: Vec<char> = result.chars().collect();
+        let mut i = 0;
+        let mut new_result = String::new();
+        
+        while i < chars.len() {
+            if i + 1 < chars.len() && chars[i] == '&' && chars[i+1] == '!' {
+                // 找到 &! 模式
+                new_result.push_str("&mut ");
+                i += 2;
+                // 跳过后面的空格
+                while i < chars.len() && chars[i].is_whitespace() {
+                    i += 1;
+                }
+            } else if i + 3 < chars.len() && chars[i] == '&' && chars[i+1] == '\'' {
+                // 检查 &'a! 或 &'a ! 模式
+                let mut j = i + 2;
+                // 找到生命周期名称的结束
+                while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+                    j += 1;
+                }
+                // 检查生命周期后是否有 ! 或 空格+!
+                let has_exclaim = if j < chars.len() && chars[j] == '!' {
+                    true
+                } else if j < chars.len() && chars[j].is_whitespace() {
+                    // 跳过空格查找 !
+                    let mut k = j;
+                    while k < chars.len() && chars[k].is_whitespace() {
+                        k += 1;
+                    }
+                    if k < chars.len() && chars[k] == '!' {
+                        j = k; // 更新j指向!的位置
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+                
+                if has_exclaim {
+                    // 找到 &'lifetime! 或 &'lifetime ! 模式
+                    new_result.push('&');
+                    new_result.push('\'');
+                    for k in i+2..j {
+                        if !chars[k].is_whitespace() {  // 只复制非空格字符（生命周期名）
+                            new_result.push(chars[k]);
+                        }
+                    }
+                    new_result.push_str(" mut ");  // 添加空格后缀
+                    i = j + 1;  // 跳过!
+                    // 跳过!后面的空格
+                    while i < chars.len() && chars[i].is_whitespace() {
+                        i += 1;
+                    }
+                } else {
+                    new_result.push(chars[i]);
+                    i += 1;
+                }
+            } else {
+                new_result.push(chars[i]);
+                i += 1;
+            }
+        }
+        result = new_result;
 
         // V! -> vec! (宏调用)
         result = result
