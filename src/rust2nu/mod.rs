@@ -442,6 +442,9 @@ impl Rust2NuConverter {
 
     /// v1.6.5: 转换类型字符串（向后兼容旧逻辑）
     fn convert_type_string(&self, type_str: &str) -> String {
+        // 🔑 首先清理 to_token_stream() 产生的多余空格
+        let type_str = self.clean_token_spaces(type_str);
+        
         // 检查是否是单个泛型参数
         let trimmed = type_str.trim();
         if trimmed.len() == 1 && self.is_generic_param(trimmed) {
@@ -456,33 +459,16 @@ impl Rust2NuConverter {
         }
 
         // 应用类型缩写
-        let result = type_str
-            .replace("Vec <", "V<")
+        type_str
             .replace("Vec<", "V<")
-            .replace("Option <", "O<")
             .replace("Option<", "O<")
-            .replace("Result <", "R<")
             .replace("Result<", "R<")
-            .replace("Arc <", "A<")
             .replace("Arc<", "A<")
-            .replace("Mutex <", "X<")
             .replace("Mutex<", "X<")
-            .replace("Box <", "B<")
             .replace("Box<", "B<")
-            .replace("& mut", "&!")
-            .replace("* mut", "*mut")  // 保持裸指针的mut关键字
-            .replace("* const", "*const")  // 保持裸指针的const关键字
-            .replace(" >", ">");
-        
-        // 清理多余空格
-        result
-            .replace(" :: ", "::")
-            .replace(" ::", "::")
-            .replace(":: ", "::")
-            .replace(" <", "<")
-            .replace("< ", "<")
-            .replace(" >", ">")
-            .replace(" ,", ",")
+            .replace("&mut", "&!")
+            .replace("*mut", "*mut")  // 保持裸指针的mut关键字
+            .replace("*const", "*const")  // 保持裸指针的const关键字
     }
 
     /// 转换语句
@@ -583,12 +569,7 @@ impl Rust2NuConverter {
                     self.write("\n");
                 } else if let Expr::Macro(_mac) = expr {
                     self.write(&self.indent());
-                    let macro_str = expr
-                        .to_token_stream()
-                        .to_string()
-                        .replace(" !", "!")
-                        .replace(" (", "(")
-                        .replace(" ,", ",")
+                    let macro_str = self.clean_token_spaces(&expr.to_token_stream().to_string())
                         .replace("vec!", "V!");  // vec! -> V!
                     self.write(&macro_str);
                     if semi.is_some() {
@@ -607,15 +588,9 @@ impl Rust2NuConverter {
             }
             Stmt::Macro(mac) => {
                 // v1.6: 宏语句，vec!转换为V!，其他保留（println!, assert!, etc.）
-                // 移除to_token_stream()插入的空格（"println !" -> "println!"）
+                // 使用 clean_token_spaces 移除 to_token_stream() 插入的空格
                 self.write(&self.indent());
-                let macro_str = mac
-                    .mac
-                    .to_token_stream()
-                    .to_string()
-                    .replace(" !", "!") // 修复宏名和!之间的空格
-                    .replace(" (", "(") // 修复!和(之间的空格
-                    .replace(" ,", ",") // 修复参数逗号前的空格
+                let macro_str = self.clean_token_spaces(&mac.mac.to_token_stream().to_string())
                     .replace("vec!", "V!");  // vec! -> V!
                 self.write(&macro_str);
                 if mac.semi_token.is_some() {
@@ -644,7 +619,7 @@ impl Rust2NuConverter {
 
                 // v1.6: 保留Turbofish泛型参数 ::<Type>
                 let turbofish = if let Some(turbo) = &call.turbofish {
-                    turbo.to_token_stream().to_string()
+                    self.clean_token_spaces(&turbo.to_token_stream().to_string())
                 } else {
                     String::new()
                 };
@@ -667,7 +642,7 @@ impl Rust2NuConverter {
                 let inputs = closure
                     .inputs
                     .iter()
-                    .map(|p| p.to_token_stream().to_string())
+                    .map(|p| self.clean_token_spaces(&p.to_token_stream().to_string()))
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -689,7 +664,7 @@ impl Rust2NuConverter {
                 let mut result = format!("M {} {{\n", scrutinee);
                 for arm in &match_expr.arms {
                     result.push_str("        ");
-                    result.push_str(&arm.pat.to_token_stream().to_string());
+                    result.push_str(&self.clean_token_spaces(&arm.pat.to_token_stream().to_string()));
                     if let Some((_, guard)) = &arm.guard {
                         result.push_str(" ? ");
                         result.push_str(&self.convert_expr(guard));
@@ -711,7 +686,7 @@ impl Rust2NuConverter {
                         Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
                         Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
                         _ => {
-                            result.push_str(&stmt.to_token_stream().to_string());
+                            result.push_str(&self.clean_token_spaces(&stmt.to_token_stream().to_string()));
                             result.push(' ');
                         }
                     }
@@ -740,7 +715,7 @@ impl Rust2NuConverter {
                                 String::from("<")
                             }
                         }
-                        _ => stmt.to_token_stream().to_string(),
+                        _ => self.clean_token_spaces(&stmt.to_token_stream().to_string()),
                     };
                     result.push_str(&stmt_str);
                     result.push('\n');
@@ -750,7 +725,7 @@ impl Rust2NuConverter {
             }
             Expr::ForLoop(for_loop) => {
                 // L = for
-                let pat = for_loop.pat.to_token_stream().to_string();
+                let pat = self.clean_token_spaces(&for_loop.pat.to_token_stream().to_string());
                 let iter = self.convert_expr(&for_loop.expr);
                 let mut result = format!("L {} in {} {{ ", pat, iter);
                 // 递归转换循环体中的语句
@@ -775,7 +750,7 @@ impl Rust2NuConverter {
                             }
                         }
                         _ => {
-                            let stmt_str = stmt.to_token_stream().to_string().replace("vec!", "V!");
+                            let stmt_str = self.clean_token_spaces(&stmt.to_token_stream().to_string()).replace("vec!", "V!");
                             result.push_str(&stmt_str);
                             result.push(' ');
                         }
@@ -790,7 +765,7 @@ impl Rust2NuConverter {
                 let mut result = format!("while {} {{\n", cond);
                 for stmt in &while_expr.body.stmts {
                     result.push_str("        ");
-                    result.push_str(&stmt.to_token_stream().to_string());
+                    result.push_str(&self.clean_token_spaces(&stmt.to_token_stream().to_string()));
                     result.push('\n');
                 }
                 result.push_str("    }");
@@ -821,7 +796,7 @@ impl Rust2NuConverter {
                             }
                         }
                         _ => {
-                            let stmt_str = stmt.to_token_stream().to_string().replace("vec!", "V!");
+                            let stmt_str = self.clean_token_spaces(&stmt.to_token_stream().to_string()).replace("vec!", "V!");
                             result.push_str(&stmt_str);
                             result.push(' ');
                         }
@@ -838,15 +813,79 @@ impl Rust2NuConverter {
             }
             _ => {
                 // 默认：保持原样但替换类型和vec!宏
-                let expr_str = expr.to_token_stream().to_string().replace("vec!", "V!");
+                let expr_str = self.clean_token_spaces(&expr.to_token_stream().to_string()).replace("vec!", "V!");
                 self.convert_type_in_string(&expr_str)
             }
         }
     }
 
+    /// 清理 to_token_stream() 产生的多余空格
+    /// 例如: "V < i32 >" -> "V<i32>", "vec ! []" -> "vec![]", "x . method()" -> "x.method()"
+    fn clean_token_spaces(&self, s: &str) -> String {
+        let mut result = s.to_string();
+        
+        // 移除 < > 周围的空格
+        result = result.replace(" < ", "<");
+        result = result.replace(" <", "<");
+        result = result.replace("< ", "<");
+        result = result.replace(" > ", "> ");  // 保留 > 后的空格以便其他替换
+        result = result.replace(" >", ">");
+        
+        // 移除 :: 周围的空格
+        result = result.replace(" :: ", "::");
+        result = result.replace(" ::", "::");
+        result = result.replace(":: ", "::");
+        
+        // 移除 ! 前的空格（用于宏调用如 vec ! [] -> vec![]）
+        result = result.replace(" !", "!");
+        
+        // 移除 [ ] ( ) { } 周围的空格
+        result = result.replace(" [", "[");
+        result = result.replace("[ ", "[");
+        result = result.replace(" ]", "]");
+        result = result.replace(" (", "(");
+        result = result.replace("( ", "(");
+        result = result.replace(" )", ")");
+        result = result.replace("{ ", "{");
+        result = result.replace(" }", "}");
+        
+        // 移除逗号前的空格，保留逗号后的空格
+        result = result.replace(" ,", ",");
+        
+        // 移除分号前的空格
+        result = result.replace(" ;", ";");
+        
+        // 移除方法调用中 . 周围的空格（如 "x . method()" -> "x.method()"）
+        result = result.replace(" . ", ".");
+        result = result.replace(" .", ".");
+        result = result.replace(". ", ".");
+        
+        // 但是要特别处理浮点数 - "1. 0" 不应该变成 "1.0"（syn不会这样输出，所以这里不需要特别处理）
+        
+        // 移除类型注解冒号后面的多余空格（但保留一个空格）
+        // "x : Type" -> "x: Type" (保持 ": " 的格式)
+        result = result.replace(" : ", ": ");
+        
+        // 修复 "identifier :(" -> "identifier: (" 的格式（元组类型注解）
+        // 需要在冒号后添加空格
+        result = result.replace(": (", ": (");  // 已经正确了
+        result = result.replace(":(", ": (");   // 修复紧贴的情况
+        
+        // 修复空闭包管道: "| |" -> "||"
+        result = result.replace("| |", "||");
+        
+        // 修复 *= += -= 等复合赋值运算符周围的空格
+        result = result.replace("* ", "*");  // 解引用符后不需要空格
+        
+        result
+    }
+    
     fn convert_type_in_string(&self, s: &str) -> String {
         // v1.7.3: 智能类型替换，避免将泛型参数误替换为关键字
         // 例如：where M: Display 不应该变成 where match: Display
+        
+        // 🔑 首先清理 to_token_stream() 产生的多余空格
+        let s = self.clean_token_spaces(s);
         
         // 先检查是否包含单字母泛型参数（如 <M>、<T>、where M:）
         // 这些情况下不进行类型名称的替换
@@ -1172,11 +1211,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 } else {
                     use_str.replace("use", "u")
                 };
-                // 清理多余空格: 移除 :: 、 ; 周围的空格
-                let cleaned_use = nu_use
-                    .replace(" ::", "::")
-                    .replace(":: ", "::")
-                    .replace(" ;", ";");
+                // 使用 clean_token_spaces 清理所有多余空格
+                let cleaned_use = self.clean_token_spaces(&nu_use);
                 self.writeln(&cleaned_use);
             }
             Item::Const(c) => {

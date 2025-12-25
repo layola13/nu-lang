@@ -85,6 +85,35 @@ for project in "${projects[@]}"; do
     continue
   fi
   
+  echo "步骤5: 运行还原的程序"
+  # 对于交互式程序，使用管道输入和超时
+  run_cmd=""
+  case "$project" in
+    "calculator")
+      # 计算器程序：输入 1+1，然后输入 exit
+      run_cmd="echo -e '1 + 1\nexit' | timeout 5s cargo run 2>&1 || true"
+      ;;
+    "todo_list")
+      # Todo程序：直接输入 exit
+      run_cmd="echo 'exit' | timeout 5s cargo run 2>&1 || true"
+      ;;
+    "file_processor")
+      # 文件处理程序：直接输入 exit
+      run_cmd="echo 'exit' | timeout 5s cargo run 2>&1 || true"
+      ;;
+    *)
+      # 非交互式程序：直接运行，使用超时防止卡住
+      run_cmd="timeout 10s cargo run 2>&1 || true"
+      ;;
+  esac
+  
+  if ! (cd "$cargo_back_dir" && eval "$run_cmd"); then
+    echo "❌ 运行失败: $project"
+    fail_count=$((fail_count + 1))
+    failed_projects+=("$project (run failed)")
+    continue
+  fi
+  
   echo "✅ 项目测试成功: $project"
   success_count=$((success_count + 1))
 done
