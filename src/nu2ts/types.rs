@@ -95,3 +95,36 @@ impl ConversionContext {
         self.temp_var_counter = 0;
     }
 }
+
+// Match AST 结构
+#[derive(Debug, Clone)]
+pub(crate) struct MatchAst {
+    pub target: String,              // 匹配目标表达式
+    pub target_type: Option<String>, // 推断的类型 (Result/Option/Enum)
+    pub arms: Vec<MatchArm>,         // 分支列表
+    pub start_line: usize,
+    pub end_line: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct MatchArm {
+    pub pattern: MatchPattern,
+    pub guard: Option<String>,       // 守卫条件 (暂不支持)
+    pub body: String,                // 分支体代码
+}
+
+#[derive(Debug, Clone)]
+pub enum MatchPattern {
+    // Ok(binding)
+    ResultOk { binding: String },
+    // Err(binding)
+    ResultErr { binding: String },
+    // Some(binding)
+    OptionSome { binding: String },
+    // None
+    OptionNone,
+    // 字面量: 1, "abc", true
+    Literal { value: String },
+    // 通配符: _
+    Wildcard,
+}

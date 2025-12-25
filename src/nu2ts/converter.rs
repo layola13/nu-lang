@@ -167,29 +167,54 @@ impl Nu2TsConverter {
                 }
             }
             
-            // 检测match块并跳过
+            // 检测并转换 match 块
             if trimmed.starts_with("M ") {
-                output.push_str(&format!("// TODO: Convert match statement manually\n"));
-                output.push_str(&format!("// {}\n", trimmed));
-                // 跳过整个match块
-                let mut brace_count = 0;
-                let mut found_open = false;
-                while i < lines.len() {
-                    let l = lines[i].trim();
-                    if l.contains("{") {
-                        found_open = true;
-                        brace_count += l.matches('{').count();
+                // 解析 Match 语句
+                match self.parse_match_statement(&lines, i) {
+                    Ok(match_ast) => {
+                        // 生成 TypeScript if-chain
+                        match self.generate_match_ifchain(&match_ast, &mut context) {
+                            Ok(converted) => {
+                                output.push_str(&converted);
+                                output.push('\n');
+                            }
+                            Err(e) => {
+                                // 生成失败，输出注释
+                                output.push_str(&format!("// Match conversion failed: {}\n", e));
+                                output.push_str(&format!("// {}\n", trimmed));
+                            }
+                        }
+                        // 跳到 match 块结束
+                        i = match_ast.end_line;
+                        i += 1;
+                        continue;
                     }
-                    if l.contains("}") {
-                        brace_count = brace_count.saturating_sub(l.matches('}').count());
-                    }
-                    output.push_str(&format!("// {}\n", lines[i]));
-                    i += 1;
-                    if found_open && brace_count == 0 {
-                        break;
+                    Err(e) => {
+                        // 解析失败，跳过并输出注释
+                        output.push_str(&format!("// Match parsing failed: {}\n", e));
+                        output.push_str(&format!("// {}\n", trimmed));
+                        
+                        // 跳过整个match块
+                        let mut brace_count = 0;
+                        let mut found_open = false;
+                        while i < lines.len() {
+                            let l = lines[i].trim();
+                            if l.contains("{") {
+                                found_open = true;
+                                brace_count += l.matches('{').count();
+                            }
+                            if l.contains("}") {
+                                brace_count = brace_count.saturating_sub(l.matches('}').count());
+                            }
+                            output.push_str(&format!("// {}\n", lines[i]));
+                            i += 1;
+                            if found_open && brace_count == 0 {
+                                break;
+                            }
+                        }
+                        continue;
                     }
                 }
-                continue;
             }
 
             // 处理各种Nu语法
@@ -1379,6 +1404,312 @@ impl Nu2TsConverter {
         // 简化处理：直接返回方法体，由后续的convert_line处理
         // 这里只是占位，实际的方法转换会在第二遍扫描时完成
         Ok(format!("    // {}", method.lines().next().unwrap_or("")))
+    }
+    
+    // ============ Match 语句处理 ============
+    
+    /// 解析 Match 语句
+    fn parse_match_statement(
+        &self,
+        lines: &[&str],
+        start: usize,
+    ) -> Result<super::types::MatchAst> {
+        use super::types::{MatchAst, MatchArm, MatchPattern};
+        
+        let first_line = lines[start].trim();
+        
+        // 提取匹配目标: "M expr {" -> "expr"
+        let target = if let Some(pos) = first_line.find('{') {
+            first_line[2..pos].trim().to_string()
+        } else {
+            first_line[2..].trim().to_string()
+        };
+        
+        // 收集所有行直到匹配的 }
+        let mut brace_count = if first_line.contains('{') { 1 } else { 0 };
+        let mut i = start + 1;
+        
+        if brace_count == 0 && i < lines.len() && lines[i].trim() == "{" {
+            brace_count = 1;
+            i += 1;
+        }
+        
+        let mut arms = Vec::new();
+        let mut current_pattern: Option<String> = None;
+        let mut current_body = String::new();
+        let mut arm_brace_count = 0;
+        
+        while i < lines.len() && brace_count > 0 {
+            let line = lines[i];
+            let trimmed = line.trim();
+            
+            // 更新大括号计数
+            brace_count += trimmed.matches('{').count();
+            brace_count = brace_count.saturating_sub(trimmed.matches('}').count());
+            
+            // 检测分支开始: "Ok(val):" 或 "Err(e):"
+            if trimmed.ends_with(':') && !trimmed.contains('{') {
+                // 保存上一个分支
+                if let Some(pat) = current_pattern.take() {
+                    arms.push(MatchArm {
+                        pattern: self.parse_match_pattern(&pat)?,
+                        guard: None,
+                        body: current_body.trim().to_string(),
+                    });
+                    current_body.clear();
+                }
+                
+                // 开始新分支
+                current_pattern = Some(trimmed.trim_end_matches(':').to_string());
+                arm_brace_count = 0;
+            } else if trimmed.contains(":{") {
+                // 单行形式: "Ok(val): { body }"
+                let parts: Vec<&str> = trimmed.splitn(2, ":{").collect();
+                if parts.len() == 2 {
+                    // 保存上一个分支
+                    if let Some(pat) = current_pattern.take() {
+                        arms.push(MatchArm {
+                            pattern: self.parse_match_pattern(&pat)?,
+                            guard: None,
+                            body: current_body.trim().to_string(),
+                        });
+                        current_body.clear();
+                    }
+                    
+                    current_pattern = Some(parts[0].trim().to_string());
+                    let body_part = parts[1];
+                    current_body.push_str(body_part.trim_end_matches('}').trim());
+                    arm_brace_count = 1;
+                    arm_brace_count += body_part.matches('{').count();
+                    arm_brace_count = arm_brace_count.saturating_sub(body_part.matches('}').count());
+                    
+                    if arm_brace_count == 0 {
+                        // 分支完成
+                        if let Some(pat) = current_pattern.take() {
+                            arms.push(MatchArm {
+                                pattern: self.parse_match_pattern(&pat)?,
+                                guard: None,
+                                body: current_body.trim().to_string(),
+                            });
+                            current_body.clear();
+                        }
+                    }
+                }
+            } else if current_pattern.is_some() {
+                // 收集分支体
+                if trimmed == "{" {
+                    arm_brace_count = 1;
+                } else if arm_brace_count > 0 {
+                    arm_brace_count += trimmed.matches('{').count();
+                    arm_brace_count = arm_brace_count.saturating_sub(trimmed.matches('}').count());
+                    
+                    if arm_brace_count == 0 && trimmed.ends_with('}') {
+                        // 分支结束
+                        if let Some(pat) = current_pattern.take() {
+                            arms.push(MatchArm {
+                                pattern: self.parse_match_pattern(&pat)?,
+                                guard: None,
+                                body: current_body.trim().to_string(),
+                            });
+                            current_body.clear();
+                        }
+                    } else {
+                        current_body.push_str(line);
+                        current_body.push('\n');
+                    }
+                } else {
+                    current_body.push_str(line);
+                    current_body.push('\n');
+                }
+            }
+            
+            i += 1;
+        }
+        
+        // 推断目标类型
+        let target_type = self.infer_match_target_type(&arms);
+        
+        Ok(MatchAst {
+            target,
+            target_type,
+            arms,
+            start_line: start,
+            end_line: i.saturating_sub(1),
+        })
+    }
+    
+    /// 解析匹配模式
+    fn parse_match_pattern(&self, pattern: &str) -> Result<super::types::MatchPattern> {
+        use super::types::MatchPattern;
+        
+        let trimmed = pattern.trim();
+        
+        if trimmed.starts_with("Ok(") && trimmed.ends_with(')') {
+            let binding = trimmed[3..trimmed.len()-1].trim().to_string();
+            return Ok(MatchPattern::ResultOk { binding });
+        }
+        
+        if trimmed.starts_with("Err(") && trimmed.ends_with(')') {
+            let binding = trimmed[4..trimmed.len()-1].trim().to_string();
+            return Ok(MatchPattern::ResultErr { binding });
+        }
+        
+        if trimmed.starts_with("Some(") && trimmed.ends_with(')') {
+            let binding = trimmed[5..trimmed.len()-1].trim().to_string();
+            return Ok(MatchPattern::OptionSome { binding });
+        }
+        
+        if trimmed == "None" {
+            return Ok(MatchPattern::OptionNone);
+        }
+        
+        if trimmed == "_" {
+            return Ok(MatchPattern::Wildcard);
+        }
+        
+        // 字面量
+        Ok(MatchPattern::Literal {
+            value: trimmed.to_string(),
+        })
+    }
+    
+    /// 根据分支模式推断目标类型
+    fn infer_match_target_type(&self, arms: &[super::types::MatchArm]) -> Option<String> {
+        use super::types::MatchPattern;
+        
+        for arm in arms {
+            match &arm.pattern {
+                MatchPattern::ResultOk { .. } | MatchPattern::ResultErr { .. } => {
+                    return Some("Result".to_string());
+                }
+                MatchPattern::OptionSome { .. } | MatchPattern::OptionNone => {
+                    return Some("Option".to_string());
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+    
+    /// 生成 TypeScript if-chain
+    fn generate_match_ifchain(
+        &self,
+        match_ast: &super::types::MatchAst,
+        context: &mut ConversionContext,
+    ) -> Result<String> {
+        use super::types::MatchPattern;
+        
+        let temp_var = format!("_match{}", context.temp_var_counter);
+        context.temp_var_counter += 1;
+        
+        let mut output = String::new();
+        
+        // 计算匹配目标
+        output.push_str(&format!(
+            "const {} = {};\n",
+            temp_var,
+            self.convert_expression(&match_ast.target, context)?
+        ));
+        
+        // 生成分支
+        let match_type = match_ast.target_type.as_deref();
+        let mut is_first = true;
+        
+        for arm in &match_ast.arms {
+            let condition = self.generate_match_condition(
+                &temp_var,
+                &arm.pattern,
+                match_type,
+            )?;
+            
+            let prefix = if is_first {
+                "if"
+            } else {
+                "else if"
+            };
+            is_first = false;
+            
+            // 生成绑定变量
+            let binding = self.generate_pattern_binding(&arm.pattern, &temp_var)?;
+            
+            // 转换分支体
+            let body_lines: Vec<&str> = arm.body.lines().collect();
+            let mut body_converted = String::new();
+            for line in body_lines {
+                let converted_line = self.convert_expression(line.trim(), context)?;
+                if !converted_line.is_empty() {
+                    body_converted.push_str("    ");
+                    body_converted.push_str(&converted_line);
+                    if !converted_line.ends_with(';') && !converted_line.ends_with('}') {
+                        body_converted.push(';');
+                    }
+                    body_converted.push('\n');
+                }
+            }
+            
+            output.push_str(&format!(
+                "{} ({}) {{\n{}{}}}\n",
+                prefix,
+                condition,
+                if binding.is_empty() { String::new() } else { format!("{};\n", binding) },
+                body_converted
+            ));
+        }
+        
+        Ok(output.trim_end().to_string())
+    }
+    
+    /// 生成匹配条件
+    fn generate_match_condition(
+        &self,
+        temp_var: &str,
+        pattern: &super::types::MatchPattern,
+        _match_type: Option<&str>,
+    ) -> Result<String> {
+        use super::types::MatchPattern;
+        
+        Ok(match pattern {
+            MatchPattern::ResultOk { .. } => {
+                format!("{}.tag === 'ok'", temp_var)
+            }
+            MatchPattern::ResultErr { .. } => {
+                format!("{}.tag === 'err'", temp_var)
+            }
+            MatchPattern::OptionSome { .. } => {
+                format!("{} !== null", temp_var)
+            }
+            MatchPattern::OptionNone => {
+                format!("{} === null", temp_var)
+            }
+            MatchPattern::Literal { value } => {
+                format!("{} === {}", temp_var, value)
+            }
+            MatchPattern::Wildcard => {
+                "true".to_string()
+            }
+        })
+    }
+    
+    /// 生成模式绑定代码
+    fn generate_pattern_binding(
+        &self,
+        pattern: &super::types::MatchPattern,
+        temp_var: &str,
+    ) -> Result<String> {
+        use super::types::MatchPattern;
+        
+        Ok(match pattern {
+            MatchPattern::ResultOk { binding } => {
+                format!("    const {} = {}.val", binding, temp_var)
+            }
+            MatchPattern::ResultErr { binding } => {
+                format!("    const {} = {}.err", binding, temp_var)
+            }
+            MatchPattern::OptionSome { binding } => {
+                format!("    const {} = {}", binding, temp_var)
+            }
+            _ => String::new(),
+        })
     }
 }
 

@@ -447,9 +447,21 @@ impl Nu2RustConverter {
                 
                 if is_for_loop {
                     // for 循环: L var in iter { ... } 或 L var: iter { ... }
-                    // 将 : 替换为 in
-                    let normalized = content.replace(": ", " in ");
-                    let converted = self.convert_inline_keywords(&normalized)?;
+                    // 只替换for循环变量和迭代器之间的第一个 ": " 为 " in "
+                    // 不能使用全局replace，否则会破坏循环体内的类型标注、结构体字段等
+                    let converted_content = if content.contains(": ") && !content.contains(" in ") {
+                        // 找到第一个 ": " 的位置
+                        if let Some(colon_pos) = content.find(": ") {
+                            // 只替换第一个 ": "
+                            let (before, after) = content.split_at(colon_pos);
+                            format!("{} in {}", before, &after[2..]) // 跳过 ": "
+                        } else {
+                            content.to_string()
+                        }
+                    } else {
+                        content.to_string()
+                    };
+                    let converted = self.convert_inline_keywords(&converted_content)?;
                     let converted = self.convert_types_in_string(&converted);
                     Ok(format!("for {}", converted))
                 } else {
@@ -883,6 +895,7 @@ impl Nu2RustConverter {
             .replace("A::", "Arc::")  // A:: -> Arc:: (Arc的关联函数)
             .replace("X<", "Mutex<")
             .replace("X::", "Mutex::")  // X:: -> Mutex:: (Mutex的关联函数)
+            .replace("BedError", "BoxedError")  // Bed -> Boxed (类型缩写，anyhow库)
             .replace("B <", "Box<")   // B < -> Box< (带空格)
             .replace("B<", "Box<")
             .replace("B :: ", "Box::")  // B :: -> Box:: (Box的关联函数，带空格)
@@ -922,7 +935,9 @@ impl Nu2RustConverter {
         result = result.replace(" ::", "::");
         result = result.replace(":: ", "::");
         
-        // 修复错误的 ": in" 模式 -> "::"
+        // 修复错误的 : in 模式（这些都是convert_loop bug产生的）
+        // ": in " -> "::" (用于各种路径和turbofish)
+        // 注意：这是修复旧bug产生的错误，新代码已在convert_loop中修复
         result = result.replace(": in ", "::");
         result = result.replace(": in<", "::<");
         
