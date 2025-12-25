@@ -1538,13 +1538,14 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             }
         }
 
-        // v1.7.3: unsafe impl保持完整关键字，不缩写
-        // 原因：避免与use语句混淆（"unsafe impl" vs "use I"）
+        // v1.7.3: unsafe impl -> U I
+        // 原因：与use语句区分（U I vs u）
         if node.unsafety.is_some() {
-            self.write("unsafe ");
+            self.write("U ");
         }
 
-        self.write("impl");
+        // v1.7.6: impl -> I (per README.md spec)
+        self.write("I");
 
         // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
