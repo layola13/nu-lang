@@ -3,7 +3,7 @@
 # 批量测试开源库的 Cargo→Nu→Cargo→编译流程
 # 测试 8 个开源库: anyhow, regex, log, serde, clap, chrono, tokio, itertools
 
-set -e
+# 注意：不使用 set -e，因为我们需要处理编译失败的情况
 
 echo "=========================================="
 echo "批量测试开源Rust库的rust2nu2rust转换"

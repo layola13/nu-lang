@@ -30,7 +30,7 @@ pub enum Target {
 impl Default for TsConfig {
     fn default() -> Self {
         Self {
-            runtime_mode: RuntimeMode::Inline,
+            runtime_mode: RuntimeMode::Import,
             target: Target::Node,
             strict: true,
             no_format: false,

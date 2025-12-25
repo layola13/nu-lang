@@ -33,7 +33,7 @@ struct Cli {
     verbose: bool,
 
     /// Runtime mode: inline (default) or import
-    #[arg(long, value_name = "MODE", default_value = "inline")]
+    #[arg(long, value_name = "MODE", default_value = "import")]
     runtime: String,
 
     /// Target platform: node (default), browser, or deno
@@ -176,6 +176,19 @@ fn convert_file(
 
     println!("✓ {}", output_path.display());
 
+    // 自动生成 runtime 文件（Import 模式）
+    if converter.config().runtime_mode == RuntimeMode::Import {
+        let runtime_dir = output_path.parent().unwrap_or(std::path::Path::new("."));
+        let runtime_path = runtime_dir.join("nu_runtime.ts");
+        if !runtime_path.exists() {
+            use nu_compiler::nu2ts::runtime;
+            fs::write(&runtime_path, runtime::generate_runtime_file_content())?;
+            if verbose {
+                println!("✓ Generated {}", runtime_path.display());
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -203,6 +216,18 @@ fn convert_directory(
                 .join(path.file_name().unwrap())
                 .with_extension("ts");
             convert_file(converter, &path, Some(&output_path), force, verbose)?;
+        }
+    }
+
+    // 自动生成 runtime 文件（Import 模式）
+    if converter.config().runtime_mode == RuntimeMode::Import {
+        let runtime_path = output_base.join("nu_runtime.ts");
+        if !runtime_path.exists() {
+            use nu_compiler::nu2ts::runtime;
+            fs::write(&runtime_path, runtime::generate_runtime_file_content())?;
+            if verbose {
+                println!("✓ Generated nu_runtime.ts");
+            }
         }
     }
 
@@ -243,6 +268,18 @@ fn convert_directory_recursive(
             force,
             verbose,
         )?;
+    }
+
+    // 自动生成 runtime 文件（Import 模式）
+    if converter.config().runtime_mode == RuntimeMode::Import {
+        let runtime_path = output_base.join("nu_runtime.ts");
+        if !runtime_path.exists() {
+            use nu_compiler::nu2ts::runtime;
+            fs::write(&runtime_path, runtime::generate_runtime_file_content())?;
+            if verbose {
+                println!("✓ Generated nu_runtime.ts");
+            }
+        }
     }
 
     Ok(())
@@ -293,7 +330,11 @@ fn convert_project(
 
     // 如果是import模式，生成runtime文件
     if matches!(converter.config().runtime_mode, RuntimeMode::Import) {
-        generate_runtime_file(&src_dir)?;
+        use nu_compiler::nu2ts::runtime;
+        fs::write(
+            src_dir.join("nu_runtime.ts"),
+            runtime::generate_runtime_file_content()
+        )?;
         println!("✓ Generated nu_runtime.ts");
     }
 

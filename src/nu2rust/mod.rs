@@ -365,11 +365,23 @@ impl Nu2RustConverter {
     }
 
     fn convert_let_mut(&self, line: &str) -> Result<String> {
-        let content = &line[2..];
-        // 先转换关键字，再转换类型
-        let converted = self.convert_inline_keywords(content)?;
-        let converted = self.convert_types_in_string(&converted);
-        Ok(format!("let mut {}", converted))
+        let content = &line[2..]; // 跳过 "v "
+        
+        // 检查是否是元组解构赋值模式: v (a, b) = ... 或 v (a , b) = ...
+        // 处理空格：移除content开头的空格，检查是否以 ( 开头
+        let trimmed = content.trim_start();
+        if trimmed.starts_with('(') {
+            // 元组解构：v (a, b) = ... -> let mut (a, b) = ...
+            // 注意：需要保留原始content，因为可能有前导空格需要处理
+            let converted = self.convert_inline_keywords(content)?;
+            let converted = self.convert_types_in_string(&converted);
+            Ok(format!("let mut {}", converted))
+        } else {
+            // 普通变量：v name = ... -> let mut name = ...
+            let converted = self.convert_inline_keywords(content)?;
+            let converted = self.convert_types_in_string(&converted);
+            Ok(format!("let mut {}", converted))
+        }
     }
 
     fn convert_return(&self, line: &str) -> Result<String> {
@@ -863,11 +875,18 @@ impl Nu2RustConverter {
             .replace("V::", "Vec::")  // V:: -> Vec:: (Vec的关联函数，无空格)
             .replace("O <", "Option<")  // O < -> Option< (带空格)
             .replace("O<", "Option<")
+            .replace("O::", "Option::")  // O:: -> Option:: (Option的关联函数)
             .replace("R <", "Result<")  // R < -> Result< (带空格)
             .replace("R<", "Result<")
+            .replace("R::", "Result::")  // R:: -> Result:: (Result的关联函数)
             .replace("A<", "Arc<")
+            .replace("A::", "Arc::")  // A:: -> Arc:: (Arc的关联函数)
             .replace("X<", "Mutex<")
+            .replace("X::", "Mutex::")  // X:: -> Mutex:: (Mutex的关联函数)
+            .replace("B <", "Box<")   // B < -> Box< (带空格)
             .replace("B<", "Box<")
+            .replace("B :: ", "Box::")  // B :: -> Box:: (Box的关联函数，带空格)
+            .replace("B::", "Box::")  // B:: -> Box:: (Box的关联函数，无空格) - 修复regex库错误
             .replace("&!", "&mut ")
             .replace("& 'a!", "&'a mut")
             .replace(".~", ".await")

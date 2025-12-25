@@ -31,15 +31,46 @@ impl Rust2NuConverter {
         // 1. 先提取所有注释和它们的位置
         let lines: Vec<&str> = rust_code.lines().collect();
         let mut line_types = Vec::new(); // true = comment line, false = code line
+        let mut in_block_comment = false;
+        let mut in_inner_doc = false; // 跟踪是否在 /*! ... */ 块中
 
         for line in &lines {
             let trimmed = line.trim();
+            
+            // 检测 /*! 开始的inner doc注释块（syn会将其转换为#![doc]属性）
+            if trimmed.starts_with("/*!") {
+                in_inner_doc = true;
+                in_block_comment = true;
+                line_types.push(false); // 标记为非注释，让syn处理
+                continue;
+            }
+            
+            // 如果在inner doc块中，检测结束
+            if in_inner_doc {
+                if trimmed.contains("*/") {
+                    in_inner_doc = false;
+                    in_block_comment = false;
+                }
+                line_types.push(false); // 标记为非注释，让syn处理
+                continue;
+            }
+            
+            // 检测普通块注释
+            if trimmed.starts_with("/*") && !trimmed.starts_with("/*!") {
+                in_block_comment = true;
+            }
+            if in_block_comment && trimmed.contains("*/") {
+                in_block_comment = false;
+                line_types.push(true); // 普通块注释保留
+                continue;
+            }
+            
             // 判断是否为纯注释行或空行
             // 注意：属性（#[...] 和 #![...]）不算注释，会被syn处理并在converted_code中输出
             let is_comment_or_empty = trimmed.is_empty()
                 || trimmed.starts_with("//")
-                || trimmed.starts_with("/*")
-                || trimmed.starts_with("*");
+                || in_block_comment
+                || (trimmed.starts_with("*") && !trimmed.starts_with("*/"));
             line_types.push(is_comment_or_empty);
         }
 
