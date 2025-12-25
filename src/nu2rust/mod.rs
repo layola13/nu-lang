@@ -14,6 +14,8 @@ struct ConversionContext {
     // 跟踪当前作用域
     in_trait: bool,
     in_impl: bool,
+    in_trait_impl: bool, // v1.6.4: 区分 impl Trait for Type (不能加pub)
+    in_struct_block: bool, // v1.6.4: 追踪是否在struct定义块内
 }
 
 impl Nu2RustConverter {
@@ -86,7 +88,23 @@ impl Nu2RustConverter {
             }
 
             // 处理各种Nu语法
-            if let Some(converted) = self.convert_line(line, &lines, &mut i, &mut context)? {
+            if let Some(mut converted) = self.convert_line(line, &lines, &mut i, &mut context)? {
+                // v1.6.4: 结构体字段默认添加pub（状态机精确控制）
+                if context.in_struct_block {
+                    let trimmed = line.trim();
+                    // 检测是否是字段行（包含冒号，不是注释，不是已有pub）
+                    if !trimmed.is_empty()
+                        && !trimmed.starts_with("//")
+                        && !trimmed.starts_with("pub ")
+                        && trimmed.contains(':')
+                        && !trimmed.starts_with("fn ")
+                        && !trimmed.starts_with('}')
+                    {
+                        // 在converted前添加pub
+                        converted = format!("pub {}", converted);
+                    }
+                }
+                
                 output.push_str(&converted);
                 output.push('\n');
             }
@@ -138,6 +156,10 @@ impl Nu2RustConverter {
 
         // 结构体: S/s (S=pub struct, s=struct)
         if trimmed.starts_with("S ") || trimmed.starts_with("s ") {
+            // v1.6.4: 进入struct块
+            if trimmed.ends_with('{') {
+                context.in_struct_block = true;
+            }
             return Ok(Some(self.convert_struct(trimmed, lines, index)?));
         }
 
@@ -154,17 +176,27 @@ impl Nu2RustConverter {
         // Impl块: I 或 U I (Nu v1.6.3: unsafe impl)
         if trimmed.starts_with("U I ") {
             context.in_impl = true;
+            // 检测是否是 trait impl: "U I Trait for Type"
+            context.in_trait_impl = trimmed.contains(" for ");
             return Ok(Some(self.convert_unsafe_impl(trimmed, lines, index)?));
         }
         
         if trimmed.starts_with("I ") {
             context.in_impl = true;
+            // 检测是否是 trait impl: "I Trait for Type"
+            context.in_trait_impl = trimmed.contains(" for ");
             return Ok(Some(self.convert_impl(trimmed, lines, index)?));
         }
 
-        // 检测impl块结束
-        if trimmed == "}" && context.in_impl {
-            context.in_impl = false;
+        // 检测块结束
+        if trimmed == "}" {
+            if context.in_impl {
+                context.in_impl = false;
+                context.in_trait_impl = false;
+            }
+            if context.in_struct_block {
+                context.in_struct_block = false;
+            }
         }
 
         // 模块: DM=pub mod, D=mod (Nu v1.6.3)
@@ -253,12 +285,19 @@ impl Nu2RustConverter {
         let is_pub = line.starts_with("F ");
         let content = &line[2..];
 
-        // 在trait或impl块内，不添加pub修饰符（trait方法不能有pub）
-        let visibility = if is_pub && !context.in_impl && !context.in_trait {
-            "pub "
+        // v1.6.4 Hotfix: 智能处理impl块内的方法可见性
+        let visibility = if context.in_trait {
+            "" // trait定义中的方法不能有pub
+        } else if context.in_trait_impl {
+            "" // trait实现中的方法不能有pub (impl Trait for Type)
+        } else if context.in_impl {
+            "pub " // 固有impl中的方法默认pub (impl Type)
+        } else if is_pub {
+            "pub " // 顶层的F标记
         } else {
-            ""
+            "" // 顶层的f标记（私有函数）
         };
+        
         let mut converted = self.convert_types_in_string(content);
 
         // 处理 !self -> mut self (按值接收的可变self)
@@ -607,6 +646,10 @@ impl Nu2RustConverter {
     }
 
     fn convert_expression(&self, line: &str) -> Result<String> {
+        // v1.6.4 Hotfix: 结构体字段默认pub（基于状态机精确检测）
+        // 此函数会被convert_line调用，但没有context参数
+        // 因此需要在convert_line中处理字段的pub前缀
+        
         // 递归处理表达式中的关键字
         let result = self.convert_inline_keywords(line)?;
         // 必须调用convert_types_in_string来转换&!等类型修饰符

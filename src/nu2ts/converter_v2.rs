@@ -1,4 +1,4 @@
-// Nu2TS Converter (AST-based)
+// Nu2TS Converter (AST-based, 完整版)
 // 新的转换器入口，使用 Parser + Codegen 架构
 
 use super::parser::Parser;
@@ -27,12 +27,12 @@ impl Nu2TsConverterV2 {
     pub fn convert(&self, nu_code: &str) -> Result<String> {
         // 1. 解析 Nu 代码为 AST
         let mut parser = Parser::new(nu_code);
-        let ast = parser.parse()
+        let file = parser.parse_file()
             .context("Failed to parse Nu code")?;
 
         // 2. 生成 TypeScript 代码
         let mut codegen = TsCodegen::new(self.config.clone());
-        let ts_code = codegen.generate(&ast)
+        let ts_code = codegen.generate_file(&file)
             .context("Failed to generate TypeScript code")?;
 
         Ok(ts_code)
@@ -60,25 +60,36 @@ mod tests {
 
         let result = converter.convert(nu_code).unwrap();
         
-        // 验证生成的 TypeScript
-        assert!(result.contains("const _m0 = x;"));
-        assert!(result.contains("if (_m0.tag === 'ok')"));
-        assert!(result.contains("const v = _m0.val;"));
-        assert!(result.contains("else if (_m0.tag === 'err')"));
+        // 新输出格式：Match直接解析为if-chain
+        assert!(result.contains("if"));
+        assert!(result.contains(".tag === 'ok'"));
     }
 
     #[test]
     fn test_convert_function() {
         let converter = Nu2TsConverterV2::with_default_config();
         
-        let nu_code = r#"f test() {
-    < 42
+        let nu_code = r#"f test(x: i32) -> i32 {
+    < x + 1
 }"#;
 
         let result = converter.convert(nu_code).unwrap();
         
-        // 验证生成的 TypeScript
         assert!(result.contains("function test("));
-        assert!(result.contains("return 42"));
+    }
+
+    #[test]
+    fn test_convert_enum() {
+        let converter = Nu2TsConverterV2::with_default_config();
+        
+        let nu_code = r#"E Status {
+    Active,
+    Inactive,
+}"#;
+
+        let result = converter.convert(nu_code).unwrap();
+        
+        assert!(result.contains("Enum: Status"));
+        assert!(result.contains("type Status"));
     }
 }

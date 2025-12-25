@@ -134,7 +134,9 @@ impl Rust2NuConverter {
 
     /// 判断是否是pub
     fn is_public(&self, vis: &Visibility) -> bool {
-        matches!(vis, Visibility::Public(_))
+        // v1.7.2: 将 pub(crate) 和 pub(in path) 也视为 public
+        // 原因：Nu 不支持细粒度的模块可见性，宁可从宽（避免私有访问错误）
+        matches!(vis, Visibility::Public(_) | Visibility::Restricted(_))
     }
 
     /// 检查名称是否是当前作用域中的泛型参数
@@ -691,6 +693,24 @@ impl Rust2NuConverter {
 
         // 执行类型替换和宏替换
         // v1.7: String不再缩写为Str
+        // v1.7.1: 保护类型路径前缀（Result::Ok等）不被替换
+        // 注意：to_token_stream()会输出带空格的 "Result :: Ok"，需要同时保护
+        // 先保护路径前缀（带空格和不带空格两种形式）
+        result = result
+            .replace("Vec :: ", "__VEC_PATH_SP__")
+            .replace("Vec::", "__VEC_PATH__")
+            .replace("Option :: ", "__OPTION_PATH_SP__")
+            .replace("Option::", "__OPTION_PATH__")
+            .replace("Result :: ", "__RESULT_PATH_SP__")
+            .replace("Result::", "__RESULT_PATH__")
+            .replace("Arc :: ", "__ARC_PATH_SP__")
+            .replace("Arc::", "__ARC_PATH__")
+            .replace("Mutex :: ", "__MUTEX_PATH_SP__")
+            .replace("Mutex::", "__MUTEX_PATH__")
+            .replace("Box :: ", "__BOX_PATH_SP__")
+            .replace("Box::", "__BOX_PATH__");
+        
+        // 执行类型名替换
         result = result
             .replace("Vec", "V")
             .replace("Option", "O")
@@ -700,6 +720,21 @@ impl Rust2NuConverter {
             .replace("Box", "B")
             .replace("& mut", "&!")
             .replace("vec!", "V!");  // vec! -> V!
+        
+        // 恢复路径前缀（保持完整类型名）
+        result = result
+            .replace("__VEC_PATH_SP__", "Vec::")
+            .replace("__VEC_PATH__", "Vec::")
+            .replace("__OPTION_PATH_SP__", "Option::")
+            .replace("__OPTION_PATH__", "Option::")
+            .replace("__RESULT_PATH_SP__", "Result::")
+            .replace("__RESULT_PATH__", "Result::")
+            .replace("__ARC_PATH_SP__", "Arc::")
+            .replace("__ARC_PATH__", "Arc::")
+            .replace("__MUTEX_PATH_SP__", "Mutex::")
+            .replace("__MUTEX_PATH__", "Mutex::")
+            .replace("__BOX_PATH_SP__", "Box::")
+            .replace("__BOX_PATH__", "Box::");
 
         // 恢复 turbofish（保持原样，不进行类型替换）
         for (idx, part) in protected_parts.iter().enumerate() {
@@ -981,8 +1016,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         
         // Nu v1.5.1: 只有 S（移除了 s）
         // 可见性由标识符首字母决定（Go风格）
-        // 根据可见性决定使用 S 或 s
-        if matches!(node.vis, syn::Visibility::Public(_)) {
+        // 根据可见性决定使用 S 或 s (v1.7.2: pub(crate)也视为public)
+        if self.is_public(&node.vis) {
             self.write("S");
         } else {
             self.write("s");

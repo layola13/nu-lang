@@ -1,22 +1,102 @@
-// Nu2TS AST 定义
+// Nu2TS AST 定义 (完整版)
 // 用于表示 Nu 代码的抽象语法树
 
 use std::fmt;
+
+// ============ 顶级项目 ============
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    /// use 声明: u std::io::{self, Write}
+    Use {
+        path: String,
+        items: Vec<String>,
+    },
+
+    /// 函数定义: F/f name(params) -> type { body }
+    Function(FunctionDef),
+
+    /// 结构体: s Name { fields }
+    Struct(StructDef),
+
+    /// 枚举: E Name { variants }
+    Enum(EnumDef),
+
+    /// impl 块: I Type { methods }
+    Impl(ImplDef),
+
+    /// mod 块: D tests { ... }
+    Mod(ModDef),
+
+    /// 顶层语句（表达式语句）
+    Stmt(Stmt),
+
+    /// 原始行（透传）
+    Raw(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDef {
+    pub name: String,
+    pub params: Vec<Param>,
+    pub return_type: Option<Type>,
+    pub body: Box<Expr>,
+    pub is_pub: bool,
+    pub is_async: bool,
+    pub attributes: Vec<Attribute>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDef {
+    pub name: String,
+    pub fields: Vec<Field>,
+    pub derives: Vec<String>,
+    pub doc: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Field {
+    pub name: String,
+    pub ty: Type,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDef {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+    pub derives: Vec<String>,
+    pub doc: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub fields: Option<Vec<Type>>,  // 元组变体的字段类型
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImplDef {
+    pub target: String,
+    pub trait_name: Option<String>,
+    pub methods: Vec<FunctionDef>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ModDef {
+    pub name: String,
+    pub items: Vec<Item>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attribute {
+    pub name: String,
+    pub args: Option<String>,
+}
 
 // ============ 语句 ============
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
-    /// 函数定义: F/f name(params) -> type { body }
-    Function {
-        name: String,
-        params: Vec<Param>,
-        return_type: Option<Type>,
-        body: Box<Expr>,
-        is_pub: bool,
-        is_async: bool,
-    },
-
     /// 变量声明: l/v name = expr
     Let {
         name: String,
@@ -27,6 +107,9 @@ pub enum Stmt {
 
     /// 表达式语句
     ExprStmt(Box<Expr>),
+
+    /// 原始语句（透传）
+    Raw(String),
 }
 
 // ============ 表达式 ============
@@ -46,10 +129,15 @@ pub enum Expr {
         else_body: Option<Box<Expr>>,
     },
 
-    /// Loop: L { body } 或 L var in iter { body }
+    /// Loop: L { body }
     Loop {
-        pattern: Option<String>,  // for 循环的变量
-        iterator: Option<Box<Expr>>, // for 循环的迭代器
+        body: Box<Expr>,
+    },
+
+    /// For 循环: for (i, item) in iter { body }
+    For {
+        pattern: String,
+        iterator: Box<Expr>,
         body: Box<Expr>,
     },
 
@@ -62,7 +150,7 @@ pub enum Expr {
     /// Continue: ct
     Continue,
 
-    /// Try 操作符: expr?
+    /// Try 操作符: expr!
     TryOp {
         expr: Box<Expr>,
     },
@@ -73,17 +161,23 @@ pub enum Expr {
         args: Vec<Expr>,
     },
 
+    /// 方法调用: expr.method(args)
+    MethodCall {
+        object: Box<Expr>,
+        method: String,
+        args: Vec<Expr>,
+    },
+
     /// 字段访问: expr.field
     Field {
         object: Box<Expr>,
         field: String,
     },
 
-    /// 方法调用: expr.method(args)
-    MethodCall {
+    /// 索引访问: expr[index]
+    Index {
         object: Box<Expr>,
-        method: String,
-        args: Vec<Expr>,
+        index: Box<Expr>,
     },
 
     /// 二元操作: left op right
@@ -105,6 +199,38 @@ pub enum Expr {
         trailing_expr: Option<Box<Expr>>,
     },
 
+    /// 闭包: |args| body 或 $|args| body (move)
+    Closure {
+        params: Vec<Param>,
+        return_type: Option<Type>,
+        body: Box<Expr>,
+        is_move: bool,
+    },
+
+    /// 结构体构造: Name { field: value }
+    StructInit {
+        name: String,
+        fields: Vec<(String, Expr)>,
+    },
+
+    /// 枚举变体: Enum::Variant 或 Enum::Variant(args)
+    EnumVariant {
+        enum_name: String,
+        variant: String,
+        args: Option<Vec<Expr>>,
+    },
+
+    /// 宏调用: name!(args)
+    Macro {
+        name: String,
+        args: String,
+    },
+
+    /// 路径表达式: Type::method
+    Path {
+        segments: Vec<String>,
+    },
+
     /// 标识符
     Ident(String),
 
@@ -116,6 +242,9 @@ pub enum Expr {
 
     /// 数组: [a, b, c]
     Array(Vec<Expr>),
+
+    /// 原始表达式（透传）
+    Raw(String),
 }
 
 // ============ 辅助类型 ============
@@ -123,7 +252,7 @@ pub enum Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
-    pub guard: Option<Box<Expr>>,  // 守卫条件（暂不支持）
+    pub guard: Option<Box<Expr>>,
     pub body: Box<Expr>,
 }
 
@@ -137,6 +266,11 @@ pub enum Pattern {
     OptionSome(String),
     /// None
     OptionNone,
+    /// 枚举变体: Enum::Variant(bindings)
+    EnumVariant {
+        path: String,
+        bindings: Vec<String>,
+    },
     /// 字面量
     Literal(Literal),
     /// 通配符 _
@@ -149,6 +283,8 @@ pub enum Pattern {
 pub struct Param {
     pub name: String,
     pub ty: Type,
+    pub is_ref: bool,
+    pub is_mut: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -199,6 +335,7 @@ pub enum BinOp {
     Gt,       // >
     Ge,       // >=
     Assign,   // =
+    Range,    // ..
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -210,7 +347,14 @@ pub enum UnOp {
     RefMut,   // &!
 }
 
-// ============ Display 实现（用于调试）============
+// ============ 文件 ============
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NuFile {
+    pub items: Vec<Item>,
+}
+
+// ============ Display 实现 ============
 
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -222,6 +366,8 @@ impl fmt::Display for Expr {
             }
             Expr::If { .. } => write!(f, "if {{ ... }}"),
             Expr::Block { stmts, .. } => write!(f, "{{ {} stmts }}", stmts.len()),
+            Expr::Macro { name, .. } => write!(f, "{}!(...)", name),
+            Expr::EnumVariant { enum_name, variant, .. } => write!(f, "{}::{}", enum_name, variant),
             _ => write!(f, "<expr>"),
         }
     }
@@ -237,6 +383,13 @@ impl fmt::Display for Pattern {
             Pattern::Wildcard => write!(f, "_"),
             Pattern::Literal(lit) => write!(f, "{:?}", lit),
             Pattern::Ident(name) => write!(f, "{}", name),
+            Pattern::EnumVariant { path, bindings } => {
+                if bindings.is_empty() {
+                    write!(f, "{}", path)
+                } else {
+                    write!(f, "{}({})", path, bindings.join(", "))
+                }
+            }
         }
     }
 }
@@ -283,5 +436,28 @@ impl fmt::Display for Type {
                 write!(f, ") -> {}", return_type)
             }
         }
+    }
+}
+
+// ============ 便捷构造方法 ============
+
+impl Param {
+    pub fn new(name: impl Into<String>, ty: Type) -> Self {
+        Self {
+            name: name.into(),
+            ty,
+            is_ref: false,
+            is_mut: false,
+        }
+    }
+
+    pub fn with_ref(mut self) -> Self {
+        self.is_ref = true;
+        self
+    }
+
+    pub fn with_mut(mut self) -> Self {
+        self.is_mut = true;
+        self
     }
 }
