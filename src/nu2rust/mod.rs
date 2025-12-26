@@ -322,6 +322,17 @@ impl Nu2RustConverter {
         }
 
         // 模块: DM=pub mod, D=mod (Nu v1.6.3)
+        // v1.8: 支持受限可见性 pub(crate) DM, pub(super) DM
+        if trimmed.starts_with("pub(crate) DM ") {
+            let content = &trimmed[14..]; // 跳过 "pub(crate) DM "
+            let converted = self.convert_types_in_string(content);
+            return Ok(Some(format!("pub(crate) mod {}", converted)));
+        }
+        if trimmed.starts_with("pub(super) DM ") {
+            let content = &trimmed[14..]; // 跳过 "pub(super) DM "
+            let converted = self.convert_types_in_string(content);
+            return Ok(Some(format!("pub(super) mod {}", converted)));
+        }
         if trimmed.starts_with("DM ") {
             return Ok(Some(self.convert_pub_module(trimmed)?));
         }

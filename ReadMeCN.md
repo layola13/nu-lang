@@ -287,3 +287,19 @@ D tests {
 - **cfg保留**: 完整保留 `#[cfg]` 和 `#![cfg]` 属性以支持跨平台兼容性
 
 Nu v1.6.3 添加了支持底层Rust库所需的关键特性，同时保持高压缩比和双向转换准确性。
+
+---
+
+## 9. 最新改进 (Recent Improvements)
+
+### 高级 Rust 特性支持
+
+- **build.rs 支持**: `cargo2nu` 和 `nu2cargo` 现在可以转换构建脚本 (`build.rs` ↔ `build.nu`)
+- **let-else 语法**: 完整支持 Rust 1.65+ 的 `let Some(x) = expr else { ... }` 模式
+- **结构体字面量 #[cfg]**: 保留结构体字面量字段上的 `#[cfg]` 属性并正确换行格式化
+- **Return语句 #[cfg]**: 保留闭包和块内return语句的 `#[cfg]` 属性
+- **&'a self 生命周期**: 保留函数签名中 self 参数的生命周期注解
+- **pub(crate) use**: 保留 use 语句的受限可见性修饰符
+- **属性分行输出**: `#[cfg]` 属性在目标项之前独立输出
+- **全局缩进保留**: 统一从原始源代码行提取前导空格
+- **Expr::Reference 递归**: 正确处理 `&StructLiteral{}` 模式

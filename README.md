@@ -22,7 +22,7 @@
 
 ### Download Pre-built Binaries
 
-Download the latest release for your platform from the [Releases page](https://github.com/YOUR_USERNAME/nu/releases).
+Download the latest release for your platform from the [Releases page](https://github.com/layola13/nu-lang/releases).
 
 **Available platforms:**
 - Linux (x86_64, ARM64)
@@ -858,6 +858,22 @@ cargo clippy
 # Run tests
 cargo test
 ```
+
+---
+
+## Recent Improvements
+
+### Advanced Rust Feature Support
+
+- **build.rs Support**: `cargo2nu` and `nu2cargo` now convert build scripts (`build.rs` ↔ `build.nu`)
+- **let-else Syntax**: Full support for Rust 1.65+ `let Some(x) = expr else { ... }` pattern
+- **Struct Literal #[cfg]**: Preserve `#[cfg]` attributes on struct literal fields with proper line formatting
+- **Return Statement #[cfg]**: Preserve `#[cfg]` attributes on return statements in closures and blocks
+- **Lifetime on &self**: Preserve lifetime annotations like `&'a self` in function signatures
+- **pub(crate) use**: Preserve restricted visibility modifiers on use statements
+- **Attribute Line Separation**: `#[cfg]` attributes output on separate lines before their target items
+- **Global Indentation**: Unified whitespace preservation from original source lines
+- **Expr::Reference Recursion**: Proper handling of `&StructLiteral{}` patterns
 
 ---
 

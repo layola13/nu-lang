@@ -1322,10 +1322,20 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 }
 
                 // Nu v1.6.3: DM=pub mod, D=mod
-                let keyword = if self.is_public(&m.vis) { "DM" } else { "D" };
+                // v1.8: 保留受限可见性 pub(crate)/pub(super)
+                let (vis_prefix, keyword) = if let syn::Visibility::Restricted(vis_restricted) = &m.vis {
+                    let vis_str = vis_restricted.to_token_stream().to_string();
+                    let cleaned = vis_str.replace("pub (", "pub(").replace("( ", "(").replace(" )", ")");
+                    (format!("{} ", cleaned), "DM")
+                } else if self.is_public(&m.vis) {
+                    (String::new(), "DM")
+                } else {
+                    (String::new(), "D")
+                };
 
                 if let Some((_, items)) = &m.content {
                     // 内联模块：mod name { ... }
+                    self.write(&vis_prefix);
                     self.write(keyword);
                     self.write(" ");
                     self.write(&m.ident.to_string());
@@ -1372,6 +1382,21 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(&format!("{}{};", vis_prefix, cleaned_tree));
             }
             Item::Const(c) => {
+                // v1.8: 保留 #[cfg] 属性
+                for attr in &c.attrs {
+                    let attr_str = attr.to_token_stream().to_string();
+                    let cleaned_attr = attr_str
+                        .replace("# [", "#[")
+                        .replace(" [", "[")
+                        .replace(" ]", "]")
+                        .replace(" (", "(")
+                        .replace(" )", ")")
+                        .replace(" ,", ",");
+                    if cleaned_attr.starts_with("#[cfg") {
+                        self.writeln(&cleaned_attr);
+                    }
+                }
+                
                 self.write("C ");
                 self.write(&c.ident.to_string());
                 self.write(": ");
@@ -1618,6 +1643,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             "tr"
         };
 
+        // v1.8: 添加缩进以保持模块内 trait 的正确嵌套
+        self.write(&self.indent());
         self.write(keyword);
         self.write(" ");
         self.write(&node.ident.to_string());
@@ -1625,6 +1652,15 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
             self.write(&self.convert_generics(&node.generics));
+        }
+
+        // v1.8: 保留超trait约束 (如: context::private::Sealed)
+        if !node.supertraits.is_empty() {
+            self.write(": ");
+            let bounds: Vec<String> = node.supertraits.iter()
+                .map(|b| self.convert_type_in_string(&b.to_token_stream().to_string()))
+                .collect();
+            self.write(&bounds.join(" + "));
         }
 
         self.writeln(" {");
