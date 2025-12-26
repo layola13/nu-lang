@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en" class="scroll-smooth">
 
@@ -26,17 +25,13 @@
                     },
                     colors: {
                         nu: {
-                            50: '#FFF5F0',
-                            100: '#FFE8DC',
-                            200: '#FFD1BA',
-                            400: '#F08A5D',
-                            500: '#D96C47',
-                            600: '#C05A35',
-                            900: '#2E3440',
+                            400: '#22d3ee', // Cyan-400
+                            500: '#06b6d4', // Cyan-500
+                            900: '#083344',
                         },
                         rust: {
-                            500: '#D96C47',
-                            600: '#C05A35',
+                            500: '#ef4444', // Red-500 equivalent for Rust generic vibe
+                            600: '#b91c1c',
                         }
                     },
                     animation: {
@@ -48,51 +43,43 @@
     </script>
     <style>
         body {
-            background-color: #ffffff;
-            color: #2E3440;
+            background-color: #0f172a;
+            /* Slate 900 */
+            color: #f8fafc;
+            /* Slate 50 */
         }
 
         .code-syntax-keyword {
-            color: #D96C47;
-            font-weight: 600;
+            color: #c084fc;
         }
 
+        /* Purple */
         .code-syntax-func {
-            color: #5E81AC;
+            color: #22d3ee;
         }
 
+        /* Cyan */
         .code-syntax-string {
-            color: #A3BE8C;
+            color: #86efac;
         }
 
+        /* Green */
         .code-syntax-type {
-            color: #EBCB8B;
+            color: #fbbf24;
         }
 
+        /* Amber */
         .code-syntax-comment {
-            color: #4C566A;
+            color: #64748b;
             font-style: italic;
         }
 
+        /* Slate 500 */
+
         .glass-panel {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(30, 41, 59, 0.7);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(46, 52, 64, 0.1);
-        }
-
-        /* iOS-style Glassmorphism */
-        .hero-glass-overlay {
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(40px) saturate(180%);
-            -webkit-backdrop-filter: blur(40px) saturate(180%);
-        }
-
-        .logo-background {
-            background-image: url('/logos/Nu-lang.png');
-            background-size: contain;
-            background-position: center;
-            background-repeat: no-repeat;
-            opacity: 0.15;
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         /* Custom Scrollbar */
@@ -102,21 +89,16 @@
         }
 
         ::-webkit-scrollbar-track {
-            background: #f5f5f5;
+            background: #0f172a;
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #D96C47;
+            background: #334155;
             border-radius: 4px;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #C05A35;
-        }
-
-        .code-block-dark {
-            background: #2E3440;
-            color: #D8DEE9;
+            background: #475569;
         }
     </style>
 </head>
@@ -124,19 +106,20 @@
 <body class="antialiased selection:bg-nu-500 selection:text-white">
 
     <!-- Navbar -->
-    <nav class="fixed w-full z-50 top-0 start-0 border-b border-gray-200 bg-white/95 backdrop-blur-md shadow-sm">
+    <nav class="fixed w-full z-50 top-0 start-0 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md">
         <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between p-4">
             <a href="#" class="flex items-center space-x-3 rtl:space-x-reverse group">
+                <!-- Nu Pangolin Logo -->
                 <img src="logos/logo_scale.png" alt="Nu Language Logo" class="w-10 h-10 group-hover:scale-110 transition-transform duration-300 drop-shadow-lg">
-                <span class="self-center text-2xl font-semibold whitespace-nowrap tracking-tight text-nu-900">Nu-lang</span>
+                <span class="self-center text-2xl font-semibold whitespace-nowrap tracking-tight">Nu-lang</span>
             </a>
             <div class="flex md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
                 <a href="https://github.com/layola13/nu-lang/releases/tag/v1.6.4" target="_blank"
-                    class="text-white bg-nu-500 hover:bg-nu-600 focus:ring-4 focus:outline-none focus:ring-nu-200 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors flex items-center gap-2 shadow-md">
+                    class="text-white bg-nu-500 hover:bg-nu-400 focus:ring-4 focus:outline-none focus:ring-nu-900 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors flex items-center gap-2">
                     <i data-lucide="download" class="w-4 h-4"></i> Get v1.6.4
                 </a>
                 <button data-collapse-toggle="navbar-sticky" type="button"
-                    class="inline-flex items-center p-2 w-10 h-10 justify-center text-sm text-gray-600 rounded-lg md:hidden hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-nu-500"
+                    class="inline-flex items-center p-2 w-10 h-10 justify-center text-sm text-gray-400 rounded-lg md:hidden hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-600"
                     aria-controls="navbar-sticky" aria-expanded="false" id="menu-toggle">
                     <span class="sr-only">Open main menu</span>
                     <i data-lucide="menu" class="w-6 h-6"></i>
@@ -144,22 +127,22 @@
             </div>
             <div class="items-center justify-between hidden w-full md:flex md:w-auto md:order-1" id="navbar-sticky">
                 <ul
-                    class="flex flex-col p-4 md:p-0 mt-4 font-medium border border-gray-200 rounded-lg bg-gray-50 md:space-x-8 rtl:space-x-reverse md:flex-row md:mt-0 md:border-0 md:bg-transparent">
+                    class="flex flex-col p-4 md:p-0 mt-4 font-medium border border-gray-800 rounded-lg bg-gray-800/50 md:space-x-8 rtl:space-x-reverse md:flex-row md:mt-0 md:border-0 md:bg-transparent">
                     <li>
                         <a href="#features"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">Features</a>
+                            class="block py-2 px-3 text-gray-300 rounded hover:bg-gray-800 md:hover:bg-transparent md:hover:text-nu-400 md:p-0 transition-colors">Features</a>
                     </li>
                     <li>
                         <a href="#docs"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">Docs</a>
+                            class="block py-2 px-3 text-gray-300 rounded hover:bg-gray-800 md:hover:bg-transparent md:hover:text-nu-400 md:p-0 transition-colors">Docs</a>
                     </li>
                     <li>
                         <a href="#playground"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">Playground</a>
+                            class="block py-2 px-3 text-gray-300 rounded hover:bg-gray-800 md:hover:bg-transparent md:hover:text-nu-400 md:p-0 transition-colors">Playground</a>
                     </li>
                     <li>
                         <a href="https://github.com/layola13/nu-lang" target="_blank"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-900 md:p-0 transition-colors flex items-center gap-1">
+                            class="block py-2 px-3 text-gray-300 rounded hover:bg-gray-800 md:hover:bg-transparent md:hover:text-white md:p-0 transition-colors flex items-center gap-1">
                             GitHub <i data-lucide="external-link" class="w-3 h-3"></i>
                         </a>
                     </li>
@@ -170,113 +153,55 @@
 
     <!-- Hero Section -->
     <section class="relative pt-32 pb-20 lg:pt-40 lg:pb-28 overflow-hidden">
-        <!-- Large Logo Background -->
-        <div class="absolute inset-0 flex items-center justify-center z-0">
-            <div class="logo-background w-full h-full max-w-4xl"></div>
-        </div>
-
-        <!-- iOS-style Frosted Glass Overlay -->
-        <div class="absolute inset-0 hero-glass-overlay z-[1]"></div>
-
-        <!-- Decorative blur elements -->
-        <div class="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full z-[2] pointer-events-none">
-            <div class="absolute top-20 left-10 w-72 h-72 bg-nu-500/10 rounded-full blur-[120px]"></div>
-            <div class="absolute bottom-20 right-10 w-96 h-96 bg-nu-900/10 rounded-full blur-[120px]"></div>
+        <!-- Background Elements -->
+        <div class="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full z-0 pointer-events-none">
+            <div class="absolute top-20 left-10 w-72 h-72 bg-nu-500/10 rounded-full blur-[100px]"></div>
+            <div class="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px]"></div>
         </div>
 
         <div class="max-w-7xl mx-auto px-4 relative z-10">
             <div class="text-center mb-12">
                 <span
-                    class="bg-nu-100 text-nu-600 text-xs font-medium inline-flex items-center px-2.5 py-0.5 rounded border border-nu-200 mb-4">
+                    class="bg-slate-800 text-nu-400 text-xs font-medium inline-flex items-center px-2.5 py-0.5 rounded border border-slate-700 mb-4">
                     <span class="w-2 h-2 me-1 bg-green-500 rounded-full animate-pulse"></span>
                     v1.6.4 Stable Release
                 </span>
                 <h1
-                    class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-nu-900 via-nu-600 to-nu-500">
-                    Write Less. <span class="text-transparent bg-clip-text bg-gradient-to-r from-nu-500 to-nu-600">Do
+                    class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">
+                    Write Less. <span class="text-transparent bg-clip-text bg-gradient-to-r from-nu-400 to-blue-500">Do
                         More.</span>
                 </h1>
-                <p class="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto mb-8">
+                <p class="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-8">
                     A high-density dialect of Rust designed for AI-Native systems programming.
                     <br class="hidden md:block">
                     100% Rust compatibility with 50% less boilerplate.
                 </p>
                 <div class="flex flex-col sm:flex-row justify-center gap-4">
                     <a href="#quick-start"
-                        class="text-white bg-gradient-to-r from-nu-500 to-nu-600 hover:from-nu-600 hover:to-nu-500 focus:ring-4 focus:outline-none focus:ring-nu-200 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 transition-all shadow-lg shadow-nu-500/25">
+                        class="text-white bg-gradient-to-r from-nu-500 to-blue-600 hover:bg-gradient-to-bl focus:ring-4 focus:outline-none focus:ring-cyan-300/50 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 transition-all shadow-lg shadow-nu-500/25">
                         Get Started <i data-lucide="arrow-right" class="w-5 h-5"></i>
                     </a>
                     <a href="#docs"
-                        class="text-nu-900 bg-white hover:bg-gray-50 focus:ring-4 focus:outline-none focus:ring-nu-200 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 border-2 border-nu-900 transition-all shadow-md">
+                        class="text-gray-300 bg-slate-800 hover:bg-slate-700 focus:ring-4 focus:outline-none focus:ring-slate-800 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 border border-slate-700 transition-all">
                         <i data-lucide="book" class="w-5 h-5"></i> Documentation
                     </a>
                 </div>
             </div>
 
-            <!-- Mascot Section -->
-            <div class="max-w-4xl mx-auto mt-20 mb-16">
-                <div class="bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200 shadow-xl overflow-hidden">
-                    <div class="p-8 md:p-12">
-                        <!-- Logo and Title -->
-                        <div class="flex flex-col items-center mb-8">
-                            <img src="/logos/Nu-lang.png" alt="Pango - Nu-lang Mascot" class="mb-6" style="width: auto; height: auto; max-width: 280px;">
-                            <h3 class="text-2xl md:text-3xl font-bold text-nu-900 mb-2">🛡️ Mascot: Why the Pangolin?</h3>
-                            <p class="text-lg text-gray-600">Meet <strong class="text-nu-600">Pango</strong>, the official mascot of Nu-lang.</p>
-                        </div>
-
-                        <!-- Description -->
-                        <div class="prose prose-lg max-w-none text-gray-700">
-                            <p class="mb-6 text-center">
-                                We chose the Pangolin (Scaly Anteater) because it embodies the three core philosophies of the language:
-                            </p>
-
-                            <div class="grid md:grid-cols-3 gap-6 mt-8">
-                                <!-- Philosophy 1 -->
-                                <div class="bg-nu-50 p-6 rounded-xl border border-nu-200">
-                                    <div class="text-3xl mb-3">🎯</div>
-                                    <h4 class="font-bold text-nu-900 mb-2">High Density (The Curl)</h4>
-                                    <p class="text-sm text-gray-600">
-                                        When needed, a pangolin curls into a tight, compact ball. This is the perfect visual metaphor for Nu-lang's mission: <strong>compressing verbose boilerplate</strong> into high-density, efficient logic.
-                                    </p>
-                                </div>
-
-                                <!-- Philosophy 2 -->
-                                <div class="bg-nu-50 p-6 rounded-xl border border-nu-200">
-                                    <div class="text-3xl mb-3">🛡️</div>
-                                    <h4 class="font-bold text-nu-900 mb-2">Armored Safety (The Scales)</h4>
-                                    <p class="text-sm text-gray-600">
-                                        Just as Rust's mascot <em>Ferris the Crab</em> is protected by a shell, Pango is protected by tough, overlapping scales. This represents that Nu-lang inherits <strong>100% of Rust's memory safety guarantees</strong>.
-                                    </p>
-                                </div>
-
-                                <!-- Philosophy 3 -->
-                                <div class="bg-nu-50 p-6 rounded-xl border border-nu-200">
-                                    <div class="text-3xl mb-3">⚙️</div>
-                                    <h4 class="font-bold text-nu-900 mb-2">Unique Structure</h4>
-                                    <p class="text-sm text-gray-600">
-                                        The geometric arrangement of its scales reflects the structured, engineered nature of our syntax.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
             <!-- Code Comparison -->
             <div
-                class="grid md:grid-cols-2 gap-0 md:gap-4 max-w-5xl mx-auto mt-16 rounded-xl overflow-hidden shadow-2xl border border-gray-200">
+                class="grid md:grid-cols-2 gap-0 md:gap-4 max-w-5xl mx-auto mt-16 glass-panel rounded-xl overflow-hidden shadow-2xl">
                 <!-- Rust Side -->
-                <div class="border-b md:border-b-0 md:border-r border-gray-200">
-                    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-gray-50">
+                <div class="border-b md:border-b-0 md:border-r border-slate-700 bg-slate-900/50">
+                    <div class="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800/50">
                         <div class="flex items-center gap-2">
                             <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/rust/rust-plain.svg"
                                 class="w-4 h-4" alt="Rust">
-                            <span class="text-xs font-mono text-gray-600">hello.rs</span>
+                            <span class="text-xs font-mono text-slate-400">hello.rs</span>
                         </div>
-                        <span class="text-[10px] text-red-600 font-mono font-semibold">Verbose</span>
+                        <span class="text-[10px] text-red-400 font-mono">Verbose</span>
                     </div>
-                    <div class="p-4 overflow-x-auto code-block-dark">
+                    <div class="p-4 overflow-x-auto">
                         <pre class="font-mono text-sm leading-6"><code class="language-rust"><span class="code-syntax-keyword">pub struct</span> <span class="code-syntax-type">Person</span> {
     <span class="code-syntax-keyword">pub</span> name: <span class="code-syntax-type">String</span>,
     <span class="code-syntax-keyword">pub</span> age: <span class="code-syntax-type">u32</span>,
@@ -296,20 +221,21 @@
                 </div>
 
                 <!-- Nu Side -->
-                <div class="relative group">
-                    <div class="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity z-10">
+                <div class="bg-slate-900/80 relative group">
+                    <div class="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
                         <span
-                            class="bg-green-50 text-green-700 text-xs px-2 py-1 rounded border border-green-200 font-semibold shadow-sm">55%
+                            class="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded border border-green-500/30">55%
                             Compressed</span>
                     </div>
-                    <div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 bg-nu-50">
+                    <div class="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800/50">
                         <div class="flex items-center gap-2">
+                            <!-- Nu Icon (Small) -->
                             <img src="logos/logo_scale.png" alt="Nu Logo" class="w-4 h-4">
-                            <span class="text-xs font-mono text-nu-600 font-semibold">hello.nu</span>
+                            <span class="text-xs font-mono text-nu-400">hello.nu</span>
                         </div>
-                        <span class="text-[10px] text-nu-600 font-mono font-semibold">High Density</span>
+                        <span class="text-[10px] text-nu-400 font-mono">High Density</span>
                     </div>
-                    <div class="p-4 overflow-x-auto code-block-dark">
+                    <div class="p-4 overflow-x-auto">
                         <pre class="font-mono text-sm leading-6"><code class="language-nu"><span class="code-syntax-keyword">S</span> <span class="code-syntax-type">Person</span> {
     name: <span class="code-syntax-type">String</span>,
     age: <span class="code-syntax-type">u32</span>,
@@ -332,58 +258,57 @@
     </section>
 
     <!-- Stats Section -->
-    <section class="border-y border-gray-200 bg-white">
+    <section class="border-y border-slate-800 bg-slate-900/50">
         <div class="max-w-7xl mx-auto px-4 py-12">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
                 <div class="p-6">
-                    <dt class="mb-2 text-4xl font-extrabold text-nu-500">~100%</dt>
-                    <dd class="text-gray-600">Token Density Improvement</dd>
+                    <dt class="mb-2 text-4xl font-extrabold text-nu-400">~100%</dt>
+                    <dd class="text-gray-400">Token Density Improvement</dd>
                 </div>
                 <div class="p-6">
-                    <dt class="mb-2 text-4xl font-extrabold text-nu-900">40-50%</dt>
-                    <dd class="text-gray-600">Reduction in Lines of Code</dd>
+                    <dt class="mb-2 text-4xl font-extrabold text-white">40-50%</dt>
+                    <dd class="text-gray-400">Reduction in Lines of Code</dd>
                 </div>
                 <div class="p-6">
-                    <dt class="mb-2 text-4xl font-extrabold text-nu-500">100%</dt>
-                    <dd class="text-gray-600">Rust Compatible & Safe</dd>
+                    <dt class="mb-2 text-4xl font-extrabold text-orange-500">100%</dt>
+                    <dd class="text-gray-400">Rust Compatible & Safe</dd>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Features -->
-    <section id="features" class="py-24 bg-gradient-to-b from-white to-nu-50/30">
+    <section id="features" class="py-24 bg-slate-900">
         <div class="max-w-7xl mx-auto px-4">
             <div class="text-center mb-16">
-                <h2 class="text-3xl md:text-4xl font-bold mb-4 text-nu-900">Why Nu?</h2>
-                <p class="text-gray-600 max-w-2xl mx-auto">Designed for the modern developer who values efficiency
+                <h2 class="text-3xl md:text-4xl font-bold mb-4">Why Nu?</h2>
+                <p class="text-gray-400 max-w-2xl mx-auto">Designed for the modern developer who values efficiency
                     without sacrificing safety.</p>
             </div>
 
             <div class="grid md:grid-cols-3 gap-8">
                 <!-- Feature 1 -->
                 <div
-                    class="p-8 rounded-2xl border border-gray-200 bg-white hover:shadow-lg transition-all duration-300">
+                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors">
                     <div
-                        class="w-12 h-12 bg-nu-100 rounded-lg flex items-center justify-center mb-6 text-nu-600">
+                        class="w-12 h-12 bg-blue-900/50 rounded-lg flex items-center justify-center mb-6 text-blue-400">
                         <i data-lucide="zap" class="w-6 h-6"></i>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-nu-900">High Density Syntax</h3>
-                    <p class="text-gray-600 
-leading-relaxed">
+                    <h3 class="text-xl font-bold mb-3 text-white">High Density Syntax</h3>
+                    <p class="text-gray-400 leading-relaxed">
                         Compress definitions (`struct` → `S`) and control flow (`return` → `<`) while preserving the
                             semantic core. Optimized for LLM context windows and developer typing speed. </p>
                 </div>
 
                 <!-- Feature 2 -->
                 <div
-                    class="p-8 rounded-2xl border border-gray-200 bg-white hover:shadow-lg transition-all duration-300">
+                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors">
                     <div
-                        class="w-12 h-12 bg-nu-100 rounded-lg flex items-center justify-center mb-6 text-nu-600">
+                        class="w-12 h-12 bg-orange-900/50 rounded-lg flex items-center justify-center mb-6 text-orange-400">
                         <i data-lucide="refresh-cw" class="w-6 h-6"></i>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-nu-900">Bidirectional Transpilation</h3>
-                    <p class="text-gray-600 leading-relaxed">
+                    <h3 class="text-xl font-bold mb-3 text-white">Bidirectional Transpilation</h3>
+                    <p class="text-gray-400 leading-relaxed">
                         Lossless conversion between Rust and Nu. Use `rust2nu` to modernize legacy codebases and
                         `nu2rust` to compile standard binaries.
                     </p>
@@ -391,12 +316,12 @@ leading-relaxed">
 
                 <!-- Feature 3 -->
                 <div
-                    class="p-8 rounded-2xl border border-gray-200 bg-white hover:shadow-lg transition-all duration-300">
-                    <div class="w-12 h-12 bg-nu-100 rounded-lg flex items-center justify-center mb-6 text-nu-600">
+                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors">
+                    <div class="w-12 h-12 bg-nu-900/50 rounded-lg flex items-center justify-center mb-6 text-nu-400">
                         <i data-lucide="box" class="w-6 h-6"></i>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-nu-900">First-Class Tooling</h3>
-                    <p class="text-gray-600 leading-relaxed">
+                    <h3 class="text-xl font-bold mb-3 text-white">First-Class Tooling</h3>
+                    <p class="text-gray-400 leading-relaxed">
                         Production-ready VSCode extension with Auto-Compilation, Error Mapping, F5 Debugging, and
                         real-time formatting.
                     </p>
@@ -406,52 +331,52 @@ leading-relaxed">
     </section>
 
     <!-- Syntax Guide / Docs Preview -->
-    <section id="docs" class="py-24 bg-white">
+    <section id="docs" class="py-24 bg-slate-950">
         <div class="max-w-7xl mx-auto px-4">
-            <h2 class="text-3xl font-bold mb-12 text-center text-nu-900">Core Syntax Mapping</h2>
+            <h2 class="text-3xl font-bold mb-12 text-center">Core Syntax Mapping</h2>
 
             <div class="grid md:grid-cols-2 gap-12">
                 <!-- Keywords Table -->
-                <div class="rounded-xl overflow-hidden border border-gray-200 shadow-md">
-                    <div class="bg-nu-50 px-6 py-4 border-b border-gray-200">
-                        <h3 class="font-bold text-lg text-nu-900">Definition Keywords</h3>
+                <div class="rounded-xl overflow-hidden border border-slate-700">
+                    <div class="bg-slate-800 px-6 py-4 border-b border-slate-700">
+                        <h3 class="font-bold text-lg">Definition Keywords</h3>
                     </div>
-                    <table class="w-full text-left text-sm text-gray-600">
-                        <thead class="bg-gray-50 text-gray-700 font-semibold">
+                    <table class="w-full text-left text-sm text-gray-400">
+                        <thead class="bg-slate-900 text-gray-200">
                             <tr>
                                 <th class="px-6 py-3">Nu</th>
                                 <th class="px-6 py-3">Rust Original</th>
                                 <th class="px-6 py-3">Note</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-200 bg-white">
+                        <tbody class="divide-y divide-slate-800 bg-slate-900/50">
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-500 font-bold">S</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">S</td>
                                 <td class="px-6 py-3 font-mono">struct</td>
                                 <td class="px-6 py-3">Definition</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-500 font-bold">E</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">E</td>
                                 <td class="px-6 py-3 font-mono">enum</td>
                                 <td class="px-6 py-3">Definition</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-500 font-bold">F</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">F</td>
                                 <td class="px-6 py-3 font-mono">pub fn</td>
                                 <td class="px-6 py-3">Public Function</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-500 font-bold">f</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">f</td>
                                 <td class="px-6 py-3 font-mono">fn</td>
                                 <td class="px-6 py-3">Private Function</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-500 font-bold">l</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">l</td>
                                 <td class="px-6 py-3 font-mono">let</td>
                                 <td class="px-6 py-3">Immutable</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-500 font-bold">v</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">v</td>
                                 <td class="px-6 py-3 font-mono">let mut</td>
                                 <td class="px-6 py-3">Variable (mut)</td>
                             </tr>
@@ -460,41 +385,41 @@ leading-relaxed">
                 </div>
 
                 <!-- Symbols Table -->
-                <div class="rounded-xl overflow-hidden border border-gray-200 shadow-md">
-                    <div class="bg-nu-50 px-6 py-4 border-b border-gray-200">
-                        <h3 class="font-bold text-lg text-nu-900">Flow & Symbols</h3>
+                <div class="rounded-xl overflow-hidden border border-slate-700">
+                    <div class="bg-slate-800 px-6 py-4 border-b border-slate-700">
+                        <h3 class="font-bold text-lg">Flow & Symbols</h3>
                     </div>
-                    <table class="w-full text-left text-sm text-gray-600">
-                        <thead class="bg-gray-50 text-gray-700 font-semibold">
+                    <table class="w-full text-left text-sm text-gray-400">
+                        <thead class="bg-slate-900 text-gray-200">
                             <tr>
                                 <th class="px-6 py-3">Symbol</th>
                                 <th class="px-6 py-3">Meaning</th>
                                 <th class="px-6 py-3">Example</th>
                             </tr>
                         </thead>
-                        <tbody class="divide-y divide-gray-200 bg-white">
+                        <tbody class="divide-y divide-slate-800 bg-slate-900/50">
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-600 font-bold">&lt;</td>
+                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">&lt;</td>
                                 <td class="px-6 py-3">Return</td>
                                 <td class="px-6 py-3 font-mono">&lt; value</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-600 font-bold">?</td>
+                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">?</td>
                                 <td class="px-6 py-3">If</td>
                                 <td class="px-6 py-3 font-mono">? x > 0 { }</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-600 font-bold">M</td>
+                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">M</td>
                                 <td class="px-6 py-3">Match</td>
                                 <td class="px-6 py-3 font-mono">M val { }</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-600 font-bold">L</td>
+                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">L</td>
                                 <td class="px-6 py-3">Loop</td>
                                 <td class="px-6 py-3 font-mono">L i: list</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-nu-600 font-bold">!</td>
+                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">!</td>
                                 <td class="px-6 py-3">Try</td>
                                 <td class="px-6 py-3 font-mono">func()!</td>
                             </tr>
@@ -505,14 +430,14 @@ leading-relaxed">
 
             <div class="text-center mt-12">
                 <a href="https://github.com/layola13/nu-lang" target="_blank"
-                    class="inline-flex items-center gap-2 text-nu-500 hover:text-nu-600 font-medium transition-colors">
+                    class="inline-flex items-center gap-2 text-nu-400 hover:text-nu-300 font-medium transition-colors">
                     View Full Specification <i data-lucide="arrow-right" class="w-4 h-4"></i>
                 </a>
             </div>
 
               <div class="text-center mt-12">
                 <a href="https://deepwiki.com/layola13/nu-lang" target="_blank"
-                    class="inline-flex items-center gap-2 text-nu-500 hover:text-nu-600 font-medium transition-colors">
+                    class="inline-flex items-center gap-2 text-nu-400 hover:text-nu-300 font-medium transition-colors">
                     View Full Specification on deepwiki <i data-lucide="arrow-right" class="w-4 h-4"></i>
                 </a>
             </div>
@@ -520,16 +445,16 @@ leading-relaxed">
     </section>
 
     <!-- Playground Simulator -->
-    <section id="playground" class="py-24 bg-gradient-to-b from-white to-nu-50/30">
+    <section id="playground" class="py-24 bg-slate-900">
         <div class="max-w-6xl mx-auto px-4">
             <div class="flex items-center justify-between mb-8">
                 <div>
-                    <h2 class="text-3xl font-bold text-nu-900">Nu Playground</h2>
-                    <p class="text-gray-600 text-sm mt-1">Live transpilation simulator</p>
+                    <h2 class="text-3xl font-bold">Nu Playground</h2>
+                    <p class="text-gray-400 text-sm mt-1">Live transpilation simulator</p>
                 </div>
                 <div class="flex gap-2">
                     <button onclick="compileMock()"
-                        class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2 shadow-md">
+                        class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2">
                         <i data-lucide="play" class="w-3 h-3"></i> Run / Transpile
                     </button>
                 </div>
@@ -537,14 +462,14 @@ leading-relaxed">
 
             <div class="grid md:grid-cols-2 gap-4 h-[500px]">
                 <!-- Input -->
-                <div class="flex flex-col h-full rounded-lg border border-gray-300 bg-white overflow-hidden shadow-lg">
+                <div class="flex flex-col h-full rounded-lg border border-slate-700 bg-slate-950 overflow-hidden">
                     <div
-                        class="bg-gray-50 px-4 py-2 text-xs text-gray-600 font-mono border-b border-gray-300 flex justify-between">
+                        class="bg-slate-800 px-4 py-2 text-xs text-gray-400 font-mono border-b border-slate-700 flex justify-between">
                         <span>main.nu</span>
                         <span>Input</span>
                     </div>
                     <textarea id="nu-input"
-                        class="flex-1 w-full bg-white p-4 font-mono text-sm text-nu-900 focus:outline-none resize-none"
+                        class="flex-1 w-full bg-slate-950 p-4 font-mono text-sm text-gray-300 focus:outline-none resize-none"
                         spellcheck="false">
 S User {
     id: u64,
@@ -574,102 +499,77 @@ f main() {
                 </div>
 
                 <!-- Output -->
-                <div class="flex flex-col h-full rounded-lg border border-gray-300 bg-white overflow-hidden shadow-lg">
+                <div class="flex flex-col h-full rounded-lg border border-slate-700 bg-slate-950 overflow-hidden">
                     <div
-                        class="bg-gray-50 px-4 py-2 text-xs text-gray-600 font-mono border-b border-gray-300 flex justify-between">
+                        class="bg-slate-800 px-4 py-2 text-xs text-gray-400 font-mono border-b border-slate-700 flex justify-between">
                         <span>main.rs</span>
                         <span>Output (Rust)</span>
                     </div>
                     <pre id="rust-output"
-                        class="flex-1 w-full bg-nu-900 p-4 font-mono text-sm text-gray-300 overflow-auto"></pre>
+                        class="flex-1 w-full bg-slate-900 p-4 font-mono text-sm text-gray-400 overflow-auto"></pre>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- Installation / Quick Start -->
-    <section id="quick-start" class="py-24 bg-white border-t border-gray-200">
+    <section id="quick-start" class="py-24 bg-slate-950 border-t border-slate-900">
         <div class="max-w-4xl mx-auto px-4">
-            <h2 class="text-3xl font-bold mb-8 text-center text-nu-900">Get Started in Seconds</h2>
+            <h2 class="text-3xl font-bold mb-8 text-center">Get Started in Seconds</h2>
 
-            <div class="bg-white rounded-xl border border-gray-200 shadow-xl overflow-hidden">
+            <div class="bg-slate-900 rounded-xl border border-slate-800 shadow-2xl overflow-hidden">
                 <!-- Tabs -->
-                <div class="flex border-b border-gray-200">
+                <div class="flex border-b border-slate-800">
                     <button
-                        class="px-6 py-3 text-sm font-medium text-nu-900 border-b-2 border-nu-500 bg-nu-50">Binaries</button>
-                    <button class="px-6 py-3 text-sm font-medium text-gray-500 hover:text-gray-700">VSCode</button>
+                        class="px-6 py-3 text-sm font-medium text-white border-b-2 border-nu-500 bg-slate-800/50">Binaries</button>
+                    <button class="px-6 py-3 text-sm font-medium text-gray-500 hover:text-gray-300">VSCode</button>
                 </div>
 
                 <div class="p-8">
                     <div class="mb-6">
-                        <label class="block text-sm font-medium text-gray-600 mb-2">Download for Windows, Linux,
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Download for Windows, Linux,
                             macOS</label>
                         <div class="relative group">
                             <a href="https://github.com/layola13/nu-lang/releases/tag/v1.6.4" target="_blank"
                                 class="block">
                                 <div
-                                    class="absolute -inset-1 bg-gradient-to-r from-nu-500 to-nu-600 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200">
+                                    class="absolute -inset-1 bg-gradient-to-r from-nu-500 to-blue-600 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200">
                                 </div>
                                 <div
-                                    class="relative bg-nu-900 rounded-lg p-4 font-mono text-sm text-gray-100 flex items-center justify-between hover:text-white transition-colors shadow-md">
+                                    class="relative bg-black rounded-lg p-4 font-mono text-sm text-gray-300 flex items-center justify-between hover:text-white transition-colors">
                                     <span><i data-lucide="package"
                                             class="inline w-4 h-4 mr-2"></i>nu-lang-v1.6.4-install-bundle</span>
-                                    <i data-lucide="external-link" class="w-4 h-4 text-gray-400"></i>
+                                    <i data-lucide="external-link" class="w-4 h-4 text-gray-500"></i>
                                 </div>
                             </a>
                         </div>
                     </div>
 
                     <div>
-                        <label class="block text-sm font-medium text-gray-600 mb-2">VSCode Extension</label>
-                        <p class="text-xs text-gray-500 mb-3">Download and install the official extension:</p>
-                        
-                        <!-- Download Button -->
-                        <div class="relative group mb-4">
-                            <a href="https://github.com/layola13/nu-lang/raw/master/vscode-nu-lang/nu-lang-0.0.5.vsix" target="_blank" download
-                                class="block">
-                                <div
-                                    class="absolute -inset-1 bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200">
-                                </div>
-                                <div
-                                    class="relative bg-blue-600 hover:bg-blue-700 rounded-lg p-4 text-white flex items-center justify-between transition-colors shadow-md">
-                                    <span class="flex items-center gap-2">
-                                        <i data-lucide="download" class="w-4 h-4"></i>
-                                        <span class="font-medium">Download nu-lang-0.0.5.vsix</span>
-                                    </span>
-                                    <i data-lucide="external-link" class="w-4 h-4"></i>
-                                </div>
-                            </a>
-                        </div>
-
-                        <!-- Installation Command -->
-                        <p class="text-xs text-gray-500 mb-2">Then install via command line:</p>
-                        <div class="bg-gray-50 rounded-lg p-4 font-mono text-sm text-nu-900 border border-gray-200">
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Install VSCode Extension</label>
+                        <p class="text-xs text-gray-500 mb-2">Download the .vsix file from the releases page.</p>
+                        <div class="bg-black rounded-lg p-4 font-mono text-sm text-gray-300 border border-slate-800">
                             <code>code --install-extension nu-lang-0.0.5.vsix</code>
                         </div>
-                        
-                        <p class="text-xs text-gray-400 mt-2">
-                            Or install manually: VSCode → Extensions → ⋯ → Install from VSIX
-                        </p>
                     </div>
                 </div>
 
                 <div
-                    class="bg-nu-50 p-4 border-t border-gray-200 flex items-center gap-4 text-sm text-gray-600">
-                    <i data-lucide="info" class="w-4 h-4 text-nu-500"></i>
+                    class="bg-slate-800/50 p-4 border-t border-slate-800 flex items-center gap-4 text-sm text-gray-400">
+                    <i data-lucide="info" class="w-4 h-4 text-nu-400"></i>
                     <span>Requires Rust toolchain installed. Works with Rust 1.70+.</span>
                 </div>
             </div>
 
             <div id="download" class="mt-12 text-center">
                 <a href="https://github.com/layola13/nu-lang/releases" target="_blank"
-                    class="text-sm text-nu-500 hover:underline">View all releases and change logs on GitHub</a>
+                    class="text-sm text-nu-400 hover:underline">View all releases and change logs on GitHub</a>
             </div>
         </div>
     </section>
 
     <!-- Footer -->
-    <footer class="bg-nu-900 border-t border-nu-900 pt-16 pb-8">
+    <footer class="bg-slate-950 border-t border-slate-900 pt-16 pb-8">
         <div class="max-w-7xl mx-auto px-4">
             <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
                 <div class="col-span-2 md:col-span-1">
@@ -677,7 +577,7 @@ f main() {
                         <img src="logos/logo_scale.png" alt="Nu Logo" class="w-6 h-6">
                         <span class="font-bold text-white">Nu-lang</span>
                     </div>
-                    <p class="text-gray-400 text-sm">
+                    <p class="text-gray-500 text-sm">
                         AI-Native Systems Programming.<br>
                         Licensed under MIT.
                     </p>
@@ -686,8 +586,7 @@ f main() {
                     <h4 class="font-bold text-white mb-4">Resources</h4>
                     <ul class="space-y-2 text-sm text-gray-400">
                         <li><a href="https://github.com/layola13/nu-lang" target="_blank"
-                                class="hover:text-nu-400 
-transition-colors">Documentation</a></li>
+                                class="hover:text-nu-400 transition-colors">Documentation</a></li>
                         <li><a href="https://github.com/layola13/nu-lang" target="_blank"
                                 class="hover:text-nu-400 transition-colors">Standard Library</a></li>
                         <li><a href="https://github.com/layola13/nu-lang/tree/main/examples" target="_blank"
@@ -714,12 +613,12 @@ transition-colors">Documentation</a></li>
                     </ul>
                 </div>
             </div>
-            <div class="border-t border-gray-700 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
-                <span class="text-gray-500 text-sm">© 2025 Nu Language Core Team.</span>
+            <div class="border-t border-slate-900 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+                <span class="text-gray-600 text-sm">© 2025 Nu Language Core Team.</span>
                 <div class="flex gap-4">
                     <a href="https://github.com/layola13/nu-lang" target="_blank"
-                        class="text-gray-500 hover:text-gray-300"><i data-lucide="github" class="w-5 h-5"></i></a>
-                    <a href="#" class="text-gray-500 hover:text-gray-300"><i data-lucide="twitter"
+                        class="text-gray-600 hover:text-gray-400"><i data-lucide="github" class="w-5 h-5"></i></a>
+                    <a href="#" class="text-gray-600 hover:text-gray-400"><i data-lucide="twitter"
                             class="w-5 h-5"></i></a>
                 </div>
             </div>
