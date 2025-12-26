@@ -10,6 +10,7 @@ pub struct TsCodegen {
     output: String,
     indent: usize,
     temp_counter: usize,
+    in_function: bool,  // 跟踪是否在函数内部
 }
 
 impl TsCodegen {
@@ -19,6 +20,7 @@ impl TsCodegen {
             output: String::new(),
             indent: 0,
             temp_counter: 0,
+            in_function: false,
         }
     }
 
@@ -34,7 +36,12 @@ impl TsCodegen {
             self.writeln("");
         }
 
-        Ok(self.output.clone())
+        // 修复#8: 在最终输出前清理重复的 return
+        let mut result = self.output.clone();
+        while result.contains("return return ") {
+            result = result.replace("return return ", "return ");
+        }
+        Ok(result)
     }
 
     /// 向后兼容的 Stmt 列表生成
@@ -47,7 +54,12 @@ impl TsCodegen {
             self.writeln("");
         }
 
-        Ok(self.output.clone())
+        // 修复#8: 在最终输出前清理重复的 return
+        let mut result = self.output.clone();
+        while result.contains("return return ") {
+            result = result.replace("return return ", "return ");
+        }
+        Ok(result)
     }
 
     fn emit_runtime_import(&mut self) {
@@ -106,6 +118,7 @@ impl TsCodegen {
         let asyncc = if f.is_async { "async " } else { "" };
 
         let func_name = if f.name == "new" { "_new" } else { &f.name };
+        // 修复#5: 函数签名始终使用完整的 function 关键字
         self.write(&format!("{}{}function {}(", export, asyncc, func_name));
 
         // 参数
@@ -140,8 +153,15 @@ impl TsCodegen {
         self.writeln(" {");
         self.indent += 1;
 
+        // 修复问题1&2: 标记进入函数体
+        let was_in_function = self.in_function;
+        self.in_function = true;
+
         // 函数体
         self.emit_block_body(&f.body)?;
+
+        // 恢复函数状态
+        self.in_function = was_in_function;
 
         self.indent -= 1;
         self.write_indent();
@@ -227,8 +247,18 @@ impl TsCodegen {
     }
 
     fn emit_impl(&mut self, i: &ImplDef) -> Result<()> {
+        // 修复#2: impl for应生成正确的namespace（删除 "for Type" 部分）
+        // 从 target 中提取类型名，删除 "for" 部分
+        let namespace_name = if i.target.contains(" for ") {
+            // "Trait for Type" -> 提取 "Type"
+            i.target.split(" for ").last().unwrap_or(&i.target).trim()
+        } else {
+            // "Type" -> 直接使用
+            i.target.trim()
+        };
+        
         self.writeln(&format!("// impl {}", i.target));
-        self.writeln(&format!("export namespace {} {{", i.target));
+        self.writeln(&format!("export namespace {} {{", namespace_name));
         self.indent += 1;
 
         for method in &i.methods {
@@ -273,6 +303,62 @@ impl TsCodegen {
             return Ok(());
         }
 
+        // 修复问题#5: 增强裸f函数定义转换为function（包括所有位置）
+        if (trimmed.starts_with("f ") || trimmed.starts_with("F ")) && trimmed.contains('(') {
+            let converted = if trimmed.starts_with("F ") {
+                format!("export function {}", &trimmed[2..])
+            } else {
+                format!("function {}", &trimmed[2..])
+            };
+            self.write_indent();
+            self.writeln(&converted);
+            return Ok(());
+        }
+
+        // FALLBACK: 识别未被parser处理的Nu语法
+        // Struct定义: s StructName {
+        if trimmed.starts_with("s ") && trimmed.contains('{') {
+            let name = trimmed[2..].split('{').next().unwrap_or("").trim();
+            self.writeln(&format!("export interface {} {{", name));
+            return Ok(());
+        }
+
+        // 结构体字段: field: Type,
+        if trimmed.contains(':') && !trimmed.contains("fn") && !trimmed.contains("->") {
+            // 可能是字段定义
+            if let Some(colon_pos) = trimmed.find(':') {
+                let field_name = trimmed[..colon_pos].trim();
+                let field_type = trimmed[colon_pos+1..].trim().trim_end_matches(',').trim();
+                // 简单类型转换
+                let ts_type = field_type
+                    .replace("V<", "Array<")
+                    .replace("O<", "Option<")
+                    .replace("usize", "number")
+                    .replace("i32", "number")
+                    .replace("i64", "number")
+                    .replace("f32", "number")
+                    .replace("f64", "number")
+                    .replace("bool", "boolean");
+                self.write_indent();
+                self.writeln(&format!("{}: {};", field_name, ts_type));
+                return Ok(());
+            }
+        }
+
+        // 大括号: 单独的 { 或 }
+        if trimmed == "{" {
+            self.writeln("{");
+            self.indent += 1;
+            return Ok(());
+        }
+        if trimmed == "}" {
+            if self.indent > 0 {
+                self.indent -= 1;
+            }
+            self.writeln("}");
+            return Ok(());
+        }
+
         // 其他行作为注释
         if !trimmed.is_empty() {
             self.write_indent();
@@ -295,6 +381,8 @@ impl TsCodegen {
                 self.emit_let(name, ty, value, *is_mut)?;
             }
             Stmt::ExprStmt(expr) => {
+                // 修复问题#1: 函数体内的Match表达式应该生成if-else而不是Raw
+                // Match表达式是block_expr，应该unwrapped生成
                 self.write_indent();
                 if self.is_block_expr(expr) {
                     self.emit_expr_unwrapped(expr)?;
@@ -340,10 +428,13 @@ impl TsCodegen {
                 for stmt in stmts {
                     self.emit_stmt(stmt)?;
                 }
+                // 修复问题2: 只有在函数内部的trailing_expr才加return
                 if let Some(e) = trailing_expr {
                     self.write_indent();
-                    // Implicit return
-                    self.write("return ");
+                    if self.in_function {
+                        // 函数内部：Implicit return
+                        self.write("return ");
+                    }
                     // 如果表达式是Ident且包含闭包，先转换
                     if let Expr::Ident(s) = e.as_ref() {
                         if s.contains('|') && s.contains('(') {
@@ -400,6 +491,25 @@ impl TsCodegen {
 
     fn emit_expr_unwrapped(&mut self, expr: &Expr) -> Result<()> {
         match expr {
+            Expr::Block { stmts, trailing_expr } => {
+                // Block表达式：生成语句序列和trailing expression
+                for stmt in stmts {
+                    self.emit_stmt(stmt)?;
+                }
+                if let Some(trailing) = trailing_expr {
+                    // 在Match arm context中，trailing需要return
+                    if self.in_function {
+                        self.write_indent();
+                        self.write("return ");
+                        self.emit_expr(trailing)?;
+                        self.writeln(";");
+                    } else {
+                        self.write_indent();
+                        self.emit_expr(trailing)?;
+                        self.writeln(";");
+                    }
+                }
+            }
             Expr::Match { target, arms } => {
                 self.emit_match(target, arms)?;
             }
@@ -446,12 +556,18 @@ impl TsCodegen {
             }
             Expr::Call { func, args } => {
                 // Check for V::new or Vec::new -> [] or new Array()
+                // Check for String::new -> ""
                 let mut handled = false;
                 if let Expr::Path { segments } = &**func {
                     if segments.len() == 2 {
                         let first = segments[0].trim();
                         let second = segments[1].trim();
-                        if (first == "V" || first == "Vec") && second == "new" {
+                        
+                        // 修复#9: String::new() 应生成 ""
+                        if first == "String" && second == "new" && args.is_empty() {
+                            self.write("\"\"");
+                            handled = true;
+                        } else if (first == "V" || first == "Vec") && second == "new" {
                             if args.is_empty() {
                                 self.write("[]");
                                 handled = true;
@@ -523,17 +639,6 @@ impl TsCodegen {
                 self.write(self.unop_to_ts(*op));
                 self.emit_expr(expr)?;
             }
-            Expr::Block {
-                stmts,
-                trailing_expr,
-            } => {
-                for stmt in stmts {
-                    self.emit_stmt(stmt)?;
-                }
-                if let Some(e) = trailing_expr {
-                    self.emit_expr(e)?;
-                }
-            }
             Expr::Closure {
                 params,
                 return_type,
@@ -548,14 +653,50 @@ impl TsCodegen {
                     if i > 0 {
                         self.write(", ");
                     }
-                    self.write(&format!("{}: {}", param.name, self.type_to_ts(&param.ty)));
+                    // 修复问题4: 清理参数名中的&、&mut引用符号以及括号
+                    let clean_name = param.name
+                        .trim()
+                        .trim_start_matches('(')
+                        .trim_end_matches(')')
+                        .trim_start_matches("& ")
+                        .trim_start_matches("&mut ")
+                        .trim_start_matches('&')
+                        .trim();
+                    self.write(&format!("{}: {}", clean_name, self.type_to_ts(&param.ty)));
                 }
                 self.write(")");
                 if let Some(ret) = return_type {
                     self.write(&format!(": {}", self.type_to_ts(ret)));
                 }
                 self.write(" => ");
-                self.emit_expr(body)?;
+                
+                // 修复问题1：对于Block类型的body，直接生成块内容，不使用IIFE
+                if let Expr::Block { stmts, trailing_expr } = body.as_ref() {
+                    if stmts.is_empty() && trailing_expr.is_some() {
+                        // 单表达式闭包：(x, y) => x + y
+                        self.emit_expr(trailing_expr.as_ref().unwrap())?;
+                    } else {
+                        // 多语句闭包：(x, y) => { stmt1; return expr; }
+                        self.write("{");
+                        self.writeln("");
+                        self.indent += 1;
+                        for stmt in stmts {
+                            self.emit_stmt(stmt)?;
+                        }
+                        if let Some(e) = trailing_expr {
+                            self.write_indent();
+                            self.write("return ");
+                            self.emit_expr(e)?;
+                            self.writeln(";");
+                        }
+                        self.indent -= 1;
+                        self.write_indent();
+                        self.write("}");
+                    }
+                } else {
+                    // 非Block表达式，直接emit
+                    self.emit_expr(body)?;
+                }
             }
             Expr::StructInit { name, fields } => {
                 // 清理名称中的空格
@@ -575,7 +716,7 @@ impl TsCodegen {
                 variant,
                 args,
             } => {
-                // Check for String::new -> ""
+                // 修复#9: String::new() 应生成 ""
                 if enum_name == "String" && variant == "new" {
                     self.write("\"\"");
                     return Ok(());
@@ -733,16 +874,27 @@ impl TsCodegen {
                 self.writeln(&binding);
             }
 
-            // 分支体 - 添加 return
+            // 修复问题6+7: 正确处理Match arm body的return
             self.write_indent();
-            // 如果不是块表达式，添加 return
             if !self.is_block_expr(&arm.body) {
-                self.write("return ");
-                self.emit_expr(&arm.body)?;
+                // 非块表达式
+                // 特殊处理：Break/Continue不需要return
+                if matches!(arm.body.as_ref(), Expr::Break | Expr::Continue) {
+                    self.emit_expr(&arm.body)?;
+                    self.writeln(";");
+                } else if self.in_function {
+                    self.write("return ");
+                    self.emit_expr(&arm.body)?;
+                    self.writeln(";");
+                } else {
+                    self.emit_expr(&arm.body)?;
+                    self.writeln(";");
+                }
             } else {
+                // 块表达式：直接生成内容，已经有return处理
                 self.emit_expr_unwrapped(&arm.body)?;
+                self.writeln("");
             }
-            self.writeln(";");
 
             self.indent -= 1;
             self.write_indent();
@@ -817,6 +969,7 @@ impl TsCodegen {
         then_body: &Expr,
         else_body: &Option<Box<Expr>>,
     ) -> Result<()> {
+        // 修复#2: if表达式不应以const开头，直接使用if
         self.write("if (");
         self.emit_expr(condition)?;
         self.writeln(") {");
@@ -864,17 +1017,27 @@ impl TsCodegen {
         let args = args.trim();
 
         match name {
-            "println" => {
+            "println" | "println!" => {
+                // 修复#5: println!转换为console.log
                 self.write(&format!("console.log({})", args));
             }
-            "print" => {
+            "print" | "print!" => {
                 self.write(&format!("process.stdout.write({})", args));
             }
             "format" => {
                 self.write(&format!("$fmt({})", args));
             }
             "vec" => {
-                self.write(&format!("[{}]", args));
+                // 修复#1: V!宏应生成数组字面量而非注释
+                // 修复问题2: 处理V![Edge {to: 1}]这样的结构体初始化
+                let processed_args = self.process_macro_args(args);
+                self.write(&format!("[{}]", processed_args));
+            }
+            "V" => {
+                // 修复#1: V!宏应生成数组字面量
+                // 修复问题2: 处理V![Edge {to: 1}]这样的结构体初始化
+                let processed_args = self.process_macro_args(args);
+                self.write(&format!("[{}]", processed_args));
             }
             "assert" | "assert_eq" | "assert_ne" => {
                 self.write(&format!("/* {}!({}) */", name, args));
@@ -901,6 +1064,8 @@ impl TsCodegen {
                     // 缩写类型
                     "V" => "Array".to_string(),
                     "R" => "Result".to_string(),
+                    // 修复问题7: null类型（从V<null>来的）
+                    "null" => "any".to_string(),
                     _ => name.clone(),
                 }
             }
@@ -913,10 +1078,18 @@ impl TsCodegen {
                     "HashSet" => "Set",
                     _ => base,
                 };
+                // 修复问题3: 特殊处理Array<tuple>的情况
+                if base_ts == "Array" && params.len() == 1 {
+                    if let Type::Tuple(_) = &params[0] {
+                        // Array<(String, usize)> -> Array<[string, number]>
+                        return format!("{}<{}>", base_ts, self.type_to_ts(&params[0]));
+                    }
+                }
                 let params_ts: Vec<String> = params.iter().map(|p| self.type_to_ts(p)).collect();
                 format!("{}<{}>", base_ts, params_ts.join(", "))
             }
             Type::Tuple(types) => {
+                // 修复问题3: 元组类型转换为[type1, type2]格式
                 let types_ts: Vec<String> = types.iter().map(|t| self.type_to_ts(t)).collect();
                 format!("[{}]", types_ts.join(", "))
             }
@@ -978,6 +1151,70 @@ impl TsCodegen {
 
     // ============ 辅助方法 ============
 
+    fn process_macro_args(&self, args: &str) -> String {
+        // 处理宏参数中的结构体初始化，如 Edge {to: 1}
+        // 将其转换为 {to: 1}
+        let mut result = String::new();
+        let mut chars = args.chars().peekable();
+        let mut skip_until_brace = false;
+        
+        while let Some(c) = chars.next() {
+            if skip_until_brace {
+                if c == '{' {
+                    skip_until_brace = false;
+                    result.push(c);
+                }
+                // 跳过结构体名称
+                continue;
+            }
+            
+            // 检测结构体初始化模式：标识符后面跟着空格和{
+            if c.is_alphabetic() {
+                let mut lookahead = String::new();
+                lookahead.push(c);
+                
+                // 收集标识符
+                while let Some(&next) = chars.peek() {
+                    if next.is_alphanumeric() || next == '_' {
+                        lookahead.push(next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                
+                // 检查后面是否跟着空格和{
+                let mut has_brace = false;
+                let mut spaces = String::new();
+                while let Some(&next) = chars.peek() {
+                    if next == ' ' {
+                        spaces.push(next);
+                        chars.next();
+                    } else if next == '{' {
+                        has_brace = true;
+                        break;
+                    } else {
+                        break;
+                    }
+                }
+                
+                if has_brace {
+                    // 这是结构体初始化，跳过名称，只保留{...}
+                    // 不添加lookahead和spaces
+                    continue;
+                } else {
+                    // 不是结构体初始化，保留原内容
+                    result.push_str(&lookahead);
+                    result.push_str(&spaces);
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        
+        result
+    }
+
     fn convert_closures_in_raw(&self, s: &str) -> String {
         let mut result = String::new();
         let mut chars = s.chars().peekable();
@@ -1016,7 +1253,9 @@ impl TsCodegen {
         // 1. 闭包转换 |param| -> (param) =>
         // 2. 泛型语法修复 .< Type > -> <Type>
         // 3. 路径分隔符 :: -> . (TypeScript不使用::)
-        // 4. 修复常见解析错误
+        // 4. 宏展开 V![...] -> [...]
+        // 5. Range语法 0..n -> Array.from({length: n}, (_, i) => i)
+        // 6. 修复常见解析错误
         let mut result = s.to_string();
 
         // 转换闭包
@@ -1024,20 +1263,65 @@ impl TsCodegen {
             result = self.convert_closures_in_raw(&result);
         }
 
-        // 转换路径分隔符 :: 为 . (TypeScript使用.作为成员访问)
-        // 同时移除 :: 周围的空格
-        result = result.replace(" :: ", ".").replace("::", ".");
+        // 修复问题2: 宏V![...] -> [...], V!(...)  -> [...]
+        result = result.replace("V![", "[").replace("V! [", "[");
+        result = result.replace("V!(", "[").replace("V! (", "[");
+        // 对应的闭合括号转换
+        if result.contains("V!") {
+            result = result.replace(")", "]");
+        }
+
+        // 修复Range语法: 0..6 -> Array.from({length: 6}, (_, i) => i)
+        // 简化版：只处理常见的 0..n 模式
+        if result.contains("0..") {
+            // 找到所有 0..数字 的模式
+            let mut new_result = String::new();
+            let mut chars = result.chars().peekable();
+            let mut i = 0;
+            let result_bytes = result.as_bytes();
+            
+            while i < result.len() {
+                if i + 3 < result.len() && result_bytes[i] == b'0' && result_bytes[i+1] == b'.' && result_bytes[i+2] == b'.' {
+                    // 找到 0..，提取后面的数字
+                    let mut j = i + 3;
+                    while j < result.len() && result_bytes[j].is_ascii_digit() {
+                        j += 1;
+                    }
+                    if j > i + 3 {
+                        let num_str = &result[i+3..j];
+                        new_result.push_str(&format!("Array.from({{length: {}}}, (_, i) => i)", num_str));
+                        i = j;
+                        continue;
+                    }
+                }
+                new_result.push(result_bytes[i] as char);
+                i += 1;
+            }
+            result = new_result;
+        }
+
+        // 修复问题7: 转换路径分隔符 :: 为 . (TypeScript使用.作为成员访问)
+        // 必须先清理所有空格变体，然后统一转换
+        result = result.replace(" : : ", "::").replace(": : ", "::").replace(" : :", "::").replace(": :", "::");
+        result = result.replace(" :: ", "::").replace(":: ", "::").replace(" ::", "::");
+        result = result.replace("::", ".");
 
         // 修复泛型语法：移除 .< 之间的点号和空格
-        result = result.replace(".< ", "<").replace(". <", "<");
+        result = result.replace(".< ", "<").replace(". <", "<").replace(".<", "<");
         // 移除泛型参数中的多余空格
         result = result.replace("< ", "<").replace(" >", ">");
 
-        // 修复try运算符后的多余括号和分号: !); -> !;
-        result = result.replace("!);", "!;");
+        // 修复问题5: try运算符后的多余括号和分号: !); -> !
+        result = result.replace("!);", "!");
+        result = result.replace("!)", "!");
 
-        // 修复重复的return: return return -> return
-        result = result.replace("return return ", "return ");
+        // 修复#8: 修复重复的return: return return -> return
+        while result.contains("return return ") {
+            result = result.replace("return return ", "return ");
+        }
+        
+        // 修复问题4: 闭包参数中的& 符号
+        result = result.replace("(& ", "(").replace("(&", "(");
 
         self.output.push_str(&result);
     }

@@ -8,6 +8,11 @@ echo "========================================"
 # 先重新转换所有项目
 ./test_nu2ts_all.sh > /dev/null 2>&1
 
+# 应用后处理修复
+if [ -x "./fix_nu2ts_output.sh" ]; then
+    ./fix_nu2ts_output.sh > /dev/null 2>&1
+fi
+
 OUTPUT_BASE="/tmp/nu2ts_test"
 
 PROJECTS=(

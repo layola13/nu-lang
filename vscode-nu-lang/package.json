@@ -1,9 +1,10 @@
 {
   "name": "nu-lang",
   "displayName": "Nu Language",
-  "description": "Nu v1.5.1 language support with syntax highlighting",
-  "version": "0.0.1",
+  "description": "Nu v1.6.4 language support with auto-compilation, error mapping, and Nu breakpoint support",
+  "version": "0.0.5",
   "publisher": "nu-lang",
+  "icon": "icon.png",
   "engines": {
     "vscode": "^1.75.0"
   },
@@ -13,8 +14,14 @@
   "keywords": [
     "nu",
     "nu-lang",
-    "syntax highlighting"
+    "syntax highlighting",
+    "rust",
+    "transpiler"
   ],
+  "activationEvents": [
+    "onLanguage:nu"
+  ],
+  "main": "./out/extension.js",
   "contributes": {
     "languages": [{
       "id": "nu",
@@ -26,7 +33,161 @@
       "language": "nu",
       "scopeName": "source.nu",
       "path": "./syntaxes/nu.tmLanguage.json"
-    }]
+    }],
+    "breakpoints": [
+      {
+        "language": "nu"
+      }
+    ],
+    "debuggers": [{
+      "type": "nu-lang",
+      "label": "Nu Language Debugger",
+      "languages": ["nu", "rust"],
+      "configurationAttributes": {
+        "launch": {
+          "required": ["program"],
+          "properties": {
+            "program": {
+              "type": "string",
+              "description": "Path to the .nu file to debug",
+              "default": "${file}"
+            },
+            "args": {
+              "type": "array",
+              "description": "Command line arguments passed to the program",
+              "default": []
+            },
+            "cwd": {
+              "type": "string",
+              "description": "Working directory for the program",
+              "default": "${workspaceFolder}"
+            },
+            "stopOnEntry": {
+              "type": "boolean",
+              "description": "Automatically stop after launch",
+              "default": true
+            }
+          }
+        }
+      },
+      "initialConfigurations": [
+        {
+          "type": "nu-lang",
+          "request": "launch",
+          "name": "Debug Nu File",
+          "program": "${file}",
+          "args": [],
+          "cwd": "${workspaceFolder}"
+        }
+      ],
+      "configurationSnippets": [
+        {
+          "label": "Nu: Debug Current File",
+          "description": "Debug the currently open .nu file",
+          "body": {
+            "type": "nu-lang",
+            "request": "launch",
+            "name": "Debug Nu File",
+            "program": "^\"\\${file}\"",
+            "args": [],
+            "cwd": "^\"\\${workspaceFolder}\""
+          }
+        }
+      ]
+    }],
+    "commands": [
+      {
+        "command": "nu-lang.compileFile",
+        "title": "Nu: Compile Current File"
+      },
+      {
+        "command": "nu-lang.checkRust",
+        "title": "Nu: Check Rust Output"
+      },
+      {
+        "command": "nu-lang.toggleAutoCompile",
+        "title": "Nu: Toggle Auto Compile"
+      },
+      {
+        "command": "nu-lang.formatFile",
+        "title": "Nu: Format Code"
+      },
+      {
+        "command": "nu-lang.buildBinary",
+        "title": "Nu: Build Binary"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "resourceLangId == nu",
+          "command": "nu-lang.compileFile",
+          "group": "navigation"
+        },
+        {
+          "when": "resourceLangId == nu",
+          "command": "nu-lang.formatFile",
+          "group": "1_modification"
+        },
+        {
+          "when": "resourceLangId == nu",
+          "command": "nu-lang.buildBinary",
+          "group": "2_build"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Nu Language",
+      "properties": {
+        "nu-lang.nu2rustPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to nu2rust binary (leave empty for auto-detection)"
+        },
+        "nu-lang.rust2nuPath": {
+          "type": "string",
+          "default": "/usr/local/bin/rust2nu",
+          "description": "Path to rust2nu binary"
+        },
+        "nu-lang.cargoPath": {
+          "type": "string",
+          "default": "cargo",
+          "description": "Path to cargo binary"
+        },
+        "nu-lang.rustcPath": {
+          "type": "string",
+          "default": "rustc",
+          "description": "Path to rustc binary"
+        },
+        "nu-lang.autoCompile": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically compile .nu files on save"
+        },
+        "nu-lang.autoCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically run cargo check after compilation"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.75.0",
+    "@types/node": "^18.x",
+    "@typescript-eslint/eslint-plugin": "^5.x",
+    "@typescript-eslint/parser": "^5.x",
+    "eslint": "^8.x",
+    "typescript": "^4.9.x"
   },
   "repository": {
     "type": "git",

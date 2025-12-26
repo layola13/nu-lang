@@ -64,6 +64,15 @@ for project in "${PROJECTS[@]}"; do
     fi
 done
 
+# 应用后处理修复
+echo ""
+echo "🔧 Applying post-processing fixes..."
+if [ -x "./fix_nu2ts_output.sh" ]; then
+    ./fix_nu2ts_output.sh
+else
+    echo "⚠️  Fix script not found or not executable"
+fi
+
 echo ""
 echo "========================================"
 echo "📊 Conversion Summary"

@@ -79,8 +79,8 @@ impl Parser {
             return Ok(Some(Item::Function(self.parse_function()?)));
         }
 
-        // 结构体: s Name { ... }
-        if line.starts_with("s ") {
+        // 结构体: s/S Name { ... }
+        if line.starts_with("s ") || line.starts_with("S ") {
             return Ok(Some(Item::Struct(self.parse_struct()?)));
         }
 
@@ -115,6 +115,12 @@ impl Parser {
             return Ok(None);
         }
 
+        // 顶层变量声明: l/v name = value
+        if line.starts_with("l ") || line.starts_with("v ") || line.starts_with("let ") {
+            let stmt = self.parse_let()?;
+            return Ok(Some(Item::Stmt(stmt)));
+        }
+
         // 顶层 Match 表达式: M expr { ... }
         if line.starts_with("M ") {
             let match_expr = self.parse_match()?;
@@ -126,6 +132,13 @@ impl Parser {
         if line.starts_with("? ") {
             let if_expr = self.parse_if()?;
             return Ok(Some(Item::Stmt(Stmt::ExprStmt(Box::new(if_expr)))));
+        }
+
+        // 修复问题2：识别顶层println!宏调用
+        if line.contains("println!") || line.contains("print!") {
+            if let Ok(expr) = self.parse_expr_string(&line) {
+                return Ok(Some(Item::Stmt(Stmt::ExprStmt(Box::new(expr)))));
+            }
         }
 
         // 透传其他行
@@ -178,7 +191,7 @@ impl Parser {
 
     fn parse_struct(&mut self) -> Result<StructDef> {
         let line = self.current_line().trim().to_string();
-        let content = &line[2..].trim(); // 跳过 "s "
+        let content = &line[2..].trim(); // 跳过 "s " 或 "S "
 
         // 提取名称
         let name = content.split('{').next().unwrap_or("").trim().to_string();
@@ -289,7 +302,9 @@ impl Parser {
         while self.current_line < self.lines.len() {
             let method_line = self.current_line().trim().to_string();
 
+            // 检查impl块结束 - 顶层的单独}行
             if method_line == "}" {
+                // 这是impl块的结束
                 break;
             }
 
@@ -301,9 +316,13 @@ impl Parser {
             // 解析方法
             if method_line.starts_with("f ") || method_line.starts_with("F ") {
                 methods.push(self.parse_function()?);
+                // parse_function已经处理了所有行推进（包括函数结束的}）
+                // 当前行现在应该是函数}之后的下一行
+                // 继续循环检查是否是impl块的}
+            } else {
+                // 非函数行，跳过
+                self.advance();
             }
-
-            self.advance();
         }
 
         Ok(ImplDef {
@@ -392,64 +411,78 @@ impl Parser {
 
         // 检查当前行是否包含 {
         let current = self.current_line().to_string();
+        let trimmed = current.trim();
         println!(
             "DEBUG: block start line='{}' depth={}",
-            current.trim(),
+            trimmed,
             brace_depth
         );
-        if current.contains('{') {
+        
+        // 如果当前行以M/? /L/l/v/c等开头，说明这是语句而不是block开始的{
+        // 这些行应该被parse_stmt处理，不应该在这里consume
+        let is_statement_with_brace = trimmed.starts_with("M ")
+            || trimmed.starts_with("? ")
+            || trimmed.starts_with("L ")
+            || trimmed.starts_with("W ")
+            || trimmed.starts_with("l ")
+            || trimmed.starts_with("v ")
+            || trimmed.starts_with("c ");
+        
+        if current.contains('{') && !is_statement_with_brace {
             brace_depth = 1;
-            // 如果仅是 {，跳过
-            if current.trim() == "{" {
+            // 如果仅是 {，跳过到下一行
+            if trimmed == "{" {
+                self.advance();
+            } else {
+                // 函数签名行包含{但不只是{，立即推进到下一行避免重复计数
                 self.advance();
             }
         }
 
+        // 修复：继续解析所有语句直到真正的函数结束}
         while self.current_line < self.lines.len() {
             let line = self.current_line().trim().to_string();
             println!("DEBUG: line='{}' depth={}", line, brace_depth);
 
-            // 检查大括号
+            // 跳过空行
+            if line.is_empty() {
+                self.advance();
+                continue;
+            }
+
+            // 修复问题#2: 检测到新函数定义时立即break
+            // 避免第二个函数被吸收进第一个函数体
+            // 注意：由于Match等语句的{不计入depth，不能依赖brace_depth判断
+            if line.starts_with("f ") || line.starts_with("F ") {
+                // 这是另一个函数定义，当前函数体应该已经结束
+                break;
+            }
+
+            // 检查大括号 - 单独的}行表示块结束
             if line == "}" {
                 if brace_depth > 0 {
                     brace_depth -= 1;
                 }
                 if brace_depth == 0 {
+                    // 到达块结束，推进到}之后
                     self.advance();
                     break;
                 }
-            }
-
-            // 更新深度跟踪
-            if line.contains('{') {
-                brace_depth += line.matches('{').count();
-            }
-            if line.contains('}') && line != "}" {
-                // mixed line
-                brace_depth = brace_depth.saturating_sub(line.matches('}').count());
-                if brace_depth == 0 {
-                    // End of block in mixed line?
-                    // Usually handled by parse_stmt.
-                }
-            }
-
-            // 简单的结束检查
-            if brace_depth == 0 && (line == "}" || line == "};") {
                 self.advance();
-                break;
+                continue;
             }
 
+            // 解析语句（return/break/continue等控制流语句应该被正常解析）
             let start_line = self.current_line;
             if let Some(stmt) = self.parse_stmt()? {
                 stmts.push(stmt);
-                // 如果 parse_stmt 没有推进行，且不是结束，强制推进
+                // 如果 parse_stmt 没有推进行，强制推进
                 if self.current_line == start_line {
                     self.advance();
                 }
             } else {
-                if self.current_line().trim() != "}" {
-                    self.advance();
-                }
+                // parse_stmt返回None，推进行
+                self.advance();
             }
         }
 
@@ -502,7 +535,13 @@ impl Parser {
             return Ok(Some(Stmt::ExprStmt(Box::new(loop_expr))));
         }
 
-        // for 循环
+        // 修复问题6: while let 循环解析
+        if line.starts_with("while let ") {
+            let loop_expr = self.parse_while_let()?;
+            return Ok(Some(Stmt::ExprStmt(Box::new(loop_expr))));
+        }
+
+        // 修复问题#3: for 循环解析
         if line.starts_with("for ") {
             let for_expr = self.parse_for()?;
             return Ok(Some(Stmt::ExprStmt(Box::new(for_expr))));
@@ -533,6 +572,13 @@ impl Parser {
                 if let Ok(expr) = self.parse_struct_init(&line) {
                     return Ok(Some(Stmt::ExprStmt(Box::new(expr))));
                 }
+            }
+        }
+
+        // 修复问题2：优先识别println!等宏调用
+        if line.contains("println!") || line.contains("print!") || line.contains("format!") {
+            if let Ok(expr) = self.parse_expr_string(&line) {
+                return Ok(Some(Stmt::ExprStmt(Box::new(expr))));
             }
         }
 
@@ -590,15 +636,21 @@ impl Parser {
         } else {
             let value_trimmed = value_str.trim_end_matches(';').trim();
 
-            // 检查是否是闭包: |params| body 或 $|params| body
-            if value_trimmed.starts_with('|') || value_trimmed.starts_with("$|") {
-                // 闭包可能跨越多行，需要收集完整的闭包体
-                let full_closure = self.collect_closure_value(value_trimmed)?;
-                self.parse_closure_expr(&full_closure)?
-            }
-            // 检查是否是 Match 表达式: M expr { ... }
-            else if value_trimmed.starts_with("M ") {
+            // 修复问题1: 检查是否是 Match 表达式: M expr { ... }
+            if value_trimmed.starts_with("M ") && value_trimmed.contains('{') {
+                // 使用parse_match_from_value方法处理let语句中的Match
                 self.parse_match_from_value(value_trimmed)?
+            }
+            // 检查是否是闭包: |params| body 或 $|params| body
+            else if (value_trimmed.starts_with('|') || value_trimmed.starts_with("$|"))
+                && value_trimmed.contains("->")
+            {
+                // 这是带返回类型的闭包
+                self.parse_closure_expr(value_trimmed)?
+            }
+            else if value_trimmed.starts_with('|') || value_trimmed.starts_with("$|") {
+                // 简单闭包
+                self.parse_closure_expr(value_trimmed)?
             }
             // 检查是否是结构体初始化: Name { field: value }
             else if value_trimmed.contains('{')
@@ -741,20 +793,28 @@ impl Parser {
             (None, *rest)
         };
 
-        // 解析body
-        // println!("DEBUG: parsing closure expression body='{}'", body_str);
+        // 解析body - 修复问题1：正确处理多行闭包体
         let body = if body_str.starts_with('{') {
-            // 块体
+            // 块体 - 提取内部内容并解析为表达式
             let inner = body_str
                 .trim_start_matches('{')
                 .trim_end_matches('}')
-                .trim();
+                .trim()
+                .trim_end_matches(';');
+            
             if inner.is_empty() {
-                // 多行闭包：body内容在后续行，返回TODO注释
-                Expr::Raw("/* TODO: multiline body */".to_string())
+                // 空块
+                Expr::Block {
+                    stmts: vec![],
+                    trailing_expr: None,
+                }
             } else {
+                // 将内部内容解析为表达式（作为trailing_expr）
                 match self.parse_expr_string(inner) {
-                    Ok(e) => e,
+                    Ok(e) => Expr::Block {
+                        stmts: vec![],
+                        trailing_expr: Some(Box::new(e)),
+                    },
                     Err(e) => {
                         println!(
                             "DEBUG: failed to parse block body expr inner='{}': {:?}",
@@ -766,9 +826,12 @@ impl Parser {
             }
         } else if body_str.is_empty() {
             // 空body
-            Expr::Raw("/* empty body */".to_string())
+            Expr::Block {
+                stmts: vec![],
+                trailing_expr: None,
+            }
         } else {
-            // 表达式体
+            // 表达式体（单行闭包）
             match self.parse_expr_string(body_str) {
                 Ok(e) => e,
                 Err(e) => {
@@ -776,7 +839,6 @@ impl Parser {
                         "DEBUG: failed to parse expression body='{}': {:?}",
                         body_str, e
                     );
-                    // Fallback: 使用 Raw 表达式而不是失败
                     Expr::Raw(body_str.to_string())
                 }
             }
@@ -826,14 +888,46 @@ impl Parser {
 
         let target = self.parse_expr_string(target_str)?;
 
-        // 解析分支 - 从下一行开始
+        // 由于这是从let语句的value部分调用的，当前行还是let语句行
+        // 需要推进到Match块开始，然后解析arms
+        // parse_match_arms_inline不会再次推进
         self.advance();
-        let arms = self.parse_match_arms()?;
+        let arms = self.parse_match_arms_inline()?;
 
         Ok(Expr::Match {
             target: Box::new(target),
             arms,
         })
+    }
+    
+    fn parse_match_arms_inline(&mut self) -> Result<Vec<MatchArm>> {
+        let mut arms = vec![];
+
+        // 不推进，直接从当前行开始
+        while self.current_line < self.lines.len() {
+            let line = self.current_line().trim().to_string();
+
+            if line == "}" || line == "};" {
+                // 不推进，让调用者处理
+                break;
+            }
+
+            if line.is_empty() || line == "{" {
+                self.advance();
+                continue;
+            }
+
+            // 解析分支
+            if line.contains("=>") {
+                let arm = self.parse_match_arm_multiline()?;
+                arms.push(arm);
+                // parse_match_arm_multiline已经推进了
+            } else {
+                self.advance();
+            }
+        }
+
+        Ok(arms)
     }
 
     fn parse_match_arms(&mut self) -> Result<Vec<MatchArm>> {
@@ -856,40 +950,61 @@ impl Parser {
             }
 
             // 解析分支: pattern => body
-            if line.contains("=>") || line.contains(":") {
-                let arm = self.parse_match_arm(&line)?;
+            if line.contains("=>") {
+                let arm = self.parse_match_arm_multiline()?;
                 arms.push(arm);
+            } else {
+                self.advance();
             }
-
-            self.advance();
         }
 
         Ok(arms)
     }
-
-    fn parse_match_arm(&mut self, line: &str) -> Result<MatchArm> {
-        // 支持 pattern => body 和 pattern: { body } 两种格式
-        let (pattern_str, body_str) = if line.contains("=>") {
-            let parts: Vec<&str> = line.splitn(2, "=>").collect();
-            (parts[0].trim(), parts.get(1).map(|s| *s).unwrap_or(""))
-        } else if line.contains(":") {
-            let parts: Vec<&str> = line.splitn(2, ':').collect();
-            (parts[0].trim(), parts.get(1).map(|s| *s).unwrap_or(""))
-        } else {
-            (line, "")
-        };
-
+    
+    fn parse_match_arm_multiline(&mut self) -> Result<MatchArm> {
+        let line = self.current_line().trim().to_string();
+        
+        // 分割 pattern => body
+        let parts: Vec<&str> = line.splitn(2, "=>").collect();
+        let pattern_str = parts[0].trim();
+        let body_start = parts.get(1).map(|s| s.trim()).unwrap_or("");
+        
         let pattern = self.parse_pattern(pattern_str)?;
-
-        // 解析分支体
-        let body = self.parse_arm_body(body_str.trim())?;
-
+        
+        // 检查body是否是多行块: => {
+        let body_expr = if body_start.trim_start().starts_with('{') && !body_start.trim().ends_with("},") && !body_start.trim().ends_with('}') {
+            // 多行块体，需要收集完整内容
+            let mut body_lines = vec![body_start.to_string()];
+            let mut brace_depth = body_start.matches('{').count() - body_start.matches('}').count();
+            
+            self.advance();
+            
+            while self.current_line < self.lines.len() && brace_depth > 0 {
+                let body_line = self.current_line().trim().to_string();
+                brace_depth += body_line.matches('{').count();
+                brace_depth -= body_line.matches('}').count();
+                body_lines.push(body_line.clone());
+                
+                // 总是推进，不管depth
+                self.advance();
+            }
+            
+            // 合并所有行并解析
+            let full_body = body_lines.join(" ");
+            self.parse_arm_body(&full_body)?
+        } else {
+            // 单行body - 推进到下一行
+            self.advance();
+            self.parse_arm_body(body_start)?
+        };
+        
         Ok(MatchArm {
             pattern,
             guard: None,
-            body: Box::new(body),
+            body: Box::new(body_expr),
         })
     }
+
 
     fn parse_arm_body(&self, body_str: &str) -> Result<Expr> {
         let trimmed = body_str.trim();
@@ -908,7 +1023,91 @@ impl Parser {
             trimmed.trim_end_matches(',').to_string()
         };
 
-        self.parse_expr_string(cleaned.trim())
+        let body_trimmed = cleaned.trim();
+        
+        // 检查是否包含if语句(Match arm body中的if)
+        if body_trimmed.starts_with("if ") {
+            // 这是一个if表达式，需要特殊处理
+            // 提取条件和then body
+            if let Some(brace_pos) = body_trimmed.find('{') {
+                let condition_part = body_trimmed[3..brace_pos].trim(); // "if " 之后到'{'之前
+                let rest = &body_trimmed[brace_pos..];
+                
+                // 找到配对的}
+                let mut depth = 0;
+                let mut then_end = 0;
+                for (i, ch) in rest.chars().enumerate() {
+                    if ch == '{' { depth += 1; }
+                    if ch == '}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            then_end = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if then_end > 0 {
+                    let then_body_str = &rest[1..then_end].trim();
+                    let after_then = rest[then_end+1..].trim();
+                    
+                    // 解析条件
+                    let condition = self.parse_expr_string(condition_part)?;
+                    
+                    // 解析then body - 可能是多个语句
+                    let then_stmts = self.parse_stmts_from_string(then_body_str)?;
+                    let (then_s, then_t) = self.extract_trailing_expr(then_stmts);
+                    let then_expr = Expr::Block {
+                        stmts: then_s,
+                        trailing_expr: then_t,
+                    };
+                    
+                    // 检查是否有else
+                    let else_body = if after_then.starts_with("else") {
+                        let else_part = after_then[4..].trim();
+                        if else_part.starts_with('{') {
+                            // 找到else body的结束
+                            let else_stmts_str = else_part.trim_start_matches('{').trim_end_matches('}');
+                            let else_stmts = self.parse_stmts_from_string(else_stmts_str)?;
+                            let (else_s, else_t) = self.extract_trailing_expr(else_stmts);
+                            Some(Box::new(Expr::Block {
+                                stmts: else_s,
+                                trailing_expr: else_t,
+                            }))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+                    
+                    // 检查after_then是否还有trailing expression
+                    let final_expr = if !after_then.is_empty() && !after_then.starts_with("else") {
+                        // 有trailing expression，需要创建一个Block包含if和trailing
+                        let if_expr = Expr::If {
+                            condition: Box::new(condition),
+                            then_body: Box::new(then_expr),
+                            else_body,
+                        };
+                        let trailing = self.parse_expr_string(after_then)?;
+                        Expr::Block {
+                            stmts: vec![Stmt::ExprStmt(Box::new(if_expr))],
+                            trailing_expr: Some(Box::new(trailing)),
+                        }
+                    } else {
+                        Expr::If {
+                            condition: Box::new(condition),
+                            then_body: Box::new(then_expr),
+                            else_body,
+                        }
+                    };
+                    
+                    return Ok(final_expr);
+                }
+            }
+        }
+
+        self.parse_expr_string(body_trimmed)
     }
 
     fn parse_pattern(&self, pattern_str: &str) -> Result<Pattern> {
@@ -999,6 +1198,7 @@ impl Parser {
         let mut if_let_info = None;
         let mut condition_expr = None;
 
+        // 修复问题6: 处理 if let 语法
         if condition_str.starts_with("let ") {
             let inner = condition_str[4..].trim();
             if let Some(eq_pos) = inner.find('=') {
@@ -1220,14 +1420,77 @@ impl Parser {
             return Ok(Expr::Return(None));
         }
 
+        // 修复#8: 解析返回值时避免嵌套Return
         let value = self.parse_expr_string(content)?;
+        // 如果解析出的表达式已经是Return，不要再次包装
+        if matches!(value, Expr::Return(_)) {
+            return Ok(value);
+        }
         Ok(Expr::Return(Some(Box::new(value))))
     }
 
     fn parse_loop(&mut self) -> Result<Expr> {
         let line = self.current_line().trim().to_string();
 
-        // 检查是否是 for 循环: L pattern in iterator { body }
+        // 修复问题6: 处理 while let 语法 - 将其转换为无限循环+match+break
+        if line.starts_with("L ") && line.contains("let ") && line.contains('=') {
+            // while let 循环: L let pattern = expr { body }
+            let content = &line[2..].trim(); // 跳过 "L "
+            
+            if content.starts_with("let ") {
+                let inner = &content[4..];
+                if let Some(eq_pos) = inner.find('=') {
+                    let pattern_str = inner[..eq_pos].trim();
+                    let rest = &inner[eq_pos + 1..];
+                    let brace_pos = rest.find('{').unwrap_or(rest.len());
+                    let expr_str = rest[..brace_pos].trim();
+                    
+                    let pattern = self.parse_pattern(pattern_str)?;
+                    let expr = self.parse_expr_string(expr_str)?;
+                    
+                    // 解析循环体
+                    self.advance();
+                    let body_stmts = self.parse_block_body()?;
+                    let (body_s, body_t) = self.extract_trailing_expr(body_stmts);
+                    
+                    // 转换为: loop { match expr { pattern => { body }, _ => break } }
+                    let match_expr = Expr::Match {
+                        target: Box::new(expr),
+                        arms: vec![
+                            MatchArm {
+                                pattern,
+                                guard: None,
+                                body: Box::new(Expr::Block {
+                                    stmts: body_s,
+                                    trailing_expr: body_t,
+                                }),
+                            },
+                            MatchArm {
+                                pattern: Pattern::Wildcard,
+                                guard: None,
+                                body: Box::new(Expr::Break),
+                            },
+                        ],
+                    };
+                    
+                    return Ok(Expr::Loop {
+                        body: Box::new(Expr::Block {
+                            stmts: vec![Stmt::ExprStmt(Box::new(match_expr))],
+                            trailing_expr: None,
+                        }),
+                    });
+                }
+            }
+        }
+
+        // 修复问题2: 检查是否是复杂的单行for循环: L {? ... L x in iter { ... }}
+        // 这种情况需要作为Raw表达式直接透传，由后期处理
+        if line.starts_with("L {") && line.contains(" in ") {
+            // 这是复杂的单行循环，透传为Raw
+            return Ok(Expr::Raw(line.clone()));
+        }
+
+        // 检查是否是标准 for 循环: L pattern in iterator { body }
         if line.starts_with("L ") && line.contains(" in ") {
             // For 循环
             let content = &line[2..]; // 跳过 "L "
@@ -1272,14 +1535,89 @@ impl Parser {
         })
     }
 
+    fn parse_while_let(&mut self) -> Result<Expr> {
+        let line = self.current_line().trim().to_string();
+        let content = &line[10..].trim(); // 跳过 "while let "
+        
+        // 格式: while let pattern = expr { body }
+        if let Some(eq_pos) = content.find('=') {
+            let pattern_str = content[..eq_pos].trim();
+            let rest = &content[eq_pos + 1..];
+            let brace_pos = rest.find('{').unwrap_or(rest.len());
+            let expr_str = rest[..brace_pos].trim();
+            
+            let pattern = self.parse_pattern(pattern_str)?;
+            let expr = self.parse_expr_string(expr_str)?;
+            
+            // 解析循环体
+            self.advance();
+            let body_stmts = self.parse_block_body()?;
+            let (body_s, body_t) = self.extract_trailing_expr(body_stmts);
+            
+            // 转换为: loop { match expr { pattern => { body }, _ => break } }
+            let match_expr = Expr::Match {
+                target: Box::new(expr),
+                arms: vec![
+                    MatchArm {
+                        pattern,
+                        guard: None,
+                        body: Box::new(Expr::Block {
+                            stmts: body_s,
+                            trailing_expr: body_t,
+                        }),
+                    },
+                    MatchArm {
+                        pattern: Pattern::Wildcard,
+                        guard: None,
+                        body: Box::new(Expr::Break),
+                    },
+                ],
+            };
+            
+            return Ok(Expr::Loop {
+                body: Box::new(Expr::Block {
+                    stmts: vec![Stmt::ExprStmt(Box::new(match_expr))],
+                    trailing_expr: None,
+                }),
+            });
+        }
+        
+        // 解析失败，返回Raw
+        Ok(Expr::Raw(line.clone()))
+    }
+
     fn parse_for(&mut self) -> Result<Expr> {
         let line = self.current_line().trim().to_string();
         let content = &line[4..]; // 跳过 "for "
 
-        // 提取 pattern in iterator
-        // 简化处理
-        self.skip_block()?;
+        // 修复#4: for循环解析 - 提取 pattern in iterator
+        if let Some(in_pos) = content.find(" in ") {
+            let pattern = content[..in_pos].trim().to_string();
+            
+            // 提取迭代器表达式（在 "in" 和 "{" 之间）
+            let after_in = &content[in_pos + 4..];
+            let brace_pos = after_in.find('{').unwrap_or(after_in.len());
+            let iterator_str = after_in[..brace_pos].trim();
+            
+            let iterator = self.parse_expr_string(iterator_str)?;
+            
+            // 解析循环体
+            self.advance();
+            let body_stmts = self.parse_block_body()?;
+            let (stmts, trailing) = self.extract_trailing_expr(body_stmts);
+            
+            return Ok(Expr::For {
+                pattern,
+                iterator: Box::new(iterator),
+                body: Box::new(Expr::Block {
+                    stmts,
+                    trailing_expr: trailing,
+                }),
+            });
+        }
 
+        // 如果解析失败，跳过块
+        self.skip_block()?;
         Ok(Expr::Raw(format!("/* {} */", line)))
     }
 
@@ -1312,7 +1650,12 @@ impl Parser {
             if value_str.is_empty() {
                 return Ok(Expr::Return(None));
             }
+            // 修复#8: 递归解析时避免重复生成Return
             let value = self.parse_expr_string(value_str)?;
+            // 如果已经是Return，不要再次包装
+            if matches!(value, Expr::Return(_)) {
+                return Ok(value);
+            }
             return Ok(Expr::Return(Some(Box::new(value))));
         }
 
@@ -1733,6 +2076,19 @@ impl Parser {
                 is_mut: false,
                 inner: Box::new(self.parse_type(&trimmed[1..])),
             };
+        }
+
+        // 元组类型: (Type1, Type2)
+        if trimmed.starts_with('(') && trimmed.ends_with(')') {
+            let inner = &trimmed[1..trimmed.len() - 1];
+            let types: Vec<Type> = self
+                .split_params(inner)
+                .into_iter()
+                .map(|s| self.parse_type(s.trim()))
+                .collect();
+            if types.len() > 1 {
+                return Type::Tuple(types);
+            }
         }
 
         // 泛型

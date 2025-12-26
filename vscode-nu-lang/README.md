@@ -1,5 +1,9 @@
 # Nu Language Support for Visual Studio Code
 
+<p align="center">
+  <img src="icon.png" alt="Nu Language Logo" width="128" height="128">
+</p>
+
 为 Visual Studio Code 提供 **Nu v1.5.1** 语言的语法高亮支持。
 
 ## 功能特性

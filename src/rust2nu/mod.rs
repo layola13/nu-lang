@@ -7,6 +7,7 @@ use std::collections::HashSet;
 use syn::{
     visit::Visit, Attribute, Block, Expr, File, FnArg, Item, ItemEnum, ItemFn, ItemImpl,
     ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type, Visibility,
+    spanned::Spanned,
 };
 
 pub struct Rust2NuConverter {
@@ -15,6 +16,8 @@ pub struct Rust2NuConverter {
     // 泛型作用域栈：跟踪当前作用域中的泛型参数名
     // 用于避免将泛型参数（如impl<S>中的S）误转换为类型缩写
     generic_scope_stack: Vec<HashSet<String>>,
+    // v1.8: 保存原始源代码，用于提取宏的原始格式
+    source_code: String,
 }
 
 impl Rust2NuConverter {
@@ -23,6 +26,16 @@ impl Rust2NuConverter {
             output: String::new(),
             indent_level: 0,
             generic_scope_stack: Vec::new(),
+            source_code: String::new(),
+        }
+    }
+
+    pub fn new_with_source(source: &str) -> Self {
+        Self {
+            output: String::new(),
+            indent_level: 0,
+            generic_scope_stack: Vec::new(),
+            source_code: source.to_string(),
         }
     }
 
@@ -77,7 +90,8 @@ impl Rust2NuConverter {
         // 2. 解析并转换代码（syn会忽略注释）
         let syntax_tree = syn::parse_file(rust_code).context("Failed to parse Rust code")?;
 
-        let mut converter = Self::new();
+        // v1.8: 使用包含源代码的转换器，以便提取宏的原始格式
+        let mut converter = Self::new_with_source(rust_code);
         converter.visit_file(&syntax_tree);
         let converted_code = converter.output;
 
@@ -173,9 +187,9 @@ impl Rust2NuConverter {
     fn convert_fn_signature(&self, sig: &Signature, vis: &Visibility) -> String {
         let mut result = String::new();
 
-        // unsafe函数用 U 前缀
+        // v1.8: unsafe 保持不变（不缩写为 U，因为太重要且易与 use 混淆）
         if sig.unsafety.is_some() {
-            result.push_str("U ");
+            result.push_str("unsafe ");
         }
 
         // async函数用 ~ 前缀
@@ -849,12 +863,28 @@ impl Rust2NuConverter {
     fn clean_token_spaces(&self, s: &str) -> String {
         let mut result = s.to_string();
 
-        // 移除 < > 周围的空格
-        result = result.replace(" < ", "<");
-        result = result.replace(" <", "<");
-        result = result.replace("< ", "<");
-        result = result.replace(" > ", "> "); // 保留 > 后的空格以便其他替换
-        result = result.replace(" >", ">");
+        // 移除 < > 周围的空格（用于泛型如 Vec< i32 > -> Vec<i32>）
+        // v1.8: 智能处理 - 只在同一行有成对 <> 时才清理空格（泛型上下文）
+        // 如果只有 < 没有 >，是 return 语句，保留空格
+        let mut cleaned_lines = Vec::new();
+        for line in result.lines() {
+            let has_open = line.contains('<');
+            let has_close = line.contains('>');
+            let mut cleaned_line = line.to_string();
+            
+            // 只有同时存在 < 和 > 才是泛型，需要清理空格
+            if has_open && has_close {
+                cleaned_line = cleaned_line.replace(" < ", "<");
+                cleaned_line = cleaned_line.replace(" <", "<");
+                cleaned_line = cleaned_line.replace("< ", "<");
+                cleaned_line = cleaned_line.replace(" > ", "> ");
+                cleaned_line = cleaned_line.replace(" >", ">");
+            }
+            // 如果只有 < 没有 >，是 return 语句，保持原样
+            
+            cleaned_lines.push(cleaned_line);
+        }
+        result = cleaned_lines.join("\n");
 
         // 移除 :: 周围的空格
         result = result.replace(" :: ", "::");
@@ -975,6 +1005,13 @@ impl Rust2NuConverter {
                 .replace("Box :: ", "__BOX_PATH_SP__")
                 .replace("Box::", "__BOX_PATH__");
 
+            // v1.8: 先保护完整的标识符（如 Boxed, VecDeque）以防止被错误替换
+            result = result
+                .replace("Boxed", "__BOXED_IDENT__")
+                .replace("VecDeque", "__VECDEQUE_IDENT__")
+                .replace("ResultCode", "__RESULTCODE_IDENT__")
+                .replace("OptionSet", "__OPTIONSET_IDENT__");
+
             // 执行类型名替换
             result = result
                 .replace("Vec", "V")
@@ -985,6 +1022,13 @@ impl Rust2NuConverter {
                 .replace("Box", "B")
                 .replace("& mut", "&!")
                 .replace("vec!", "V!"); // vec! -> V!
+            
+            // 恢复被保护的标识符
+            result = result
+                .replace("__BOXED_IDENT__", "Boxed")
+                .replace("__VECDEQUE_IDENT__", "VecDeque")
+                .replace("__RESULTCODE_IDENT__", "ResultCode")
+                .replace("__OPTIONSET_IDENT__", "OptionSet");
 
             // 恢复路径前缀（保持完整类型名）
             result = result
@@ -1156,8 +1200,29 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             Item::Trait(t) => self.visit_item_trait(t),
             Item::Impl(i) => self.visit_item_impl(i),
             Item::Macro(m) => {
-                // v1.7.4: 保留macro_rules!宏定义，但清理to_token_stream()添加的多余空格
-                // to_token_stream()会在 #, [, (, ), !, 周围插入空格，需要移除
+                // v1.8: 使用span提取原始宏文本，保留1:1换行格式
+                // 如果有source_code，尝试从中提取原始文本
+                if !self.source_code.is_empty() {
+                    let span = m.span();
+                    let start = span.start();
+                    let end = span.end();
+                    
+                    // 按行分割源代码
+                    let lines: Vec<&str> = self.source_code.lines().collect();
+                    
+                    // 提取从start到end的所有行（行号从1开始，转为0索引）
+                    if start.line > 0 && end.line <= lines.len() {
+                        let start_line = start.line - 1;
+                        let end_line = end.line; // end.line是包含的，不需要-1
+                        
+                        // 提取原始宏文本
+                        let original_macro: String = lines[start_line..end_line].join("\n");
+                        self.writeln(&original_macro);
+                        return;
+                    }
+                }
+                
+                // 回退方案：使用to_token_stream()并清理空格
                 let macro_str = m.to_token_stream().to_string();
                 let cleaned_macro = macro_str
                     .replace("# [", "#[")
@@ -1168,12 +1233,14 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     .replace(" )", ")")
                     .replace(" ,", ",")
                     .replace(" ;", ";")
-                    .replace("! {", "! {") // 保持macro_rules!和{之间的空格
-                    .replace("macro_rules!", "macro_rules!"); // 确保宏名后无多余空格
+                    .replace("! {", "! {")
+                    .replace("macro_rules!", "macro_rules!")
+                    .replace("} ;", "};\n   ")
+                    .replace("=> {", "=> {\n        ");
                 self.writeln(&cleaned_macro);
             }
             Item::Mod(m) => {
-                // Nu v1.6.3: 保留 #[cfg] 属性
+                // v1.8: 保留 #[cfg] 和 #[macro_use] 属性
                 for attr in &m.attrs {
                     let attr_str = attr.to_token_stream().to_string();
                     // to_token_stream()会在#、[、(、)周围插入空格，需要移除
@@ -1184,7 +1251,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" (", "(")
                         .replace(" )", ")")
                         .replace(" ,", ",");
-                    if cleaned_attr.starts_with("#[cfg") {
+                    // v1.8: 保留 #[cfg] 和 #[macro_use] 属性（macro_use 对于宏可见性至关重要）
+                    if cleaned_attr.starts_with("#[cfg") || cleaned_attr.starts_with("#[macro_use") {
                         self.writeln(&cleaned_attr);
                     }
                 }
@@ -1211,10 +1279,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 }
             }
             Item::Use(u) => {
-                // Nu v1.6.3: 保留 #[cfg] 属性
+                // v1.8: 先单独输出属性（每个属性一行），避免合并到 use 语句行
                 for attr in &u.attrs {
                     let attr_str = attr.to_token_stream().to_string();
-                    // to_token_stream()会在#、[、(、)周围插入空格，需要移除
                     let cleaned_attr = attr_str
                         .replace("# [", "#[")
                         .replace(" [", "[")
@@ -1222,20 +1289,23 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" (", "(")
                         .replace(" )", ")")
                         .replace(" ,", ",");
-                    if cleaned_attr.starts_with("#[cfg") {
-                        self.writeln(&cleaned_attr);
-                    }
+                    self.writeln(&cleaned_attr);
                 }
-
-                let use_str = u.to_token_stream().to_string();
-                let nu_use = if self.is_public(&u.vis) {
-                    use_str.replace("pub use", "U").replace("use", "U")
+                
+                // 输出 use 语句本身（不含属性）
+                // v1.8: 保留受限可见性 pub(crate)/pub(super)
+                let vis_prefix = if let syn::Visibility::Restricted(vis_restricted) = &u.vis {
+                    let vis_str = vis_restricted.to_token_stream().to_string();
+                    let cleaned = vis_str.replace("pub (", "pub(").replace("( ", "(").replace(" )", ")");
+                    format!("{} U ", cleaned)
+                } else if self.is_public(&u.vis) {
+                    "U ".to_string()
                 } else {
-                    use_str.replace("use", "u")
+                    "u ".to_string()
                 };
-                // 使用 clean_token_spaces 清理所有多余空格
-                let cleaned_use = self.clean_token_spaces(&nu_use);
-                self.writeln(&cleaned_use);
+                let tree_str = u.tree.to_token_stream().to_string();
+                let cleaned_tree = self.clean_token_spaces(&tree_str);
+                self.writeln(&format!("{}{};", vis_prefix, cleaned_tree));
             }
             Item::Const(c) => {
                 self.write("C ");
@@ -1290,6 +1360,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // Nu v1.6.3: 输出所有属性（derive、cfg等）
         for attr in &node.attrs {
             self.writeln(&self.convert_attribute(attr));
+        }
+
+        // v1.8: 保留 pub(crate)/pub(super) 等受限可见性
+        // v1.8: 输出缩进（确保模块内的项正确缩进）
+        self.write(&self.indent());
+        if let syn::Visibility::Restricted(vis_restricted) = &node.vis {
+            let vis_str = vis_restricted.to_token_stream().to_string();
+            let cleaned_vis = vis_str
+                .replace("pub (", "pub(")
+                .replace("( ", "(")
+                .replace(" )", ")");
+            self.write(&cleaned_vis);
+            self.write(" ");
         }
 
         // Nu v1.5.1: 只有 S（移除了 s）
@@ -1381,6 +1464,21 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             self.writeln(&self.convert_attribute(attr));
         }
 
+        // v1.8: 保留 pub(crate)/pub(super) 等受限可见性
+        // E 只处理简单的 pub/private，受限可见性需要显式保留
+        // v1.8: 输出缩进（确保模块内的项正确缩进）
+        self.write(&self.indent());
+        if let syn::Visibility::Restricted(vis_restricted) = &node.vis {
+            let vis_str = vis_restricted.to_token_stream().to_string();
+            // 清理空格
+            let cleaned_vis = vis_str
+                .replace("pub (", "pub(")
+                .replace("( ", "(")
+                .replace(" )", ")");
+            self.write(&cleaned_vis);
+            self.write(" ");
+        }
+
         // Nu v1.5.1: 只有 E（移除了 e）
         // 可见性由标识符首字母决定（Go风格）
         self.write("E");
@@ -1435,6 +1533,21 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
     }
 
     fn visit_item_trait(&mut self, node: &'ast ItemTrait) {
+        // v1.8: 保留 #[cfg] 属性
+        for attr in &node.attrs {
+            let attr_str = attr.to_token_stream().to_string();
+            let cleaned_attr = attr_str
+                .replace("# [", "#[")
+                .replace(" [", "[")
+                .replace(" ]", "]")
+                .replace(" (", "(")
+                .replace(" )", ")")
+                .replace(" ,", ",");
+            if cleaned_attr.starts_with("#[cfg") {
+                self.writeln(&cleaned_attr);
+            }
+        }
+        
         let keyword = if self.is_public(&node.vis) {
             "TR"
         } else {
@@ -1538,10 +1651,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             }
         }
 
-        // v1.7.3: unsafe impl -> U I
-        // 原因：与use语句区分（U I vs u）
+        // v1.8: unsafe impl -> unsafe I (不缩写 unsafe，因为太重要且易与 use 混淆)
         if node.unsafety.is_some() {
-            self.write("U ");
+            self.write("unsafe ");
         }
 
         // v1.7.6: impl -> I (per README.md spec)

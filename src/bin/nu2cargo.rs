@@ -224,15 +224,29 @@ fn convert_nu_files_recursive(
     Ok(())
 }
 
+const ASCII_LOGO: &str = r#"
+   _   __          __
+  / | / /_  __    / /___ _____  ____ _
+ /  |/ / / / /___/ / __ `/ __ \/ __ `/
+/ /|  / /_/ /___/ / /_/ / / / / /_/ /
+/_/ |_/\__,_/   /_/\__,_/_/ /_/\__, /
+                              /____/
+Nu-lang: Rust, Condensed. v1.6.5
+"#;
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     if args.len() < 3 {
+        println!("{}", ASCII_LOGO);
         eprintln!("用法: nu2cargo <input_nu_project> <output_cargo_project>");
         eprintln!("示例: nu2cargo examples_nu_project examples_cargo_restored");
         eprintln!("支持: 单项目和Workspace项目");
         std::process::exit(1);
     }
+    
+    // 显示ASCII Logo
+    println!("{}", ASCII_LOGO);
 
     let input_dir = Path::new(&args[1]);
     let output_dir = Path::new(&args[2]);

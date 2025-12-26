@@ -299,7 +299,7 @@ impl Nu2TsConverter {
             return Ok(Some(self.convert_match_stmt(trimmed, context)?));
         }
 
-        // 函数定义: F/f
+        // 函数定义: F/f (修复#3: 确保f转换为function)
         if trimmed.starts_with("F ") || trimmed.starts_with("f ") {
             context.in_function = true;
             context.reset_temp_counter();
@@ -750,14 +750,14 @@ impl Nu2TsConverter {
     fn convert_impl(&self, line: &str, context: &mut ConversionContext) -> Result<String> {
         let content = &line[2..];
 
-        let type_name = content
-            .split_whitespace()
-            .next()
-            .unwrap_or("")
-            .split('{')
-            .next()
-            .unwrap_or("")
-            .trim();
+        // 修复#2: 处理 "impl Trait for Type" 语法，删除 "for Type" 部分
+        let type_name = if content.contains(" for ") {
+            // "Trait for Type" -> 提取 "Type"
+            content.split(" for ").last().unwrap_or("").split('{').next().unwrap_or("").trim()
+        } else {
+            // "Type" -> 直接使用
+            content.split_whitespace().next().unwrap_or("").split('{').next().unwrap_or("").trim()
+        };
 
         context.current_impl = Some(type_name.to_string());
 
@@ -850,11 +850,33 @@ impl Nu2TsConverter {
 
         let content = &line[2..];
 
-        // 检查是否是for循环
-        if content.contains(" in ") || content.contains(": ") {
-            let normalized = content.replace(": ", " in ");
-            let converted = self.convert_expression(&normalized, context)?;
-            return Ok(format!("for {}", converted));
+        // 修复#4: 处理复杂for循环 - 支持 "L pattern in iterator" 和 "L pattern: iterator"
+        if content.contains(" in ") {
+            // 标准 for...in 循环
+            if let Some(in_pos) = content.find(" in ") {
+                let pattern = content[..in_pos].trim();
+                let rest = &content[in_pos + 4..];
+                let iterator = if let Some(brace) = rest.find('{') {
+                    rest[..brace].trim()
+                } else {
+                    rest.trim()
+                };
+                let converted_iterator = self.convert_expression(iterator, context)?;
+                return Ok(format!("for (const {} of {})", pattern, converted_iterator));
+            }
+        } else if content.contains(": ") {
+            // Nu简写: "L i: 0..10" -> "for (const i of range(0, 10))"
+            if let Some(colon_pos) = content.find(": ") {
+                let pattern = content[..colon_pos].trim();
+                let rest = &content[colon_pos + 2..];
+                let iterator = if let Some(brace) = rest.find('{') {
+                    rest[..brace].trim()
+                } else {
+                    rest.trim()
+                };
+                let converted_iterator = self.convert_expression(iterator, context)?;
+                return Ok(format!("for (const {} of {})", pattern, converted_iterator));
+            }
         }
 
         // 否则是无限循环
@@ -910,9 +932,9 @@ impl Nu2TsConverter {
     fn convert_print(&self, line: &str, context: &mut ConversionContext) -> Result<String> {
         let content = &line[2..].trim();
 
-        // 直接处理println!宏
+        // 修复#5: 直接处理println!宏 - 注意>前缀已经被去掉
         // 格式: println!("format", args) 或 println!("text")
-        if content.starts_with("println!") || content.starts_with("println !") {
+        let cleaned = if content.starts_with("println!") || content.starts_with("println !") {
             let mut expr = content
                 .replace("println!", "")
                 .replace("println !", "")
@@ -927,21 +949,18 @@ impl Nu2TsConverter {
             // 检查是否有格式化参数（包含{}和逗号分隔的参数）
             if expr.contains("{}") && expr.contains(',') {
                 // 有格式化参数，使用$fmt
-                if !self.config.no_format {
-                    return Ok(format!("console.log($fmt({}))", expr));
-                } else {
-                    // 简化：转换为模板字符串（暂不实现完整转换）
-                    return Ok(format!("console.log($fmt({}))", expr));
-                }
+                format!("console.log($fmt({}))", expr)
             } else {
                 // 无格式化或简单文本
-                return Ok(format!("console.log({})", expr));
+                format!("console.log({})", expr)
             }
-        }
-
-        // 否则作为普通表达式处理
-        let converted = self.convert_expression(content, context)?;
-        Ok(format!("console.log({})", converted))
+        } else {
+            // 否则作为普通表达式处理
+            let converted = self.convert_expression(content, context)?;
+            format!("console.log({})", converted)
+        };
+        
+        Ok(cleaned)
     }
 
     fn convert_use(&self, line: &str) -> Result<String> {
@@ -1045,7 +1064,7 @@ impl Nu2TsConverter {
     fn convert_macros(&self, expr: &str) -> Result<String> {
         let mut result = expr.to_string();
 
-        // println! -> console.log (包括空格处理)
+        // 修复#5: println! -> console.log (包括空格处理)
         // 需要处理格式化参数
         while result.contains("println!") || result.contains("println !") {
             // 找到println!的位置

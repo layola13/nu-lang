@@ -1,4 +1,6 @@
-
+<p align="center">
+  <img src="logos/Nu-lang.png" alt="Nu Language Logo" width="200"/>
+</p>
 
 # Nu Language Specification
 

@@ -33,8 +33,21 @@ struct Cli {
     verbose: bool,
 }
 
+const ASCII_LOGO: &str = r#"
+   _   __          __
+  / | / /_  __    / /___ _____  ____ _
+ /  |/ / / / /___/ / __ `/ __ \/ __ `/
+/ /|  / /_/ /___/ / /_/ / / / / /_/ /
+/_/ |_/\__,_/   /_/\__,_/_/ /_/\__, /
+                              /____/
+Nu-lang: Rust, Condensed. v1.6.5
+"#;
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    
+    // 显示ASCII Logo
+    println!("{}", ASCII_LOGO);
 
     let converter = Rust2NuConverter::new();
 

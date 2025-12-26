@@ -1,0 +1,108 @@
+name: VSCode Extension Build
+
+on:
+  push:
+    branches: [ main, master, develop ]
+    paths:
+      - 'vscode-nu-lang/**'
+      - '.github/workflows/vscode-extension.yml'
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'vscode-nu-lang/**'
+  release:
+    types: [created]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build:
+    name: Build VSCode Extension
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: vscode-nu-lang/package-lock.json
+
+    - name: Install dependencies
+      working-directory: vscode-nu-lang
+      run: npm ci
+
+    - name: Run TypeScript compiler
+      working-directory: vscode-nu-lang
+      run: npm run compile
+
+    - name: Install vsce (VSCode Extension Manager)
+      run: npm install -g @vscode/vsce
+
+    - name: Get extension version
+      id: get_version
+      working-directory: vscode-nu-lang
+      run: |
+        VERSION=$(node -p "require('./package.json').version")
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "Extension version: $VERSION"
+
+    - name: Package extension
+      working-directory: vscode-nu-lang
+      run: |
+        echo "y" | vsce package
+        ls -lh *.vsix
+
+    - name: Upload VSIX artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: nu-lang-${{ steps.get_version.outputs.version }}.vsix
+        path: vscode-nu-lang/*.vsix
+        if-no-files-found: error
+
+    - name: Create Release Asset (on release)
+      if: github.event_name == 'release'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: vscode-nu-lang/nu-lang-${{ steps.get_version.outputs.version }}.vsix
+        asset_name: nu-lang-${{ steps.get_version.outputs.version }}.vsix
+        asset_content_type: application/octet-stream
+
+  test:
+    name: Test Extension
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      working-directory: vscode-nu-lang
+      run: npm ci
+
+    - name: Run compile
+      working-directory: vscode-nu-lang
+      run: npm run compile
+
+    - name: Verify compilation
+      working-directory: vscode-nu-lang
+      run: |
+        if [ ! -d "out" ]; then
+          echo "Error: out directory not created"
+          exit 1
+        fi
+        echo "Compilation successful!"
+      shell: bash

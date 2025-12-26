@@ -3,13 +3,14 @@
 
 use anyhow::{Context, Result};
 use clap::Parser;
-use nu_compiler::Nu2RustConverter;
+use nu_compiler::nu2rust::{LazySourceMap, Nu2RustConverter};
 use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
 #[derive(Parser)]
 #[command(name = "nu2rust")]
+#[command(version = env!("CARGO_PKG_VERSION"))]
 #[command(about = "Convert Nu code back to standard Rust", long_about = None)]
 struct Cli {
     /// Input Nu file or directory
@@ -31,10 +32,27 @@ struct Cli {
     /// Verbose output
     #[arg(short, long)]
     verbose: bool,
+
+    /// Generate source map file (.rs.map)
+    #[arg(short = 's', long)]
+    sourcemap: bool,
 }
+
+const ASCII_LOGO: &str = r#"
+   _   __          __
+  / | / /_  __    / /___ _____  ____ _
+ /  |/ / / / /___/ / __ `/ __ \/ __ `/
+/ /|  / /_/ /___/ / /_/ / / / / /_/ /
+/_/ |_/\__,_/   /_/\__,_/_/ /_/\__, /
+                              /____/
+Nu-lang: Rust, Condensed. v1.6.5
+"#;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    
+    // 显示ASCII Logo
+    println!("{}", ASCII_LOGO);
 
     let converter = Nu2RustConverter::new();
 
@@ -46,6 +64,7 @@ fn main() -> Result<()> {
             cli.output.as_ref(),
             cli.force,
             cli.verbose,
+            cli.sourcemap,
         )?;
     } else if cli.input.is_dir() {
         // 目录转换
@@ -56,6 +75,7 @@ fn main() -> Result<()> {
                 cli.output.as_ref(),
                 cli.force,
                 cli.verbose,
+                cli.sourcemap,
             )?;
         } else {
             convert_directory(
@@ -64,6 +84,7 @@ fn main() -> Result<()> {
                 cli.output.as_ref(),
                 cli.force,
                 cli.verbose,
+                cli.sourcemap,
             )?;
         }
     } else {
@@ -79,6 +100,7 @@ fn convert_file(
     output: Option<&PathBuf>,
     force: bool,
     verbose: bool,
+    generate_sourcemap: bool,
 ) -> Result<()> {
     // 检查输入文件扩展名
     if input.extension().and_then(|s| s.to_str()) != Some("nu") {
@@ -115,9 +137,33 @@ fn convert_file(
         .with_context(|| format!("Failed to read input file: {}", input.display()))?;
 
     // 转换为Rust代码
-    let rust_code = converter
-        .convert(&nu_code)
-        .with_context(|| format!("Failed to convert file: {}", input.display()))?;
+    let rust_code = if generate_sourcemap {
+        // 创建 SourceMap
+        let mut sourcemap = LazySourceMap::new(
+            input.file_name().unwrap().to_string_lossy().to_string(),
+            output_path.file_name().unwrap().to_string_lossy().to_string(),
+        );
+        
+        // 使用 sourcemap 进行转换
+        let code = converter
+            .convert_with_sourcemap(&nu_code, Some(&mut sourcemap))
+            .with_context(|| format!("Failed to convert file: {}", input.display()))?;
+        
+        // 保存 sourcemap 文件
+        let map_path = output_path.with_extension("rs.map");
+        sourcemap.save_to_file(&map_path)
+            .with_context(|| format!("Failed to write sourcemap file: {}", map_path.display()))?;
+        
+        if verbose {
+            println!("Generated sourcemap: {} ({} mappings)", map_path.display(), sourcemap.mapping_count());
+        }
+        
+        code
+    } else {
+        converter
+            .convert(&nu_code)
+            .with_context(|| format!("Failed to convert file: {}", input.display()))?
+    };
 
     // 写入输出文件
     fs::write(&output_path, rust_code)
@@ -134,6 +180,7 @@ fn convert_directory(
     output_dir: Option<&PathBuf>,
     force: bool,
     verbose: bool,
+    generate_sourcemap: bool,
 ) -> Result<()> {
     let output_base = output_dir.cloned().unwrap_or_else(|| input_dir.clone());
 
@@ -151,7 +198,7 @@ fn convert_directory(
             let output_path = output_base
                 .join(path.file_name().unwrap())
                 .with_extension("rs");
-            convert_file(converter, &path, Some(&output_path), force, verbose)?;
+            convert_file(converter, &path, Some(&output_path), force, verbose, generate_sourcemap)?;
         }
     }
 
@@ -164,6 +211,7 @@ fn convert_directory_recursive(
     output_dir: Option<&PathBuf>,
     force: bool,
     verbose: bool,
+    generate_sourcemap: bool,
 ) -> Result<()> {
     let output_base = output_dir.cloned().unwrap_or_else(|| input_dir.clone());
 
@@ -191,6 +239,7 @@ fn convert_directory_recursive(
             Some(&output_path),
             force,
             verbose,
+            generate_sourcemap,
         )?;
     }
 

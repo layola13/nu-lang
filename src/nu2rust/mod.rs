@@ -3,6 +3,10 @@
 
 use anyhow::Result;
 
+// 导出 sourcemap 模块
+pub mod sourcemap;
+pub use sourcemap::LazySourceMap;
+
 pub struct Nu2RustConverter {
     // 转换上下文 - 预留用于未来扩展
     #[allow(dead_code)]
@@ -25,49 +29,84 @@ impl Nu2RustConverter {
         }
     }
 
+    /// 转换 Nu 代码为 Rust 代码
+    ///
+    /// # Arguments
+    /// * `nu_code` - Nu 源代码
+    /// * `sourcemap` - 可选的 SourceMap，用于记录行号映射
     pub fn convert(&self, nu_code: &str) -> Result<String> {
+        self.convert_with_sourcemap(nu_code, None)
+    }
+    
+    /// 转换 Nu 代码为 Rust 代码，并记录行号映射
+    ///
+    /// # Arguments
+    /// * `nu_code` - Nu 源代码
+    /// * `sourcemap` - 可选的 SourceMap，用于记录行号映射
+    pub fn convert_with_sourcemap(
+        &self,
+        nu_code: &str,
+        mut sourcemap: Option<&mut LazySourceMap>,
+    ) -> Result<String> {
         let mut output = String::new();
         let lines: Vec<&str> = nu_code.lines().collect();
         let mut context = ConversionContext::default();
 
         let mut i = 0;
+        let mut rust_line = 1; // 跟踪当前生成的 Rust 行号（1-based）
+        
         while i < lines.len() {
-            let line = lines[i].trim();
+            // v1.8: 保留原始行（包含前导空格）用于输出
+            // trimmed 仅用于模式检测
+            let line = lines[i];
+            let trimmed = line.trim();
+            let nu_line = i + 1; // Nu 源代码行号（1-based）
 
             // 保留空行和注释（不跳过）
-            if line.is_empty() {
+            if trimmed.is_empty() {
                 output.push('\n');
+                rust_line += 1;
                 i += 1;
                 continue;
             }
 
             // 保留注释行
-            if line.starts_with("//") || line.starts_with("/*") || line.starts_with("*") {
+            if trimmed.starts_with("//") || trimmed.starts_with("/*") || trimmed.starts_with("*") {
+                // 记录映射：注释行也映射
+                if let Some(ref mut sm) = sourcemap {
+                    sm.add_mapping(rust_line, nu_line);
+                }
                 output.push_str(lines[i]);
                 output.push('\n');
+                rust_line += 1;
                 i += 1;
                 continue;
             }
 
             // 处理属性标记
-            if line.starts_with("#D") {
+            if trimmed.starts_with("#D") {
                 // 转换 #D(Debug) -> #[derive(Debug)]
-                let attr_content = line.trim_start_matches("#D");
+                let attr_content = trimmed.trim_start_matches("#D");
                 // 修复派生属性中的空格: #D (Debug) -> #[derive(Debug)]
                 let fixed_content = attr_content
                     .replace(" (", "(")
                     .replace(" )", ")")
                     .replace(" ,", ",");
+                // 记录映射
+                if let Some(ref mut sm) = sourcemap {
+                    sm.add_mapping(rust_line, nu_line);
+                }
                 output.push_str(&format!("#[derive{}]\n", fixed_content));
+                rust_line += 1;
                 i += 1;
                 continue;
             }
 
             // 其他属性（如 #[test], #[cfg(test)], #![cfg(...)]）
-            if (line.starts_with("#[") && line.ends_with("]"))
-                || (line.starts_with("#![") && line.ends_with("]"))
-                || (line.starts_with("# [") && line.ends_with("]"))
-                || (line.starts_with("# ![") && line.ends_with("]"))
+            if (trimmed.starts_with("#[") && trimmed.ends_with("]"))
+                || (trimmed.starts_with("#![") && trimmed.ends_with("]"))
+                || (trimmed.starts_with("# [") && trimmed.ends_with("]"))
+                || (trimmed.starts_with("# ![") && trimmed.ends_with("]"))
             {
                 // 修复属性中的空格格式
                 // "# [cfg (not (feature = "kv"))]" -> "#[cfg(not(feature = "kv"))]"
@@ -75,8 +114,13 @@ impl Nu2RustConverter {
                 fixed_attr = fixed_attr.replace("# [", "#[").replace("# ![", "#![");
                 fixed_attr = fixed_attr.replace(" (", "(").replace(" )", ")");
                 fixed_attr = fixed_attr.replace(" ,", ",");
+                // 记录映射
+                if let Some(ref mut sm) = sourcemap {
+                    sm.add_mapping(rust_line, nu_line);
+                }
                 output.push_str(&fixed_attr);
                 output.push('\n');
+                rust_line += 1;
                 i += 1;
                 continue;
             }
@@ -88,11 +132,18 @@ impl Nu2RustConverter {
                 && line.contains("key-value support")
             {
                 output.push_str("#[cfg(not(feature = \"kv\"))]\n");
+                rust_line += 1;
             }
 
             // 检测key_values调用：当行包含.key_values(时，在前面添加#[cfg(feature = "kv")]
-            if line.contains(".key_values(") {
+            if trimmed.contains(".key_values(") {
                 output.push_str("#[cfg(feature = \"kv\")]\n");
+                rust_line += 1;
+            }
+
+            // 记录当前行的映射（在转换之前）
+            if let Some(ref mut sm) = sourcemap {
+                sm.add_mapping(rust_line, nu_line);
             }
 
             // 处理各种Nu语法
@@ -114,9 +165,15 @@ impl Nu2RustConverter {
                         converted = format!("pub {}", converted);
                     }
                 }
-
-                output.push_str(&converted);
+                // v1.8: 全局缩进保留 - 从原始行提取前导空格
+                // 这是统一的解决方案，避免在每个转换函数中单独处理
+                let leading_whitespace: String = line.chars().take_while(|c| c.is_whitespace()).collect();
+                // 如果converted已经有缩进（从某些函数返回），先去除再添加正确的
+                let trimmed_converted = converted.trim_start();
+                output.push_str(&leading_whitespace);
+                output.push_str(trimmed_converted);
                 output.push('\n');
+                rust_line += 1;
             }
 
             i += 1;
@@ -155,7 +212,12 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_match(trimmed)?));
         }
 
-        // Unsafe函数定义: U F/U f (U F=pub unsafe fn, U f=unsafe fn)
+        // Unsafe函数定义: 
+        // v1.8: "unsafe F"/"unsafe f" (新格式，unsafe 不缩写)
+        // 兼容: "U F"/"U f" (旧格式)
+        if trimmed.starts_with("unsafe F ") || trimmed.starts_with("unsafe f ") {
+            return Ok(Some(self.convert_unsafe_function_v18(trimmed, context)?));
+        }
         if trimmed.starts_with("U F ") || trimmed.starts_with("U f ") {
             return Ok(Some(self.convert_unsafe_function(trimmed, context)?));
         }
@@ -190,6 +252,23 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_async_function(trimmed)?));
         }
 
+        // v1.8: pub(crate)/pub(super) 前缀的结构体和枚举
+        // 检测 "pub(crate) S " 或 "pub(super) S " 等模式
+        // 使用 line 而不是 trimmed 来保留前导空格
+        if trimmed.contains(") S ") || trimmed.contains(") s ") {
+            if trimmed.starts_with("pub(") {
+                if trimmed.ends_with('{') {
+                    context.in_struct_block = true;
+                }
+                return Ok(Some(self.convert_struct_with_visibility(line)?));
+            }
+        }
+        if trimmed.contains(") E ") || trimmed.contains(") e ") {
+            if trimmed.starts_with("pub(") {
+                return Ok(Some(self.convert_enum_with_visibility(line)?));
+            }
+        }
+
         // 结构体: S/s (S=pub struct, s=struct)
         if trimmed.starts_with("S ") || trimmed.starts_with("s ") {
             // v1.6.4: 进入struct块
@@ -209,7 +288,14 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_trait(trimmed, lines, index)?));
         }
 
-        // Impl块: I 或 U I (Nu v1.6.3: unsafe impl)
+        // Impl块: I 或 unsafe I (v1.8) 或 U I (旧格式)
+        // v1.8: unsafe impl -> "unsafe I" (不缩写 unsafe)
+        if trimmed.starts_with("unsafe I ") || trimmed.starts_with("unsafe I<") {
+            context.in_impl = true;
+            context.in_trait_impl = trimmed.contains(" for ");
+            return Ok(Some(self.convert_unsafe_impl_v18(trimmed, lines, index)?));
+        }
+        // 兼容旧格式: U I
         if trimmed.starts_with("U I ") {
             context.in_impl = true;
             // 检测是否是 trait impl: "U I Trait for Type"
@@ -371,6 +457,29 @@ impl Nu2RustConverter {
         Ok(format!("{}unsafe fn {}", visibility, converted))
     }
 
+    // v1.8: 处理新格式的 unsafe 函数 (unsafe F/unsafe f 代替 U F/U f)
+    fn convert_unsafe_function_v18(&self, line: &str, context: &ConversionContext) -> Result<String> {
+        let is_pub = line.starts_with("unsafe F ");
+        let content = if is_pub { &line[9..] } else { &line[8..] }; // 跳过 "unsafe F " 或 "unsafe f "
+
+        let visibility = if context.in_trait {
+            ""
+        } else if context.in_trait_impl {
+            ""
+        } else if context.in_impl {
+            "pub "
+        } else if is_pub {
+            "pub "
+        } else {
+            ""
+        };
+
+        let mut converted = self.convert_types_in_string(content);
+        converted = converted.replace("(!self", "(mut self");
+
+        Ok(format!("{}unsafe fn {}", visibility, converted))
+    }
+
     fn convert_async_function(&self, line: &str) -> Result<String> {
         let is_pub = line.starts_with("~F ");
         let content = &line[3..];
@@ -401,7 +510,7 @@ impl Nu2RustConverter {
                         let fields = &rest[..close_paren_pos]; // "Type1, Type2"
                         let suffix = &rest[close_paren_pos..]; // ");" 或 ")"
 
-                        // 给每个字段添加pub前缀
+                        // 给每个字段添加pub前缀，并转换类型
                         let pub_fields: Vec<String> = fields
                             .split(',')
                             .map(|f| {
@@ -409,9 +518,12 @@ impl Nu2RustConverter {
                                 if trimmed.is_empty() {
                                     String::new()
                                 } else if trimmed.starts_with("pub ") {
-                                    trimmed.to_string()
+                                    // v1.8: 对字段类型也进行转换
+                                    let type_part = &trimmed[4..];
+                                    format!("pub {}", self.convert_types_in_string(type_part))
                                 } else {
-                                    format!("pub {}", trimmed)
+                                    // v1.8: 对字段类型进行转换
+                                    format!("pub {}", self.convert_types_in_string(trimmed))
                                 }
                             })
                             .filter(|s| !s.is_empty())
@@ -419,7 +531,9 @@ impl Nu2RustConverter {
 
                         let converted_name = self.convert_types_in_string(struct_name);
                         let converted_fields = pub_fields.join(", ");
-                        format!("{}({}{}", converted_name, converted_fields, suffix)
+                        // v1.8: suffix 是 ");" 或 ")"，提取 ) 后的部分作为真正的后缀
+                        let real_suffix = if suffix.starts_with(')') { &suffix[1..] } else { suffix };
+                        format!("{}({}){}", converted_name, converted_fields, real_suffix)
                     } else {
                         self.convert_types_in_string(content)
                     }
@@ -450,6 +564,48 @@ impl Nu2RustConverter {
 
         let visibility = if is_pub { "pub " } else { "" };
         Ok(format!("{}enum {}", visibility, converted))
+    }
+
+    // v1.8: 处理带受限可见性的 struct (如 pub(crate) S)
+    fn convert_struct_with_visibility(&self, line: &str) -> Result<String> {
+        // DEBUG: 跟踪调用
+        eprintln!("DEBUG convert_struct_with_visibility: line=[{}]", line);
+        
+        // 格式: "pub(crate) S Name" 或 "pub(super) S Name {...}"
+        // 找到 ") S " 或 ") s " 的位置
+        let s_pos = if let Some(pos) = line.find(") S ") {
+            pos + 2 // 跳过 ") "
+        } else if let Some(pos) = line.find(") s ") {
+            pos + 2
+        } else {
+            return Err(anyhow::anyhow!("Invalid struct with visibility format"));
+        };
+        
+        let visibility = &line[..s_pos]; // includes leading whitespace + "pub(crate)"
+        let rest = &line[s_pos + 2..]; // "Name {...}"
+        let converted = self.convert_types_in_string(rest);
+        
+        let result = format!("{} struct {}", visibility, converted);
+        eprintln!("DEBUG convert_struct_with_visibility: result=[{}]", result);
+        Ok(result)
+    }
+
+    // v1.8: 处理带受限可见性的 enum (如 pub(crate) E)
+    fn convert_enum_with_visibility(&self, line: &str) -> Result<String> {
+        // 格式: "pub(crate) E Name" 或 "pub(super) E Name {...}"
+        let e_pos = if let Some(pos) = line.find(") E ") {
+            pos + 2
+        } else if let Some(pos) = line.find(") e ") {
+            pos + 2
+        } else {
+            return Err(anyhow::anyhow!("Invalid enum with visibility format"));
+        };
+        
+        let visibility = &line[..e_pos]; // "pub(crate)"
+        let rest = &line[e_pos + 2..]; // "Name {...}"
+        let converted = self.convert_types_in_string(rest);
+        
+        Ok(format!("{} enum {}", visibility, converted))
     }
 
     fn convert_trait(&self, line: &str, _lines: &[&str], _index: &mut usize) -> Result<String> {
@@ -515,11 +671,12 @@ impl Nu2RustConverter {
 
     fn convert_return(&self, line: &str) -> Result<String> {
         if line == "<" {
-            Ok("return".to_string())
+            Ok("return;".to_string())
         } else {
             let content = &line[2..];
             let converted = self.convert_types_in_string(content);
-            Ok(format!("return {}", converted))
+            // v1.8: return 语句需要分号结尾
+            Ok(format!("return {};", converted.trim_end_matches(';')))
         }
     }
 
@@ -756,10 +913,33 @@ impl Nu2RustConverter {
         _lines: &[&str],
         _index: &mut usize,
     ) -> Result<String> {
-        // Nu v1.6.3: U I = unsafe impl
+        // Nu v1.6.3: U I = unsafe impl (旧格式)
         let content = &line[4..]; // 跳过 "U I "
         let converted = self.convert_types_in_string(content);
         Ok(format!("unsafe impl {}", converted))
+    }
+
+    // v1.8: 处理新格式的 unsafe impl (unsafe I 代替 U I)
+    fn convert_unsafe_impl_v18(
+        &self,
+        line: &str,
+        _lines: &[&str],
+        _index: &mut usize,
+    ) -> Result<String> {
+        // "unsafe I " 或 "unsafe I<"
+        let content = if line.starts_with("unsafe I ") {
+            &line[9..] // 跳过 "unsafe I "
+        } else {
+            &line[8..] // 跳过 "unsafe I" (紧跟 <)
+        };
+        let converted = self.convert_types_in_string(content);
+        // 对于 "unsafe I<T>"，converted 以 "<" 开头，不需要额外空格
+        // 对于 "unsafe I Trait"，converted 以字母开头，需要空格
+        if converted.starts_with('<') || converted.starts_with(' ') {
+            Ok(format!("unsafe impl{}", converted))
+        } else {
+            Ok(format!("unsafe impl {}", converted))
+        }
     }
 
     fn convert_type_alias(&self, line: &str) -> Result<String> {
@@ -949,23 +1129,30 @@ impl Nu2RustConverter {
                     // 检查是否在宏规则上下文中
                     let mut is_in_macro = false;
                     if !is_macro_optional {
-                        // 向前查找，看是否在macro_rules上下文中
-                        let context_start = if i > 50 { i - 50 } else { 0 };
-                        let context: String = chars[context_start..i].iter().collect();
-
-                        // 如果上下文包含macro_rules或大量$符号，认为是宏
-                        if context.contains("macro_rules") || context.matches('$').count() > 2 {
+                        // v1.8: 检查整行是否包含宏模式特征
+                        // 宏规则行通常包含 $( 和 $... 模式
+                        let full_line: String = chars.iter().collect();
+                        let has_macro_patterns = full_line.contains("$(") 
+                            || full_line.contains("$stack") 
+                            || full_line.contains("$bail")
+                            || full_line.contains("$fuel")
+                            || full_line.contains("$rest")
+                            || full_line.contains("$parse")
+                            || full_line.contains("$buf")
+                            || (full_line.matches('$').count() > 3);
+                        
+                        if has_macro_patterns {
                             // 进一步检查前面的非空白字符
                             let mut j = i;
                             while j > 0 {
                                 j -= 1;
                                 if !chars[j].is_whitespace() {
-                                    // 在宏规则中，) ? 或 * ? 或 + ? 或 ] ? 是可选项标记
-                                    is_in_macro = (chars[j] == ')'
+                                    // v1.8: 在宏规则中，) ? 或 * ? 或 + ? 或 ] ? 或 ? ? 是可选项标记
+                                    is_in_macro = chars[j] == ')'
                                         || chars[j] == '*'
                                         || chars[j] == '+'
-                                        || chars[j] == ']')
-                                        && context.contains("macro_rules");
+                                        || chars[j] == ']'
+                                        || chars[j] == '?';  // v1.8: 处理 )?? 模式
                                     break;
                                 }
                             }
@@ -1162,7 +1349,14 @@ impl Nu2RustConverter {
                     let has_start_boundary =
                         i == 0 || (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
                     if has_start_boundary {
-                        result.push_str("use ");
+                        // v1.8: U = pub use, u = use
+                        // 但如果前面已经有 pub(crate) / pub(super) 等可见性，不要再加 pub
+                        let already_has_visibility = result.ends_with(") ");
+                        if remaining.starts_with("U ") && !already_has_visibility {
+                            result.push_str("pub use ");
+                        } else {
+                            result.push_str("use ");
+                        }
                         i += 2;
                         continue;
                     }

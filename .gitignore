@@ -7,3 +7,6 @@ examples*/
 test_workspace*/
 logs/
 temp_*/
+*node_modules/
+*out/
+*.map
