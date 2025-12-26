@@ -175,6 +175,16 @@ fn convert_single_project(input_dir: &Path, output_dir: &Path) -> Result<()> {
         println!("  ✓ Cargo.toml");
     }
 
+    // v1.8: 转换 build.nu -> build.rs (构建脚本)
+    let build_nu = input_dir.join("build.nu");
+    if build_nu.exists() {
+        let nu_content = fs::read_to_string(&build_nu)?;
+        let converter = nu_compiler::nu2rust::Nu2RustConverter::new();
+        let rust_content = converter.convert(&nu_content)?;
+        fs::write(output_dir.join("build.rs"), rust_content)?;
+        println!("  ✓ build.rs");
+    }
+
     // 转换src/*.nu -> src/*.rs (递归处理子目录)
     let src_dir = input_dir.join("src");
     if src_dir.exists() {

@@ -836,6 +836,14 @@ impl TsCodegen {
                 }
                 self.write("]");
             }
+            Expr::ArrayRepeat { value, count } => {
+                // 修复问题1: 数组重复语法 [value; count] -> new Array(count).fill(value)
+                self.write("new Array(");
+                self.emit_expr(count)?;
+                self.write(").fill(");
+                self.emit_expr(value)?;
+                self.write(")");
+            }
             Expr::Raw(s) => {
                 // 尝试转换包含闭包的Raw表达式
                 if s.contains('|') && s.contains('(') {
@@ -996,7 +1004,15 @@ impl TsCodegen {
     // ============ For 生成 ============
 
     fn emit_for(&mut self, pattern: &str, iterator: &Expr, body: &Expr) -> Result<()> {
-        self.write(&format!("for (const {} of ", pattern));
+        // 修复问题1: 解构赋值语法 - 将 (key, value) 转换为 [key, value]
+        let fixed_pattern = if pattern.starts_with('(') && pattern.ends_with(')') {
+            // 这是元组解构，需要转换为数组解构
+            format!("[{}]", &pattern[1..pattern.len()-1])
+        } else {
+            pattern.to_string()
+        };
+        
+        self.write(&format!("for (const {} of ", fixed_pattern));
         self.emit_expr(iterator)?;
         self.writeln(") {");
         self.indent += 1;
@@ -1256,7 +1272,51 @@ impl TsCodegen {
         // 4. 宏展开 V![...] -> [...]
         // 5. Range语法 0..n -> Array.from({length: n}, (_, i) => i)
         // 6. 修复常见解析错误
+        // 7. 移除 Rust 类型后缀
+        // 8. 修复方法调用
         let mut result = s.to_string();
+
+        // 修复问题2: 移除 Rust 类型后缀（i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64）
+        // 使用正则表达式模式：数字后紧跟类型后缀
+        let type_suffixes = [
+            "i128", "i64", "i32", "i16", "i8", "isize",
+            "u128", "u64", "u32", "u16", "u8", "usize",
+            "f64", "f32"
+        ];
+        
+        for suffix in &type_suffixes {
+            // 创建匹配模式：数字+后缀（后面必须是非字母数字字符）
+            let mut i = 0;
+            let chars: Vec<char> = result.chars().collect();
+            let mut new_result = String::new();
+            
+            while i < chars.len() {
+                // 检查是否匹配后缀
+                let mut matched = false;
+                if i + suffix.len() <= chars.len() {
+                    let potential_suffix: String = chars[i..i + suffix.len()].iter().collect();
+                    if potential_suffix == *suffix {
+                        // 检查前面是否是数字
+                        let has_digit_before = i > 0 && (chars[i-1].is_ascii_digit() || chars[i-1] == '.');
+                        // 检查后面是否是边界（非字母数字）
+                        let has_boundary_after = i + suffix.len() >= chars.len()
+                            || !chars[i + suffix.len()].is_alphanumeric();
+                        
+                        if has_digit_before && has_boundary_after {
+                            // 跳过这个后缀
+                            i += suffix.len();
+                            matched = true;
+                        }
+                    }
+                }
+                
+                if !matched {
+                    new_result.push(chars[i]);
+                    i += 1;
+                }
+            }
+            result = new_result;
+        }
 
         // 转换闭包
         if result.contains('|') && result.contains('(') && result.contains('.') {
@@ -1305,6 +1365,17 @@ impl TsCodegen {
         result = result.replace(" : : ", "::").replace(": : ", "::").replace(" : :", "::").replace(": :", "::");
         result = result.replace(" :: ", "::").replace(":: ", "::").replace(" ::", "::");
         result = result.replace("::", ".");
+
+        // 修复问题5: 方法调用 - .to_string() -> .toString()
+        result = result.replace(".to_string()", ".toString()");
+        
+        // 修复问题6: console.log 格式化 - 将 {} 转换为模板字符串占位符
+        // 简化版：将 "text: {}" 转换为模板字符串提示
+        if result.contains("console.log") && result.contains("{}") {
+            // 将 {} 替换为 ${...} 的提示
+            // 注意：完整实现需要解析参数，这里只做简单标记
+            result = result.replace("{}", "${/* TODO: add variable */}");
+        }
 
         // 修复泛型语法：移除 .< 之间的点号和空格
         result = result.replace(".< ", "<").replace(". <", "<").replace(".<", "<");

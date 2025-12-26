@@ -47,9 +47,17 @@
         }
     </script>
     <style>
+        /* Light Theme (Default) */
         body {
             background-color: #ffffff;
             color: #2E3440;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Dark Theme */
+        .dark body {
+            background-color: #0f172a;
+            color: #f8fafc;
         }
 
         .code-syntax-keyword {
@@ -80,11 +88,20 @@
             border: 1px solid rgba(46, 52, 64, 0.1);
         }
 
+        .dark .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
         /* iOS-style Glassmorphism */
         .hero-glass-overlay {
             background: rgba(255, 255, 255, 0.7);
             backdrop-filter: blur(40px) saturate(180%);
             -webkit-backdrop-filter: blur(40px) saturate(180%);
+        }
+
+        .dark .hero-glass-overlay {
+            background: rgba(15, 23, 42, 0.7);
         }
 
         .logo-background {
@@ -105,6 +122,10 @@
             background: #f5f5f5;
         }
 
+        .dark ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+
         ::-webkit-scrollbar-thumb {
             background: #D96C47;
             border-radius: 4px;
@@ -118,6 +139,11 @@
             background: #2E3440;
             color: #D8DEE9;
         }
+
+        /* Theme Toggle Button */
+        .theme-toggle {
+            transition: all 0.3s ease;
+        }
     </style>
 </head>
 
@@ -130,7 +156,13 @@
                 <img src="logos/logo_scale.png" alt="Nu Language Logo" class="w-10 h-10 group-hover:scale-110 transition-transform duration-300 drop-shadow-lg">
                 <span class="self-center text-2xl font-semibold whitespace-nowrap tracking-tight text-nu-900">Nu-lang</span>
             </a>
-            <div class="flex md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
+            <div class="flex md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse items-center gap-3">
+                <!-- Theme Toggle Button -->
+                <button id="theme-toggle" class="theme-toggle p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Toggle theme">
+                    <i data-lucide="sun" class="w-5 h-5 text-gray-600 dark:text-gray-300 hidden dark:block"></i>
+                    <i data-lucide="moon" class="w-5 h-5 text-gray-600 dark:text-gray-300 block dark:hidden"></i>
+                </button>
+                
                 <a href="https://github.com/layola13/nu-lang/releases/tag/v1.6.4" target="_blank"
                     class="text-white bg-nu-500 hover:bg-nu-600 focus:ring-4 focus:outline-none focus:ring-nu-200 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors flex items-center gap-2 shadow-md">
                     <i data-lucide="download" class="w-4 h-4"></i> Get v1.6.4
@@ -405,8 +437,116 @@ leading-relaxed">
         </div>
     </section>
 
+    <!-- Toolchain Section -->
+    <section id="toolchain" class="py-24 bg-white border-t border-gray-200 dark:bg-slate-900 dark:border-slate-800">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="text-center mb-16">
+                <h2 class="text-3xl md:text-4xl font-bold mb-4 text-nu-900 dark:text-white">Complete Toolchain</h2>
+                <p class="text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
+                    Seamless bidirectional conversion between Rust, Nu, and TypeScript ecosystems.
+                </p>
+            </div>
+
+            <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <!-- Tool 1: rust2nu -->
+                <div class="p-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-nu-100 dark:bg-nu-900 rounded-lg flex items-center justify-center">
+                            <i data-lucide="arrow-right" class="w-5 h-5 text-nu-600 dark:text-nu-400"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-nu-900 dark:text-white">rust2nu</h3>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Convert Rust source code to Nu high-density syntax. Modernize legacy codebases instantly.
+                    </p>
+                    <code class="text-xs bg-gray-50 dark:bg-slate-900 text-nu-600 dark:text-nu-400 px-2 py-1 rounded">rust2nu input.rs output.nu</code>
+                </div>
+
+                <!-- Tool 2: nu2rust -->
+                <div class="p-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-nu-100 dark:bg-nu-900 rounded-lg flex items-center justify-center">
+                            <i data-lucide="arrow-left" class="w-5 h-5 text-nu-600 dark:text-nu-400"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-nu-900 dark:text-white">nu2rust</h3>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Compile Nu code back to standard Rust. Full compatibility with cargo build system.
+                    </p>
+                    <code class="text-xs bg-gray-50 dark:bg-slate-900 text-nu-600 dark:text-nu-400 px-2 py-1 rounded">nu2rust main.nu main.rs</code>
+                </div>
+
+                <!-- Tool 3: cargo2nu -->
+                <div class="p-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-nu-100 dark:bg-nu-900 rounded-lg flex items-center justify-center">
+                            <i data-lucide="package" class="w-5 h-5 text-nu-600 dark:text-nu-400"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-nu-900 dark:text-white">cargo2nu</h3>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Convert entire Cargo projects to Nu projects. Supports workspaces and build scripts.
+                    </p>
+                    <code class="text-xs bg-gray-50 dark:bg-slate-900 text-nu-600 dark:text-nu-400 px-2 py-1 rounded">cargo2nu my_project nu_project</code>
+                </div>
+
+                <!-- Tool 4: nu2cargo -->
+                <div class="p-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-nu-100 dark:bg-nu-900 rounded-lg flex items-center justify-center">
+                            <i data-lucide="box" class="w-5 h-5 text-nu-600 dark:text-nu-400"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-nu-900 dark:text-white">nu2cargo</h3>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Generate Cargo projects from Nu projects. Seamless integration with Rust ecosystem.
+                    </p>
+                    <code class="text-xs bg-gray-50 dark:bg-slate-900 text-nu-600 dark:text-nu-400 px-2 py-1 rounded">nu2cargo nu_project cargo_project</code>
+                </div>
+
+                <!-- Tool 5: nu2ts -->
+                <div class="p-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-blue-100 dark:bg-blue-900 rounded-lg flex items-center justify-center">
+                            <i data-lucide="code" class="w-5 h-5 text-blue-600 dark:text-blue-400"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-nu-900 dark:text-white">nu2ts</h3>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Transpile Nu to TypeScript. Bridge systems programming with web development.
+                    </p>
+                    <code class="text-xs bg-gray-50 dark:bg-slate-900 text-blue-600 dark:text-blue-400 px-2 py-1 rounded">nu2ts app.nu app.ts</code>
+                </div>
+
+                <!-- VSCode Extension -->
+                <div class="p-6 rounded-xl border border-gray-200 dark:border-slate-700 bg-gradient-to-br from-nu-50 to-blue-50 dark:from-slate-800 dark:to-slate-700 hover:shadow-lg transition-all duration-300">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 bg-white dark:bg-slate-900 rounded-lg flex items-center justify-center shadow-sm">
+                            <i data-lucide="code-2" class="w-5 h-5 text-nu-600 dark:text-nu-400"></i>
+                        </div>
+                        <h3 class="text-lg font-bold text-nu-900 dark:text-white">VSCode Extension</h3>
+                    </div>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                        Full IDE support with syntax highlighting, auto-compilation, debugging, and error mapping.
+                    </p>
+                    <a href="#quick-start" class="text-xs text-nu-600 dark:text-nu-400 hover:underline font-medium">Install Extension →</a>
+                </div>
+            </div>
+
+            <div class="mt-12 text-center">
+                <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                    All tools are included in the Nu-lang distribution package
+                </p>
+                <a href="https://github.com/layola13/nu-lang/releases/tag/v1.6.4" target="_blank"
+                    class="inline-flex items-center gap-2 text-nu-500 hover:text-nu-600 dark:text-nu-400 dark:hover:text-nu-300 font-medium transition-colors">
+                    Download Complete Toolchain <i data-lucide="download" class="w-4 h-4"></i>
+                </a>
+            </div>
+        </div>
+    </section>
+
     <!-- Syntax Guide / Docs Preview -->
-    <section id="docs" class="py-24 bg-white">
+    <section id="docs" class="py-24 bg-white dark:bg-slate-950">
         <div class="max-w-7xl mx-auto px-4">
             <h2 class="text-3xl font-bold mb-12 text-center text-nu-900">Core Syntax Mapping</h2>
 
@@ -727,6 +867,27 @@ transition-colors">Documentation</a></li>
     </footer>
 
     <script>
+        // Theme Toggle
+        const themeToggle = document.getElementById('theme-toggle');
+        const htmlElement = document.documentElement;
+
+        // Check for saved theme preference or default to 'light'
+        const currentTheme = localStorage.getItem('theme') || 'light';
+        if (currentTheme === 'dark') {
+            htmlElement.classList.add('dark');
+        }
+
+        themeToggle.addEventListener('click', () => {
+            htmlElement.classList.toggle('dark');
+            
+            // Save preference
+            const newTheme = htmlElement.classList.contains('dark') ? 'dark' : 'light';
+            localStorage.setItem('theme', newTheme);
+            
+            // Re-initialize icons after theme change
+            lucide.createIcons();
+        });
+
         // Initialize Lucide Icons
         lucide.createIcons();
 

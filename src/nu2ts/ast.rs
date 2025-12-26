@@ -219,6 +219,9 @@ pub enum Expr {
     /// 数组: [a, b, c]
     Array(Vec<Expr>),
 
+    /// 数组重复: [value; count] - Rust 语法
+    ArrayRepeat { value: Box<Expr>, count: Box<Expr> },
+
     /// 原始表达式（透传）
     Raw(String),
 }

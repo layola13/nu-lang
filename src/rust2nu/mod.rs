@@ -226,8 +226,13 @@ impl Rust2NuConverter {
                         // 显式类型：输出完整的 self: Type
                         result.push_str("self: ");
                         result.push_str(&self.convert_type(&r.ty));
-                    } else if r.reference.is_some() {
+                    } else if let Some((_, lifetime)) = &r.reference {
+                        // v1.8: 保留 &'a self 中的生命周期
                         result.push('&');
+                        if let Some(lt) = lifetime {
+                            result.push_str(&lt.to_string());
+                            result.push(' ');
+                        }
                         if r.mutability.is_some() {
                             result.push('!'); // &mut -> &!
                         }
@@ -538,6 +543,13 @@ impl Rust2NuConverter {
                 if let Some(init) = &local.init {
                     self.write(" = ");
                     self.write(&self.convert_expr(&init.expr));
+                    
+                    // v1.8: 处理 let-else 语法 (Rust 1.65+)
+                    // let Some(x) = expr else { return; }
+                    if let Some((_, diverge)) = &init.diverge {
+                        self.write(" else ");
+                        self.write(&self.convert_expr(diverge));
+                    }
                 }
 
                 self.write(";\n");
@@ -591,8 +603,13 @@ impl Rust2NuConverter {
                     return;
                 }
 
-                // 原有的return和macro处理...
+                // 原有的return和macro处理...(v1.8: 添加attrs支持)
                 if let Expr::Return(ret) = expr {
+                    // v1.8: 输出语句级别的 #[cfg] 等属性
+                    for attr in &ret.attrs {
+                        self.write(&self.indent());
+                        self.writeln(&self.convert_attribute(attr));
+                    }
                     self.write(&self.indent());
                     self.write("< ");
                     if let Some(val) = &ret.expr {
@@ -746,10 +763,17 @@ impl Rust2NuConverter {
                         Stmt::Expr(Expr::Break(_), _) => String::from("br"),
                         Stmt::Expr(Expr::Continue(_), _) => String::from("ct"),
                         Stmt::Expr(Expr::Return(ret), _) => {
+                            // v1.8: 处理return语句的 #[cfg] 等属性
+                            let mut attr_prefix = String::new();
+                            for attr in &ret.attrs {
+                                attr_prefix.push_str(&self.convert_attribute(attr));
+                                attr_prefix.push('\n');
+                                attr_prefix.push_str("        ");
+                            }
                             if let Some(val) = &ret.expr {
-                                format!("< {}", self.convert_expr(val))
+                                format!("{}< {}", attr_prefix, self.convert_expr(val))
                             } else {
-                                String::from("<")
+                                format!("{}<", attr_prefix)
                             }
                         }
                         _ => self.clean_token_spaces(&stmt.to_token_stream().to_string()),
@@ -848,6 +872,46 @@ impl Rust2NuConverter {
             }
             Expr::Break(_) => String::from("br"),
             Expr::Continue(_) => String::from("ct"),
+            // v1.8: 处理引用表达式，递归处理内部表达式
+            // 这样 &StructLiteral{} 可以正确格式化结构体字面量
+            Expr::Reference(ref_expr) => {
+                let mutability = if ref_expr.mutability.is_some() { "&mut " } else { "& " };
+                format!("{}{}", mutability, self.convert_expr(&ref_expr.expr))
+            }
+            // v1.8: 处理结构体表达式，保留字段上的 #[cfg] 属性并换行输出
+            Expr::Struct(struct_expr) => {
+                let path = self.clean_token_spaces(&struct_expr.path.to_token_stream().to_string());
+                let mut result = format!("{}{{", path);
+                
+                for field in &struct_expr.fields {
+                    // 处理字段上的 #[cfg] 等属性 - 每个属性独立一行
+                    for attr in &field.attrs {
+                        let attr_str = attr.to_token_stream().to_string();
+                        let cleaned_attr = attr_str
+                            .replace("# [", "#[")
+                            .replace(" [", "[")
+                            .replace(" ]", "]")
+                            .replace(" (", "(")
+                            .replace(" )", ")")
+                            .replace(" ,", ",");
+                        result.push_str(&cleaned_attr);
+                        result.push('\n');  // 属性后换行
+                    }
+                    
+                    // 字段名: 值
+                    let member = field.member.to_token_stream().to_string();
+                    let value = self.convert_expr(&field.expr);
+                    result.push_str(&format!("{}: {},\n", member, value));
+                }
+                
+                // 处理 .. 表达式（结构体更新语法）
+                if let Some(rest) = &struct_expr.rest {
+                    result.push_str(&format!("..{}", self.convert_expr(rest)));
+                }
+                
+                result.push('}');
+                self.convert_type_in_string(&result)
+            }
             _ => {
                 // 默认：保持原样但替换类型和vec!宏
                 let expr_str = self
