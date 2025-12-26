@@ -348,13 +348,14 @@ impl Nu2RustConverter {
         }
         if trimmed.starts_with("v ") {
             // 检查是否是变量声明而不是变量使用
-            // 变量声明: "v name = ..." 或 "v name: Type = ..."
+            // 变量声明: "v name = ..." 或 "v name: Type = ..." 或 "v (a, b) = ..." (元组解构)
             // 变量使用: "v.method()" 或 "v + ..." 等
             let after_v = &trimmed[2..]; // 跳过 "v "
+            // v1.8: 添加 '(' 支持元组解构模式
             let is_declaration = after_v
                 .chars()
                 .next()
-                .map(|c| c.is_alphabetic() || c == '_')
+                .map(|c| c.is_alphabetic() || c == '_' || c == '(')
                 .unwrap_or(false)
                 && !after_v.starts_with('.');
 

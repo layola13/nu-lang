@@ -191,7 +191,19 @@ impl TsCodegen {
 
         // 生成每个变体的类型（修复语法错误）
         for variant in &e.variants {
-            if let Some(fields) = &variant.fields {
+            if let Some(struct_fields) = &variant.struct_fields {
+                // 结构体式变体: Move { x: i32, y: i32 }
+                let mut field_types = vec![format!("tag: '{}'", variant.name.to_lowercase())];
+                for field in struct_fields {
+                    field_types.push(format!("{}: {}", field.name, self.type_to_ts(&field.ty)));
+                }
+                self.writeln(&format!(
+                    "export type {}_{} = {{ {} }};",
+                    e.name,
+                    variant.name,
+                    field_types.join(", ")
+                ));
+            } else if let Some(fields) = &variant.fields {
                 if fields.is_empty() {
                     // 无字段的变体（但声明了括号）
                     self.writeln(&format!(
@@ -201,7 +213,7 @@ impl TsCodegen {
                         variant.name.to_lowercase()
                     ));
                 } else {
-                    // 有字段的变体 - 使用 value 字段包装
+                    // 元组式变体 - 使用 value 字段包装
                     self.writeln(&format!(
                         "export type {}_{} = {{ tag: '{}'; value: any }};",
                         e.name,
@@ -234,7 +246,27 @@ impl TsCodegen {
 
         // 生成构造函数
         for variant in &e.variants {
-            if let Some(fields) = &variant.fields {
+            if let Some(struct_fields) = &variant.struct_fields {
+                // 结构体式变体 - 生成带类型参数的构造函数
+                let params: Vec<String> = struct_fields
+                    .iter()
+                    .map(|f| format!("{}: {}", f.name, self.type_to_ts(&f.ty)))
+                    .collect();
+                let field_assigns: Vec<String> = struct_fields
+                    .iter()
+                    .map(|f| f.name.clone())
+                    .collect();
+                self.writeln(&format!(
+                    "export const {}_{} = ({}): {}_{} => {{ return {{ tag: '{}', {} }}; }};",
+                    e.name,
+                    variant.name,
+                    params.join(", "),
+                    e.name,
+                    variant.name,
+                    variant.name.to_lowercase(),
+                    field_assigns.join(", ")
+                ));
+            } else if let Some(fields) = &variant.fields {
                 if fields.is_empty() {
                     // 无字段的变体 - 常量
                     self.writeln(&format!(
@@ -246,7 +278,7 @@ impl TsCodegen {
                         variant.name.to_lowercase()
                     ));
                 } else {
-                    // 有字段的变体 - 函数
+                    // 元组式变体 - 函数
                     self.writeln(&format!(
                         "export const {}_{} = (value: any): {}_{} => ({{ tag: '{}', value }});",
                         e.name,
@@ -1016,21 +1048,38 @@ impl TsCodegen {
                 }
             }
             Pattern::EnumVariant { path, bindings } if !bindings.is_empty() => {
+                // 检查变体名称，判断是结构体式还是元组式
+                let variant_name = path.split("::").last().unwrap_or(path);
+                
+                // 检查是否是结构体式 variant（字段直接从 tag 对象中提取）
+                // 对于结构体式，bindings 是字段名列表: ["x", "y"]
+                // 对于元组式，bindings 是绑定变量名列表: ["text"]
+                
+                // 简单启发式：如果只有一个绑定且不包含字段访问语法，假设是元组式
+                // 否则假设是结构体式（多个字段名）
+                let is_struct_style = bindings.len() > 1 || bindings.iter().any(|b| !b.contains('_'));
+                
                 let bindings_str: Vec<String> = bindings
                     .iter()
                     .filter(|b| *b != "_")
                     .enumerate()
                     .map(|(i, b)| {
-                        format!(
-                            "const {} = {}.value{};",
-                            b,
-                            temp,
-                            if bindings.len() > 1 {
-                                format!("[{}]", i)
-                            } else {
-                                "".to_string()
-                            }
-                        )
+                        if is_struct_style {
+                            // 结构体式：字段直接从对象解构
+                            format!("const {} = {}.{};", b, temp, b)
+                        } else {
+                            // 元组式：从 value 字段提取
+                            format!(
+                                "const {} = {}.value{};",
+                                b,
+                                temp,
+                                if bindings.len() > 1 {
+                                    format!("[{}]", i)
+                                } else {
+                                    "".to_string()
+                                }
+                            )
+                        }
                     })
                     .collect();
                 if bindings_str.is_empty() {

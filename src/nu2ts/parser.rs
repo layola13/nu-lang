@@ -267,24 +267,44 @@ impl Parser {
             // 解析变体: Name, Name(Type), 或 Name { field: type }
             let variant_str = line.trim_end_matches(',').trim();
             if !variant_str.is_empty() {
-                let (name, fields) = if variant_str.contains('{') {
+                let (name, fields, struct_fields) = if variant_str.contains('{') {
                     // 结构体式 variant: Move { x: i32, y: i32 }
                     let brace_pos = variant_str.find('{').unwrap();
                     let name = variant_str[..brace_pos].trim().to_string();
-                    // 标记有字段但类型存储在名称中（由 codegen 解析）
-                    (name, Some(vec![]))
+                    
+                    // 解析结构体字段
+                    let brace_end = variant_str.rfind('}').unwrap_or(variant_str.len());
+                    let fields_str = &variant_str[brace_pos + 1..brace_end];
+                    let mut parsed_fields = vec![];
+                    
+                    for field_str in fields_str.split(',') {
+                        let field_str = field_str.trim();
+                        if !field_str.is_empty() {
+                            if let Some(colon_pos) = field_str.find(':') {
+                                let field_name = field_str[..colon_pos].trim().to_string();
+                                let field_type_str = field_str[colon_pos + 1..].trim();
+                                let field_type = self.parse_type(field_type_str);
+                                parsed_fields.push(Field {
+                                    name: field_name,
+                                    ty: field_type,
+                                });
+                            }
+                        }
+                    }
+                    
+                    (name, Some(vec![]), Some(parsed_fields))
                 } else if variant_str.contains('(') {
                     // 元组式 variant: Write(String)
                     let paren_pos = variant_str.find('(').unwrap();
                     let name = variant_str[..paren_pos].trim().to_string();
                     // 简化：不解析字段类型
-                    (name, Some(vec![]))
+                    (name, Some(vec![]), None)
                 } else {
                     // 简单 variant: Quit
-                    (variant_str.to_string(), None)
+                    (variant_str.to_string(), None, None)
                 };
 
-                variants.push(EnumVariant { name, fields });
+                variants.push(EnumVariant { name, fields, struct_fields });
             }
 
             self.advance();
@@ -1155,22 +1175,40 @@ impl Parser {
             return Ok(Pattern::Wildcard);
         }
 
-        // 枚举变体: Type::Variant 或 Type::Variant(bindings)
+        // 枚举变体: Type::Variant, Type::Variant(bindings), 或 Type::Variant {fields}
         if trimmed.contains("::") {
             let parts: Vec<&str> = trimmed.splitn(2, "::").collect();
-            let path = format!("{}::{}", parts[0], parts.get(1).unwrap_or(&""));
-            let bindings = if let Some(paren_start) = path.find('(') {
-                if let Some(paren_end) = path.rfind(')') {
-                    path[paren_start + 1..paren_end]
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect()
-                } else {
-                    vec![]
-                }
+            let enum_name = parts[0];
+            let variant_part = parts.get(1).unwrap_or(&"");
+            
+            // 检查是否是结构体式 pattern: Move {x, y}
+            let (variant_name, bindings) = if let Some(brace_start) = variant_part.find('{') {
+                // 结构体式: Move {x, y}
+                let name = variant_part[..brace_start].trim();
+                let brace_end = variant_part.rfind('}').unwrap_or(variant_part.len());
+                let fields_str = &variant_part[brace_start + 1..brace_end];
+                let field_bindings: Vec<String> = fields_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                (name, field_bindings)
+            } else if let Some(paren_start) = variant_part.find('(') {
+                // 元组式: Write(text)
+                let name = variant_part[..paren_start].trim();
+                let paren_end = variant_part.rfind(')').unwrap_or(variant_part.len());
+                let tuple_bindings: Vec<String> = variant_part[paren_start + 1..paren_end]
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                (name, tuple_bindings)
             } else {
-                vec![]
+                // 简单式: Quit
+                (variant_part.trim(), vec![])
             };
+            
+            let path = format!("{}::{}", enum_name, variant_name);
             return Ok(Pattern::EnumVariant { path, bindings });
         }
 

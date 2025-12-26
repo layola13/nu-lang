@@ -69,6 +69,7 @@ pub struct EnumDef {
 pub struct EnumVariant {
     pub name: String,
     pub fields: Option<Vec<Type>>, // 元组变体的字段类型
+    pub struct_fields: Option<Vec<Field>>, // 结构体式变体的字段
 }
 
 #[derive(Debug, Clone, PartialEq)]
