@@ -635,7 +635,13 @@ impl Parser {
     fn parse_let(&mut self) -> Result<Stmt> {
         let line = self.current_line().trim().to_string();
         let is_mut = line.starts_with("v ");
-        let content = &line[2..];
+        
+        // 修复：正确处理 "l ", "v ", "let " 三种前缀
+        let content = if line.starts_with("let ") {
+            &line[4..]  // 跳过 "let "
+        } else {
+            &line[2..]  // 跳过 "l " 或 "v "
+        };
 
         // 处理 let mut 形式
         let content = if content.trim().starts_with("mut ") {
@@ -650,9 +656,11 @@ impl Parser {
         let value_str = parts.get(1).map(|s| s.trim()).unwrap_or("");
 
         // 提取变量名和类型
+        // 修复：正确处理类型标注，避免将 : 误解析
         let (name, ty) = if let Some(colon_pos) = name_part.find(':') {
             let n = name_part[..colon_pos].trim().to_string();
-            let t = self.parse_type(&name_part[colon_pos + 1..]);
+            let type_str = name_part[colon_pos + 1..].trim();
+            let t = self.parse_type(type_str);
             (n, Some(t))
         } else {
             (name_part.to_string(), None)
@@ -1769,13 +1777,6 @@ impl Parser {
             }
         }
 
-        // 字符串
-        if trimmed.starts_with('"') && trimmed.ends_with('"') {
-            return Ok(Expr::Literal(Literal::String(
-                trimmed[1..trimmed.len() - 1].to_string(),
-            )));
-        }
-
         // 宏调用: name!(...) 或 name ! (...) 或 name![...] 或 name ! [...]
         if trimmed.contains("!(")
             || trimmed.contains("! (")
@@ -1845,7 +1846,13 @@ impl Parser {
 
                     if is_static_method {
                         // 这是静态方法调用，解析为 Call 表达式
-                        let args_str = &trimmed[paren_pos + 1..].trim_end_matches(')');
+                        // 使用 find_matching_paren 找到正确的右括号位置
+                        let close_paren = self.find_matching_paren(trimmed, paren_pos);
+                        let args_str = if close_paren > paren_pos + 1 {
+                            &trimmed[paren_pos + 1..close_paren]
+                        } else {
+                            ""
+                        };
                         let args: Vec<Expr> = if args_str.is_empty() {
                             vec![]
                         } else {
@@ -1869,7 +1876,13 @@ impl Parser {
                         });
                     } else {
                         // 这是枚举变体构造
-                        let args_str = &trimmed[paren_pos + 1..].trim_end_matches(')');
+                        // 使用 find_matching_paren 找到正确的右括号位置
+                        let close_paren = self.find_matching_paren(trimmed, paren_pos);
+                        let args_str = if close_paren > paren_pos + 1 {
+                            &trimmed[paren_pos + 1..close_paren]
+                        } else {
+                            ""
+                        };
                         let args = if args_str.is_empty() {
                             Some(vec![])
                         } else {
@@ -1962,22 +1975,45 @@ impl Parser {
                 let func_str = trimmed[..paren_pos].trim();
                 let args_str = &trimmed[paren_pos + 1..trimmed.len() - 1];
 
-                // Recursively parse function part (supports chaining)
-                let func_expr = self.parse_expr_string(func_str)?;
-
-                let args: Result<Vec<Expr>> = if args_str.is_empty() {
-                    Ok(vec![])
+                // 检查是否是方法调用: object.method()
+                if let Some(dot_pos) = func_str.rfind('.') {
+                    // 这是方法调用
+                    let object_str = func_str[..dot_pos].trim();
+                    let method = func_str[dot_pos + 1..].trim().to_string();
+                    
+                    let object = Box::new(self.parse_expr_string(object_str)?);
+                    let args: Result<Vec<Expr>> = if args_str.is_empty() {
+                        Ok(vec![])
+                    } else {
+                        self.split_args(args_str)
+                            .into_iter()
+                            .map(|a| self.parse_expr_string(a.trim()))
+                            .collect()
+                    };
+                    
+                    return Ok(Expr::MethodCall {
+                        object,
+                        method,
+                        args: args?,
+                    });
                 } else {
-                    self.split_args(args_str)
-                        .into_iter()
-                        .map(|a| self.parse_expr_string(a.trim()))
-                        .collect()
-                };
+                    // 普通函数调用
+                    let func_expr = self.parse_expr_string(func_str)?;
 
-                return Ok(Expr::Call {
-                    func: Box::new(func_expr),
-                    args: args?,
-                });
+                    let args: Result<Vec<Expr>> = if args_str.is_empty() {
+                        Ok(vec![])
+                    } else {
+                        self.split_args(args_str)
+                            .into_iter()
+                            .map(|a| self.parse_expr_string(a.trim()))
+                            .collect()
+                    };
+
+                    return Ok(Expr::Call {
+                        func: Box::new(func_expr),
+                        args: args?,
+                    });
+                }
             }
         }
 
@@ -2237,22 +2273,33 @@ impl Parser {
         let mut result = vec![];
         let mut depth = 0;
         let mut in_closure = false;
+        let mut in_string = false;
+        let mut prev_char = ' ';
         let mut start = 0;
 
         for (i, c) in params_str.char_indices() {
-            match c {
-                '|' => {
-                    // 闭包边界：|param| body
-                    in_closure = !in_closure;
-                }
-                '<' | '(' | '[' | '{' if !in_closure => depth += 1,
-                '>' | ')' | ']' | '}' if !in_closure => depth -= 1,
-                ',' if depth == 0 && !in_closure => {
-                    result.push(&params_str[start..i]);
-                    start = i + 1;
-                }
-                _ => {}
+            // 处理字符串字面量
+            if c == '"' && prev_char != '\\' {
+                in_string = !in_string;
             }
+
+            if !in_string {
+                match c {
+                    '|' => {
+                        // 闭包边界：|param| body
+                        in_closure = !in_closure;
+                    }
+                    '<' | '(' | '[' | '{' if !in_closure => depth += 1,
+                    '>' | ')' | ']' | '}' if !in_closure => depth -= 1,
+                    ',' if depth == 0 && !in_closure => {
+                        result.push(&params_str[start..i]);
+                        start = i + 1;
+                    }
+                    _ => {}
+                }
+            }
+            
+            prev_char = c;
         }
 
         if start < params_str.len() {

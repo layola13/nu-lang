@@ -192,6 +192,11 @@ impl Rust2NuConverter {
             result.push_str("unsafe ");
         }
 
+        // v1.8: 支持 const fn
+        if sig.constness.is_some() {
+            result.push_str("const ");
+        }
+
         // async函数用 ~ 前缀
         if sig.asyncness.is_some() {
             result.push('~');
@@ -714,6 +719,22 @@ impl Rust2NuConverter {
                 let scrutinee = self.convert_expr(&match_expr.expr);
                 let mut result = format!("M {} {{\n", scrutinee);
                 for arm in &match_expr.arms {
+                    // v1.8.2: 保留 match arm 上的 #[cfg] 属性
+                    for attr in &arm.attrs {
+                        let attr_str = attr.to_token_stream().to_string();
+                        let cleaned_attr = attr_str
+                            .replace("# [", "#[")
+                            .replace(" [", "[")
+                            .replace(" ]", "]")
+                            .replace(" (", "(")
+                            .replace(" )", ")")
+                            .replace(" ,", ",");
+                        if cleaned_attr.starts_with("#[cfg") {
+                            result.push_str("        ");
+                            result.push_str(&cleaned_attr);
+                            result.push('\n');
+                        }
+                    }
                     result.push_str("        ");
                     result
                         .push_str(&self.clean_token_spaces(&arm.pat.to_token_stream().to_string()));
@@ -729,9 +750,25 @@ impl Rust2NuConverter {
                 self.convert_type_in_string(&result)
             }
             Expr::If(if_expr) => {
+                // v1.8.2: 保留 if 表达式上的 #[cfg] 属性
+                let mut attr_prefix = String::new();
+                for attr in &if_expr.attrs {
+                    let attr_str = attr.to_token_stream().to_string();
+                    let cleaned_attr = attr_str
+                        .replace("# [", "#[")
+                        .replace(" [", "[")
+                        .replace(" ]", "]")
+                        .replace(" (", "(")
+                        .replace(" )", ")")
+                        .replace(" ,", ",");
+                    if cleaned_attr.starts_with("#[cfg") {
+                        attr_prefix.push_str(&cleaned_attr);
+                        attr_prefix.push('\n');
+                    }
+                }
                 // ? = if
                 let cond = self.convert_expr(&if_expr.cond);
-                let mut result = format!("? {} {{ ", cond);
+                let mut result = format!("{}? {} {{ ", attr_prefix, cond);
                 // 递归转换then分支中的语句
                 for stmt in &if_expr.then_branch.stmts {
                     match stmt {
@@ -1070,11 +1107,31 @@ impl Rust2NuConverter {
                 .replace("Box::", "__BOX_PATH__");
 
             // v1.8: 先保护完整的标识符（如 Boxed, VecDeque）以防止被错误替换
+            // 这些标识符包含 Vec/Option/Result/Box/Arc/Mutex 作为子串
             result = result
                 .replace("Boxed", "__BOXED_IDENT__")
                 .replace("VecDeque", "__VECDEQUE_IDENT__")
                 .replace("ResultCode", "__RESULTCODE_IDENT__")
-                .replace("OptionSet", "__OPTIONSET_IDENT__");
+                .replace("OptionSet", "__OPTIONSET_IDENT__")
+                // v1.8.1: 添加更多保护标识符
+                .replace("Optional", "__OPTIONAL_IDENT__")
+                .replace("YEAR", "__YEAR_IDENT__")
+                .replace("Year", "__Year_IDENT__")
+                .replace("vectorize", "__VECTORIZE_IDENT__")
+                .replace("OptionExt", "__OPTIONEXT_IDENT__")
+                .replace("ResultExt", "__RESULTEXT_IDENT__")
+                .replace("IntoVec", "__INTOVEC_IDENT__")
+                .replace("AsVec", "__ASVEC_IDENT__")
+                .replace("ToVec", "__TOVEC_IDENT__")
+                .replace("BoxFuture", "__BOXFUTURE_IDENT__")
+                .replace("ArcInner", "__ARCINNER_IDENT__")
+                .replace("MutexGuard", "__MUTEXGUARD_IDENT__")
+                // v1.8.2: chrono库特有的标识符
+                .replace("ParseResult", "__PARSERESULT_IDENT__")
+                .replace("ParseError", "__PARSEERROR_IDENT__")
+                .replace("IntoResult", "__INTORESULT_IDENT__")
+                .replace("FromResult", "__FROMRESULT_IDENT__")
+                .replace("TryFromResult", "__TRYFROMRESULT_IDENT__");
 
             // 执行类型名替换
             result = result
@@ -1092,7 +1149,26 @@ impl Rust2NuConverter {
                 .replace("__BOXED_IDENT__", "Boxed")
                 .replace("__VECDEQUE_IDENT__", "VecDeque")
                 .replace("__RESULTCODE_IDENT__", "ResultCode")
-                .replace("__OPTIONSET_IDENT__", "OptionSet");
+                .replace("__OPTIONSET_IDENT__", "OptionSet")
+                // v1.8.1: 恢复更多保护标识符
+                .replace("__OPTIONAL_IDENT__", "Optional")
+                .replace("__YEAR_IDENT__", "YEAR")
+                .replace("__Year_IDENT__", "Year")
+                .replace("__VECTORIZE_IDENT__", "vectorize")
+                .replace("__OPTIONEXT_IDENT__", "OptionExt")
+                .replace("__RESULTEXT_IDENT__", "ResultExt")
+                .replace("__INTOVEC_IDENT__", "IntoVec")
+                .replace("__ASVEC_IDENT__", "AsVec")
+                .replace("__TOVEC_IDENT__", "ToVec")
+                .replace("__BOXFUTURE_IDENT__", "BoxFuture")
+                .replace("__ARCINNER_IDENT__", "ArcInner")
+                .replace("__MUTEXGUARD_IDENT__", "MutexGuard")
+                // v1.8.2: 恢复chrono库特有的标识符
+                .replace("__PARSERESULT_IDENT__", "ParseResult")
+                .replace("__PARSEERROR_IDENT__", "ParseError")
+                .replace("__INTORESULT_IDENT__", "IntoResult")
+                .replace("__FROMRESULT_IDENT__", "FromResult")
+                .replace("__TRYFROMRESULT_IDENT__", "TryFromResult");
 
             // 恢复路径前缀（保持完整类型名）
             result = result
@@ -1315,8 +1391,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" (", "(")
                         .replace(" )", ")")
                         .replace(" ,", ",");
-                    // v1.8: 保留 #[cfg] 和 #[macro_use] 属性（macro_use 对于宏可见性至关重要）
-                    if cleaned_attr.starts_with("#[cfg") || cleaned_attr.starts_with("#[macro_use") {
+                    // v1.8: 保留 #[cfg]、#[macro_use] 和 #[path] 属性（macro_use 和 path 对于编译至关重要）
+                    if cleaned_attr.starts_with("#[cfg") || cleaned_attr.starts_with("#[macro_use") || cleaned_attr.starts_with("#[path") {
                         self.writeln(&cleaned_attr);
                     }
                 }
@@ -1349,7 +1425,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.writeln("}");
                 } else {
                     // 模块声明：mod name;
-                    self.writeln(&format!("{} {};", keyword, m.ident));
+                    self.writeln(&format!("{}{} {};", vis_prefix, keyword, m.ident));
                 }
             }
             Item::Use(u) => {
@@ -1397,7 +1473,11 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     }
                 }
                 
-                self.write("C ");
+                if self.is_public(&c.vis) {
+                    self.write("CP ");
+                } else {
+                    self.write("C ");
+                }
                 self.write(&c.ident.to_string());
                 self.write(": ");
                 self.write(&self.convert_type(&c.ty));
@@ -1407,10 +1487,11 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             }
             Item::Static(s) => {
                 // Nu v1.6.3: SM = static mut, ST = static
+                let is_pub = self.is_public(&s.vis);
                 let keyword = if matches!(s.mutability, syn::StaticMutability::Mut(_)) {
-                    "SM"
+                    if is_pub { "SMP" } else { "SM" }
                 } else {
-                    "ST"
+                    if is_pub { "SP" } else { "ST" }
                 };
                 self.write(keyword);
                 self.write(" ");
@@ -1691,7 +1772,13 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     }
                 }
                 syn::TraitItem::Type(assoc_type) => {
-                    // 关联类型: type Output: 'a; → t Output: 'a;
+                    // v1.8: 处理关联类型的属性（如 #[cfg]）
+                    for attr in &assoc_type.attrs {
+                        self.write(&self.indent());
+                        self.write(&self.convert_attribute(attr));
+                        self.write("\n");
+                    }
+                    // Trait关联类型: type Item;
                     self.write(&self.indent());
                     self.write("t ");
                     self.write(&assoc_type.ident.to_string());
@@ -1706,6 +1793,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.writeln(";");
                 }
                 syn::TraitItem::Const(const_item) => {
+                    // v1.8: 处理关联常量的属性（如 #[cfg]）
+                    for attr in &const_item.attrs {
+                        self.write(&self.indent());
+                        self.write(&self.convert_attribute(attr));
+                        self.write("\n");
+                    }
                     // Trait关联常量: const PI: f64 = 3.14159;
                     self.write(&self.indent());
                     self.write("C ");
@@ -1816,6 +1909,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.output.push('\n');
                 }
                 syn::ImplItem::Type(type_item) => {
+                    // v1.8: 处理关联类型的属性（如 #[cfg]）
+                    for attr in &type_item.attrs {
+                        self.write(&self.indent());
+                        self.write(&self.convert_attribute(attr));
+                        self.write("\n");
+                    }
                     // 转换关联类型: type Value = Level; → t Value = Level;
                     self.write(&self.indent());
                     self.write("t ");
@@ -1825,9 +1924,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.writeln(";");
                 }
                 syn::ImplItem::Const(const_item) => {
-                    // 处理 const 声明
+                    // v1.8: 处理关联常量的属性（如 #[cfg]）
+                    for attr in &const_item.attrs {
+                        self.write(&self.indent());
+                        self.write(&self.convert_attribute(attr));
+                        self.write("\n");
+                    }
+                    // 处理 const 声明 - v1.8.2: 处理可见性
                     self.write(&self.indent());
-                    self.write("C ");
+                    if self.is_public(&const_item.vis) {
+                        self.write("CP ");
+                    } else {
+                        self.write("C ");
+                    }
                     self.write(&const_item.ident.to_string());
                     self.write(": ");
                     self.write(&self.convert_type(&const_item.ty));

@@ -222,6 +222,11 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_unsafe_function(trimmed, context)?));
         }
 
+        // v1.8: "const F"/"const f" (支持 const fn)
+        if trimmed.starts_with("const F ") || trimmed.starts_with("const f ") {
+            return Ok(Some(self.convert_const_function(trimmed, context)?));
+        }
+
         // 函数定义: F/f (F=pub fn, f=fn)
         // 但要避免将函数调用误认为函数定义
         // 函数定义必须包含括号（参数列表）或返回类型
@@ -400,19 +405,28 @@ impl Nu2RustConverter {
             return Ok(Some(self.convert_type_alias(trimmed)?));
         }
 
-        // Const: C
+        // Const: C or CP (pub)
         if trimmed.starts_with("C ") {
-            return Ok(Some(self.convert_const(trimmed)?));
+            return Ok(Some(self.convert_const(trimmed, false)?));
+        }
+        if trimmed.starts_with("CP ") {
+            return Ok(Some(self.convert_const(trimmed, true)?));
         }
 
-        // Static: ST 或 SM (Nu v1.6.3)
+        // Static: ST or SP (pub)
         if trimmed.starts_with("ST ") {
-            return Ok(Some(self.convert_static(trimmed, false)?));
+            return Ok(Some(self.convert_static(trimmed, false, false)?));
+        }
+        if trimmed.starts_with("SP ") {
+            return Ok(Some(self.convert_static(trimmed, false, true)?));
         }
 
-        // Static mut: SM (Nu v1.6.3)
+        // Static mut: SM or SMP (pub)
         if trimmed.starts_with("SM ") {
-            return Ok(Some(self.convert_static(trimmed, true)?));
+            return Ok(Some(self.convert_static(trimmed, true, false)?));
+        }
+        if trimmed.starts_with("SMP ") {
+            return Ok(Some(self.convert_static(trimmed, true, true)?));
         }
 
         // 其他情况：转换类型和表达式
@@ -468,6 +482,30 @@ impl Nu2RustConverter {
 
         Ok(format!("{}unsafe fn {}", visibility, converted))
     }
+
+    // v1.8: 处理 const 函数 (const F/const f)
+    fn convert_const_function(&self, line: &str, context: &ConversionContext) -> Result<String> {
+        let is_pub = line.starts_with("const F ");
+        let content = if is_pub { &line[8..] } else { &line[7..] }; // 跳过 "const F " 或 "const f "
+
+        let visibility = if context.in_trait {
+            ""
+        } else if context.in_trait_impl {
+            ""
+        } else if context.in_impl {
+            "pub "
+        } else if is_pub {
+            "pub "
+        } else {
+            ""
+        };
+
+        let mut converted = self.convert_types_in_string(content);
+        converted = converted.replace("(!self", "(mut self");
+
+        Ok(format!("{}const fn {}", visibility, converted))
+    }
+
 
     // v1.8: 处理新格式的 unsafe 函数 (unsafe F/unsafe f 代替 U F/U f)
     fn convert_unsafe_function_v18(&self, line: &str, context: &ConversionContext) -> Result<String> {
@@ -894,29 +932,33 @@ impl Nu2RustConverter {
         Ok(format!("{}use {}", visibility, content))
     }
 
-    fn convert_const(&self, line: &str) -> Result<String> {
-        let content = &line[2..];
+    fn convert_const(&self, line: &str, is_pub: bool) -> Result<String> {
+        let content = if is_pub { &line[3..] } else { &line[2..] };
         let converted = self.convert_types_in_string(content);
-        Ok(format!("const {}", converted))
+        let visibility = if is_pub { "pub " } else { "" };
+        Ok(format!("{}const {}", visibility, converted))
     }
 
-    fn convert_static(&self, line: &str, is_mut: bool) -> Result<String> {
+    fn convert_static(&self, line: &str, is_mut: bool, is_pub: bool) -> Result<String> {
         // Nu v1.6.3: ST = static, SM = static mut
+        // v1.8: SP = pub static, SMP = pub static mut
         let content = if line.starts_with("ST ") {
+            &line[3..]
+        } else if line.starts_with("SP ") {
             &line[3..]
         } else if line.starts_with("SM ") {
             &line[3..]
+        } else if line.starts_with("SMP ") {
+            &line[4..]
         } else {
             &line[3..]
         };
 
         let converted = self.convert_types_in_string(content);
+        let visibility = if is_pub { "pub " } else { "" };
+        let mut_str = if is_mut { "mut " } else { "" };
 
-        if is_mut {
-            Ok(format!("static mut {}", converted))
-        } else {
-            Ok(format!("static {}", converted))
-        }
+        Ok(format!("{}static {}{}", visibility, mut_str, converted))
     }
 
     fn convert_unsafe_impl(
@@ -1495,34 +1537,42 @@ impl Nu2RustConverter {
             }
 
             // loop: L { (必须在 for 之前检查)
-            if remaining.starts_with("L {") {
-                result.push_str("loop {");
-                i += 3;
-                continue;
-            }
-
-            // for: L ... in (检查直到下一个花括号前是否有 in)
-            if remaining.starts_with("L ") {
-                // 查找下一个 { 的位置
-                let mut j = i + 2;
-                let mut found_in = false;
-                while j < chars.len() && chars[j] != '{' {
-                    if j + 3 < chars.len()
-                        && chars[j] == ' '
-                        && chars[j + 1] == 'i'
-                        && chars[j + 2] == 'n'
-                        && chars[j + 3] == ' '
-                    {
-                        found_in = true;
-                        break;
+            // v1.8: 添加边界检查，避免替换 MAX_OL 中的 L
+            if remaining.starts_with("L {") || remaining.starts_with("L ") {
+                let is_start_boundary =
+                    i == 0 || (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if is_start_boundary {
+                    if remaining.starts_with("L {") {
+                        result.push_str("loop {");
+                        i += 3;
+                        continue;
                     }
-                    j += 1;
-                }
 
-                if found_in {
-                    result.push_str("for ");
-                    i += 2;
-                    continue;
+                    // for: L ... in (检查直到下一个花括号前是否有 in)
+                    if remaining.starts_with("L ") {
+                        // 查找下一个 { 的位置
+                        let mut j = i + 2;
+                        let mut found_in = false;
+                        while j < chars.len() && chars[j] != '{' {
+                            if j + 3 < chars.len()
+                                && chars[j] == ' '
+                                && chars[j + 1] == 'i'
+                                && chars[j + 2] == 'n'
+                                && chars[j + 3] == ' '
+                            {
+                                found_in = true;
+                                break;
+                            }
+                            j += 1;
+                        }
+
+                        if found_in {
+                            result.push_str("for ");
+                            i += 2;
+                            continue;
+                        }
+                    }
                 }
             }
 
@@ -1532,6 +1582,48 @@ impl Nu2RustConverter {
         }
 
         Ok(result)
+    }
+
+    /// v1.8.1: 带边界检查的类型替换辅助函数
+    /// 只在单字母类型缩写前后是非字母数字时才替换
+    /// 例如: "R <" -> "Result<" 但 "YEAR <" 保持不变
+    fn replace_type_with_boundary(s: &str, from: &str, to: &str) -> String {
+        let mut result = String::new();
+        let chars: Vec<char> = s.chars().collect();
+        let from_chars: Vec<char> = from.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            // 检查是否匹配 from 模式
+            let mut matches = true;
+            if i + from_chars.len() <= chars.len() {
+                for (j, fc) in from_chars.iter().enumerate() {
+                    if chars[i + j] != *fc {
+                        matches = false;
+                        break;
+                    }
+                }
+            } else {
+                matches = false;
+            }
+
+            if matches {
+                // 检查前边界: 前一个字符不能是字母或数字或下划线
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    result.push_str(to);
+                    i += from_chars.len();
+                    continue;
+                }
+            }
+
+            result.push(chars[i]);
+            i += 1;
+        }
+
+        result
     }
 
     /// 转换Nu类型回Rust类型
@@ -1613,27 +1705,33 @@ impl Nu2RustConverter {
             .replace("VDeque <", "VecDeque<") // VDeque < -> VecDeque< (带空格)
             .replace("VDeque<", "VecDeque<") // VDeque< -> VecDeque< (rust2nu错误缩写)
             .replace("Vec<", "Vec<") // 保持Vec<不变，它已经是完整的
-            .replace("V <", "Vec<") // V < -> Vec< (Vec类型，带空格)
-            .replace("V<", "Vec<") // V< -> Vec< (确保是类型，不是泛型参数)
             .replace("V :: ", "Vec::") // V :: -> Vec:: (Vec的关联函数，带空格)
-            .replace("V::", "Vec::") // V:: -> Vec:: (Vec的关联函数，无空格)
-            .replace("O <", "Option<") // O < -> Option< (带空格)
-            .replace("O<", "Option<")
-            .replace("O::", "Option::") // O:: -> Option:: (Option的关联函数)
-            .replace("R <", "Result<") // R < -> Result< (带空格)
-            .replace("R<", "Result<")
-            .replace("R::", "Result::") // R:: -> Result:: (Result的关联函数)
+            .replace("V::", "Vec::"); // V:: -> Vec:: (Vec的关联函数，无空格)
+        
+        // v1.8.1: 使用边界检查的替换，避免 YEAR < 被替换成 YEAResult<
+        result = Self::replace_type_with_boundary(&result, "V <", "Vec<");
+        result = Self::replace_type_with_boundary(&result, "V<", "Vec<");
+        result = Self::replace_type_with_boundary(&result, "O <", "Option<");
+        result = Self::replace_type_with_boundary(&result, "O<", "Option<");
+        result = Self::replace_type_with_boundary(&result, "O::", "Option::");
+        result = Self::replace_type_with_boundary(&result, "R <", "Result<");
+        result = Self::replace_type_with_boundary(&result, "R<", "Result<");
+        result = Self::replace_type_with_boundary(&result, "R::", "Result::");
+        result = result
             .replace("::R ", "::Result ") // ::R  -> ::Result (模块路径后的Result，带空格)
             .replace("::R<", "::Result<") // ::R< -> ::Result< (模块路径后的Result泛型)
-            .replace("A<", "Arc<")
-            .replace("A::", "Arc::") // A:: -> Arc:: (Arc的关联函数)
-            .replace("X<", "Mutex<")
-            .replace("X::", "Mutex::") // X:: -> Mutex:: (Mutex的关联函数)
             .replace("BedError", "BoxedError") // Bed -> Boxed (类型缩写，anyhow库)
-            .replace("B <", "Box<") // B < -> Box< (带空格)
-            .replace("B<", "Box<")
             .replace("B :: ", "Box::") // B :: -> Box:: (Box的关联函数，带空格)
-            .replace("B::", "Box::") // B:: -> Box:: (Box的关联函数，无空格) - 修复regex库错误
+            .replace("B::", "Box::"); // B:: -> Box:: (Box的关联函数，无空格) - 修复regex库错误
+        
+        // v1.8.1: A/X/B 也使用边界检查
+        result = Self::replace_type_with_boundary(&result, "A<", "Arc<");
+        result = Self::replace_type_with_boundary(&result, "A::", "Arc::");
+        result = Self::replace_type_with_boundary(&result, "X<", "Mutex<");
+        result = Self::replace_type_with_boundary(&result, "X::", "Mutex::");
+        result = Self::replace_type_with_boundary(&result, "B <", "Box<");
+        result = Self::replace_type_with_boundary(&result, "B<", "Box<");
+        result = result
             .replace(".~", ".await")
             .replace("$|", "move |")
             .replace(" wh ", " where ")
@@ -1644,6 +1742,9 @@ impl Nu2RustConverter {
             .replace("\nU I<", "\nunsafe impl<")
             // v1.7.5: 智能替换 )! -> )? 但保留 )!= (不等于操作符)
             // 不能使用简单的 .replace(")!", ")?") 因为它会把 )!= 也替换成 )?=
+            .replace(")!!;", ")??;") // v1.8.2: 双错误传播 )!! -> )??
+            .replace(")!!)", "))??") // v1.8.2: 双错误传播 )!!) -> )??
+            .replace(")!!", ")??") // v1.8.2: 双错误传播 )!! -> )?? (通用)
             .replace(")!;", ")?;")
             .replace(")!,", ")?,")
             .replace(")!)", ")?)")

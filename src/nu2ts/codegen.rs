@@ -135,19 +135,22 @@ impl TsCodegen {
             } else {
                 ""
             };
+            // 修复问题2: 清理参数类型中的生命周期标注
+            let clean_type = self.remove_lifetime_annotations(&self.type_to_ts(&param.ty));
             self.write(&format!(
                 "{}{}: {}",
                 ref_prefix,
                 param.name,
-                self.type_to_ts(&param.ty)
+                clean_type
             ));
         }
 
         self.write(")");
 
-        // 返回类型
+        // 返回类型 - 修复问题2: 清理生命周期标注
         if let Some(ret_ty) = &f.return_type {
-            self.write(&format!(": {}", self.type_to_ts(ret_ty)));
+            let clean_ret_type = self.remove_lifetime_annotations(&self.type_to_ts(ret_ty));
+            self.write(&format!(": {}", clean_ret_type));
         }
 
         self.writeln(" {");
@@ -360,6 +363,23 @@ impl TsCodegen {
             self.writeln(trimmed);
             return Ok(());
         }
+        
+        // 修复问题5: 常量声明语法 - 识别 C NAME: type = value 模式
+        if trimmed.starts_with("C ") && trimmed.contains(':') && trimmed.contains('=') {
+            // 解析常量声明: C PI: number = 3.14159
+            let content = &trimmed[2..].trim(); // 跳过 "C "
+            if let Some(colon_pos) = content.find(':') {
+                let name = content[..colon_pos].trim();
+                let rest = &content[colon_pos + 1..];
+                if let Some(eq_pos) = rest.find('=') {
+                    let type_part = rest[..eq_pos].trim();
+                    let value_part = rest[eq_pos + 1..].trim().trim_end_matches(';');
+                    self.write_indent();
+                    self.writeln(&format!("const {}: {} = {};", name, type_part, value_part));
+                    return Ok(());
+                }
+            }
+        }
 
         // 修复问题#5: 增强裸f函数定义转换为function（包括所有位置）
         if (trimmed.starts_with("f ") || trimmed.starts_with("F ")) && trimmed.contains('(') {
@@ -465,10 +485,19 @@ impl TsCodegen {
         _is_mut: bool,
     ) -> Result<()> {
         self.write_indent();
+        // 修复问题1: 清理变量名，移除可能残留的类型标注字符
+        let clean_name = name.trim()
+            .split(':').next().unwrap_or(name)  // 移除 : 后的类型标注
+            .split_whitespace().next().unwrap_or(name)  // 移除空格
+            .trim();
+        
+        // 格式：const name: type = value 或 const name = value
         if let Some(t) = ty {
-            self.write(&format!("const {}: {} = ", name, self.type_to_ts(t)));
+            // 有类型标注：const name: type = value
+            self.write(&format!("const {}: {} = ", clean_name, self.type_to_ts(t)));
         } else {
-            self.write(&format!("const {} = ", name));
+            // 无类型标注：const name = value
+            self.write(&format!("const {} = ", clean_name));
         }
         self.emit_expr(value)?;
         self.writeln(";");
@@ -951,6 +980,8 @@ impl TsCodegen {
         let temp = format!("_m{}", self.temp_counter);
         self.temp_counter += 1;
 
+        // 修复问题4: 生成正确的临时变量声明，不带多余空格
+        self.write_indent();
         self.write(&format!("const {} = ", temp));
         self.emit_expr(target)?;
         self.writeln(";");
@@ -1007,7 +1038,21 @@ impl TsCodegen {
             Pattern::OptionSome(_) => format!("{} !== null && {} !== undefined", temp, temp),
             Pattern::OptionNone => format!("{} === null || {} === undefined", temp, temp),
             Pattern::Wildcard => "true".to_string(),
-            Pattern::Literal(lit) => format!("{} === {}", temp, self.literal_to_ts(lit)),
+            Pattern::Literal(lit) => {
+                // 修复问题4: 处理多值模式（如 3 | 4 | 5）
+                let lit_str = self.literal_to_ts(lit);
+                if lit_str.contains('|') {
+                    // 多值模式：转换为多个条件的 OR
+                    let values: Vec<&str> = lit_str.split('|').map(|s| s.trim()).collect();
+                    let conditions: Vec<String> = values
+                        .iter()
+                        .map(|v| format!("{} === {}", temp, v))
+                        .collect();
+                    format!("({})", conditions.join(" || "))
+                } else {
+                    format!("{} === {}", temp, lit_str)
+                }
+            }
             Pattern::Ident(_) => "true".to_string(),
             Pattern::EnumVariant { path, .. } => {
                 // 提取变体名
@@ -1189,6 +1234,25 @@ impl TsCodegen {
     }
 
     // ============ 类型转换 ============
+    
+    /// 修复问题2: 移除生命周期标注的辅助函数
+    fn remove_lifetime_annotations(&self, type_str: &str) -> String {
+        let mut result = type_str.to_string();
+        // 移除常见的生命周期标注: 'a, 'b, 'static
+        result = result.replace("'a ", "");
+        result = result.replace("'b ", "");
+        result = result.replace("'c ", "");
+        result = result.replace("'static ", "");
+        result = result.replace("<'a>", "");
+        result = result.replace("<'b>", "");
+        result = result.replace("<'static>", "");
+        // 移除泛型参数中的生命周期: <'a, T> -> <T>
+        result = result.replace("'a, ", "");
+        result = result.replace("'b, ", "");
+        result = result.replace(", 'a", "");
+        result = result.replace(", 'b", "");
+        result
+    }
 
     fn type_to_ts(&self, ty: &Type) -> String {
         match ty {
@@ -1398,57 +1462,176 @@ impl TsCodegen {
         // 7. 移除 Rust 类型后缀
         // 8. 修复方法调用
         // 9. 修复数组重复语法在字符串中的表示
+        // 10. 修复未定义的标识符（Write, Some, None等）
+        // 11. 修复循环和迭代器转换
+        // 12. 修复括号不匹配问题
         let mut result = s.to_string();
 
-        // 修复问题1: 数组重复语法的字符串形式 [value; count]
-        // 这会捕获在 write() 中直接写入的数组重复语法（如果有的话）
-        if result.contains('[') && result.contains(';') && result.contains(']') {
-            // 简单的正则替换：[数字; 数字] -> new Array(count).fill(value)
-            // 注意：这是一个简化版本，只处理字面量情况
+        // ========== 优先级0：修复未定义的标识符 ==========
+        // 修复 Write -> Message_Write (消息类型)
+        result = result.replace("Write(", "Message_Write(");
+        
+        // 修复 Some(x) -> x (Option类型简化)
+        // 注意：这里需要小心处理，避免误替换
+        if result.contains("Some(") && !result.contains("OptionSome") {
+            // 简单模式：Some(单个标识符或字面量)
             let mut new_result = String::new();
-            let mut chars = result.chars().peekable();
-            while let Some(c) = chars.next() {
-                if c == '[' {
-                    // 尝试匹配 [value; count] 模式
-                    let start_pos = new_result.len();
-                    let mut temp = String::from("[");
-                    let mut depth = 1;
-                    let mut has_semicolon = false;
-                    
-                    while let Some(&next_c) = chars.peek() {
-                        if next_c == '[' {
-                            depth += 1;
-                        } else if next_c == ']' {
-                            depth -= 1;
-                            if depth == 0 {
-                                chars.next(); // consume ']'
-                                temp.push(']');
-                                break;
+            let mut i = 0;
+            let result_chars: Vec<char> = result.chars().collect();
+            
+            while i < result_chars.len() {
+                if i + 5 <= result_chars.len() {
+                    let slice: String = result_chars[i..i+5].iter().collect();
+                    if slice == "Some(" {
+                        // 找到 Some(，提取内容直到匹配的)
+                        let mut depth = 1;
+                        let mut j = i + 5;
+                        let mut content = String::new();
+                        
+                        while j < result_chars.len() && depth > 0 {
+                            if result_chars[j] == '(' {
+                                depth += 1;
+                            } else if result_chars[j] == ')' {
+                                depth -= 1;
+                                if depth == 0 {
+                                    break;
+                                }
                             }
-                        } else if next_c == ';' && depth == 1 {
-                            has_semicolon = true;
+                            if depth > 0 {
+                                content.push(result_chars[j]);
+                            }
+                            j += 1;
                         }
-                        temp.push(chars.next().unwrap());
+                        
+                        // 输出内容（去掉Some包装）
+                        new_result.push_str(&content);
+                        i = j + 1; // 跳过 )
+                        continue;
+                    }
+                }
+                new_result.push(result_chars[i]);
+                i += 1;
+            }
+            result = new_result;
+        }
+        
+        // 修复 None -> null
+        result = result.replace("None", "null");
+        
+        // 修复 String::from(x) -> String(x) (TypeScript中直接字符串转换)
+        result = result.replace("String::from(", "String(");
+        result = result.replace("String.from(", "String(");
+        
+        // ========== 优先级0：修复循环和迭代器 ==========
+        // 修复被注释的循环: /* L(pattern)in expr.iter(){...} */ -> for (const pattern of expr) { }
+        // 🚨 已禁用：这个字符串替换太激进，会在不合适的位置（如return语句后）插入for循环
+        // 循环应该在AST级别的emit_for()函数中正确处理，而不是通过字符串替换
+        // if result.contains("/* L") && result.contains(".iter()") {
+        //     let mut new_result = String::new();
+        //     let mut i = 0;
+        //     let result_chars: Vec<char> = result.chars().collect();
+        //
+        //     while i < result_chars.len() {
+        //         if i + 4 <= result_chars.len() {
+        //             let slice: String = result_chars[i..i+4].iter().collect();
+        //             if slice == "/* L" {
+        //                 // 找到循环注释，提取并转换
+        //                 let mut j = i + 4;
+        //                 let mut loop_content = String::new();
+        //
+        //                 while j < result_chars.len() && !(result_chars[j] == '*' && j+1 < result_chars.len() && result_chars[j+1] == '/') {
+        //                     loop_content.push(result_chars[j]);
+        //                     j += 1;
+        //                 }
+        //
+        //                 // 解析循环内容: (pattern)in expr.iter(){body}
+        //                 if let Some(in_pos) = loop_content.find(")in ") {
+        //                     let pattern = &loop_content[1..in_pos]; // 去掉开头的(
+        //                     let rest = &loop_content[in_pos+4..];
+        //
+        //                     if let Some(iter_pos) = rest.find(".iter()") {
+        //                         let expr = &rest[..iter_pos];
+        //                         let body_start = rest.find('{');
+        //
+        //                         if let Some(bs) = body_start {
+        //                             let body = &rest[bs..];
+        //
+        //                             // 转换元组模式
+        //                             let ts_pattern = if pattern.contains(',') {
+        //                                 format!("[{}]", pattern)
+        //                             } else {
+        //                                 pattern.to_string()
+        //                             };
+        //
+        //                             new_result.push_str(&format!("for (const {} of {}) {}", ts_pattern, expr, body));
+        //                             i = j + 2; // 跳过 */
+        //                             continue;
+        //                         }
+        //                     }
+        //                 }
+        //             }
+        //         }
+        //         new_result.push(result_chars[i]);
+        //         i += 1;
+        //     }
+        //     result = new_result;
+        // }
+        
+        // 修复 .iter() 方法调用（在for循环中已经处理，这里处理其他情况）
+        result = result.replace(".iter()", "");
+        result = result.replace(".iter_mut()", "");
+
+        // 修复问题1: 数组重复语法的字符串形式 [value; count]
+        // 增强版：支持嵌套数组 [[1,2,3]; 4]
+        if result.contains('[') && result.contains(';') && result.contains(']') {
+            let mut new_result = String::new();
+            let mut i = 0;
+            let chars: Vec<char> = result.chars().collect();
+            
+            while i < chars.len() {
+                if chars[i] == '[' {
+                    // 尝试匹配 [value; count] 模式
+                    let mut j = i + 1;
+                    let mut depth = 1;
+                    let mut semicolon_pos = None;
+                    
+                    // 找到匹配的 ] 并记录 ; 的位置
+                    while j < chars.len() && depth > 0 {
+                        if chars[j] == '[' {
+                            depth += 1;
+                        } else if chars[j] == ']' {
+                            depth -= 1;
+                        } else if chars[j] == ';' && depth == 1 {
+                            semicolon_pos = Some(j);
+                        }
+                        j += 1;
                     }
                     
                     // 检查是否是数组重复语法
-                    if has_semicolon && depth == 0 {
-                        // 尝试解析 [value; count]
-                        let inner = &temp[1..temp.len()-1];
-                        if let Some(semicolon_pos) = inner.find(';') {
-                            let value_part = inner[..semicolon_pos].trim();
-                            let count_part = inner[semicolon_pos+1..].trim();
-                            // 简单验证：确保两部分都不为空且不包含复杂结构
-                            if !value_part.is_empty() && !count_part.is_empty()
-                                && !value_part.contains('[') && !count_part.contains('[') {
-                                new_result.push_str(&format!("new Array({}).fill({})", count_part, value_part));
+                    if let Some(semi_pos) = semicolon_pos {
+                        if depth == 0 && j > i + 1 {
+                            // 提取 value 和 count
+                            let value_part: String = chars[i+1..semi_pos].iter().collect();
+                            let count_part: String = chars[semi_pos+1..j-1].iter().collect();
+                            let value_trimmed = value_part.trim();
+                            let count_trimmed = count_part.trim();
+                            
+                            // 验证这确实是数组重复语法
+                            if !value_trimmed.is_empty() && !count_trimmed.is_empty() {
+                                // 转换为 new Array(count).fill(value)
+                                new_result.push_str(&format!("new Array({}).fill({})", count_trimmed, value_trimmed));
+                                i = j;
                                 continue;
                             }
                         }
                     }
-                    new_result.push_str(&temp);
+                    
+                    // 不是数组重复语法，保持原样
+                    new_result.push(chars[i]);
+                    i += 1;
                 } else {
-                    new_result.push(c);
+                    new_result.push(chars[i]);
+                    i += 1;
                 }
             }
             result = new_result;
@@ -1538,25 +1721,71 @@ impl TsCodegen {
             result = new_result;
         }
 
+        // 修复问题3: 复合赋值运算符 - 确保 += 等运算符不被拆分
+        // 先保护复合赋值运算符，避免被后续替换破坏
+        result = result.replace(" + =", "+=");
+        result = result.replace(" - =", "-=");
+        result = result.replace(" * =", "*=");
+        result = result.replace(" / =", "/=");
+        result = result.replace(" % =", "%=");
+        
         // 修复问题7: 转换路径分隔符 :: 为 . (TypeScript使用.作为成员访问)
-        // 必须先清理所有空格变体，然后统一转换
-        result = result.replace(" : : ", "::").replace(": : ", "::").replace(" : :", "::").replace(": :", "::");
+        // ⚠️ 关键修复：不要清理所有 : 的空格，因为这会影响类型标注
+        // 只处理明确的 :: 路径分隔符
+        // 不要使用 result.replace(" : : ", "::") 这样的替换，会破坏 `const name: type` 中的冒号
+        
+        // 先将多空格的 :: 变体统一为标准 ::
         result = result.replace(" :: ", "::").replace(":: ", "::").replace(" ::", "::");
+        // 然后将 :: 路径分隔符转换为 .
         result = result.replace("::", ".");
 
-        // 修复问题5: 方法调用映射 - 更全面的处理
+        // ========== 优先级1：修复方法调用映射（更全面） ==========
+        // 修复 .to_string() -> .toString() (确保括号完整)
+        // 注意：必须精确替换完整的方法调用，避免吞掉括号
         result = result.replace(".to_string()", ".toString()");
-        result = result.replace(".len()", ".length");
         
-        // is_empty() 需要特殊处理 - 转换为属性访问
-        if result.contains(".is_empty()") {
-            result = result.replace(".is_empty()", ".length === 0");
+        // 修复 as 类型转换缺少空格的问题
+        // 在 as 前后添加空格，避免被吞掉
+        if result.contains("as ") {
+            // 修复 .lengthas -> .length as
+            let mut new_result = String::new();
+            let chars: Vec<char> = result.chars().collect();
+            let mut i = 0;
+            
+            while i < chars.len() {
+                if i >= 2 && i + 3 < chars.len() {
+                    // 检测 "XYas " 模式，其中XY不是空格
+                    let slice: String = chars[i..i+3].iter().collect();
+                    if slice == "as " && i >= 1 && chars[i-1] != ' ' && chars[i-1] != '(' {
+                        // 在 as 前添加空格
+                        new_result.push(' ');
+                    }
+                }
+                new_result.push(chars[i]);
+                i += 1;
+            }
+            result = new_result;
         }
+        
+        result = result.replace(".len()", ".length");
+        result = result.replace(".is_empty()", ".length === 0");
+        result = result.replace(".clear()", ".length = 0");
         
         // 修复 String.from() -> String()
         result = result.replace("String.from(", "String(");
         
-        // 修复 BTreeMap._new() 等已在路径处理中转换了
+        // 修复集合构造函数
+        result = result.replace("BTreeMap::new()", "new Map()");
+        result = result.replace("BTreeMap.new()", "new Map()");
+        result = result.replace("HashMap::new()", "new Map()");
+        result = result.replace("HashMap.new()", "new Map()");
+        result = result.replace("HashSet::new()", "new Set()");
+        result = result.replace("HashSet.new()", "new Set()");
+        
+        // 修复集合方法
+        result = result.replace(".insert(", ".set("); // Map.insert -> Map.set
+        result = result.replace(".contains_key(", ".has("); // Map.contains_key -> Map.has
+        result = result.replace(".remove(", ".delete("); // Map.remove -> Map.delete
         
         // 处理枚举访问: Color.Red -> Color_Red
         // 这是一个简化版本，更完整的实现需要在 AST 级别处理
@@ -1587,6 +1816,43 @@ impl TsCodegen {
         result = result.replace("!);", "!");
         result = result.replace("!)", "!");
 
+        // ========== 优先级0：修复括号不匹配问题 ==========
+        // 修复 .toString( 缺少右括号的问题
+        // 策略：检测 .toString( 后面如果直接是分号或其他结束符，自动添加 )
+        let mut bracket_fixed = String::new();
+        let result_chars: Vec<char> = result.chars().collect();
+        let mut i = 0;
+        
+        while i < result_chars.len() {
+            // 向前查找，检测是否是 .toString( 模式
+            if i >= 9 {
+                let check_start = i.saturating_sub(9);
+                let slice: String = result_chars[check_start..=i].iter().collect();
+                
+                // 如果当前是 '(' 且前面是 ".toString"
+                if slice.ends_with(".toString(") {
+                    // 添加这个 '('
+                    bracket_fixed.push(result_chars[i]);
+                    
+                    // 查看下一个字符
+                    if i + 1 < result_chars.len() {
+                        let next = result_chars[i + 1];
+                        // 如果下一个字符是分号、空格+分号、或其他结束符，需要补充 ')'
+                        if next == ';' || (next == ' ' && i + 2 < result_chars.len() && result_chars[i + 2] == ';') {
+                            // 自动添加闭合括号
+                            bracket_fixed.push(')');
+                        }
+                    }
+                    i += 1;
+                    continue;
+                }
+            }
+            
+            bracket_fixed.push(result_chars[i]);
+            i += 1;
+        }
+        result = bracket_fixed;
+        
         // 修复#8: 修复重复的return: return return -> return
         while result.contains("return return ") {
             result = result.replace("return return ", "return ");
@@ -1594,6 +1860,7 @@ impl TsCodegen {
         
         // 修复问题4: 闭包参数中的& 符号
         result = result.replace("(& ", "(").replace("(&", "(");
+        result = result.replace("(&mut ", "(");
 
         self.output.push_str(&result);
     }

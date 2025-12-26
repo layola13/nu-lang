@@ -157,6 +157,12 @@
                 <span class="self-center text-2xl font-semibold whitespace-nowrap tracking-tight text-nu-900">Nu-lang</span>
             </a>
             <div class="flex md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse items-center gap-3">
+                <!-- Language Toggle Button -->
+                <button id="lang-toggle" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Toggle language">
+                    <span class="lang-en text-sm font-medium text-gray-600">中文</span>
+                    <span class="lang-zh hidden text-sm font-medium text-gray-600">EN</span>
+                </button>
+                
                 <!-- Theme Toggle Button -->
                 <button id="theme-toggle" class="theme-toggle p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors" aria-label="Toggle theme">
                     <i data-lucide="sun" class="w-5 h-5 text-gray-600 dark:text-gray-300 hidden dark:block"></i>
@@ -179,15 +185,31 @@
                     class="flex flex-col p-4 md:p-0 mt-4 font-medium border border-gray-200 rounded-lg bg-gray-50 md:space-x-8 rtl:space-x-reverse md:flex-row md:mt-0 md:border-0 md:bg-transparent">
                     <li>
                         <a href="#features"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">Features</a>
+                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">
+                            <span class="lang-en">Features</span>
+                            <span class="lang-zh hidden">特性</span>
+                        </a>
                     </li>
                     <li>
                         <a href="#docs"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">Docs</a>
+                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">
+                            <span class="lang-en">Docs</span>
+                            <span class="lang-zh hidden">文档</span>
+                        </a>
+                    </li>
+                    <li>
+                        <a href="#faq"
+                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">
+                            <span class="lang-en">FAQ</span>
+                            <span class="lang-zh hidden">常见问题</span>
+                        </a>
                     </li>
                     <li>
                         <a href="#playground"
-                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">Playground</a>
+                            class="block py-2 px-3 text-gray-700 rounded hover:bg-gray-100 md:hover:bg-transparent md:hover:text-nu-500 md:p-0 transition-colors">
+                            <span class="lang-en">Playground</span>
+                            <span class="lang-zh hidden">演练场</span>
+                        </a>
                     </li>
                     <li>
                         <a href="https://github.com/layola13/nu-lang" target="_blank"
@@ -225,13 +247,20 @@
                 </span>
                 <h1
                     class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-nu-900 via-nu-600 to-nu-500">
-                    Write Less. <span class="text-transparent bg-clip-text bg-gradient-to-r from-nu-500 to-nu-600">Do
-                        More.</span>
+                    <span class="lang-en">Write code like you write thoughts.</span>
+                    <span class="lang-zh hidden">像写作一样写代码</span>
                 </h1>
                 <p class="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto mb-8">
-                    A high-density dialect of Rust designed for AI-Native systems programming.
-                    <br class="hidden md:block">
-                    100% Rust compatibility with 50% less boilerplate.
+                    <span class="lang-en">
+                        Nu is inspired by the era when programmers wrote code by hand, understood every line, and enjoyed the process.
+                        <br class="hidden md:block">
+                        <strong>No ceremony. No unnecessary abstraction.</strong> Just clear intent.
+                    </span>
+                    <span class="lang-zh hidden">
+                        Nu 受到手写代码时代的启发，那时程序员理解每一行代码，享受编程过程。
+                        <br class="hidden md:block">
+                        <strong>没有繁文缛节，没有不必要的抽象。</strong>只有清晰的意图。
+                    </span>
                 </p>
                 <div class="flex flex-col sm:flex-row justify-center gap-4">
                     <a href="#quick-start"
@@ -266,27 +295,39 @@
                                 <!-- Philosophy 1 -->
                                 <div class="bg-nu-50 p-6 rounded-xl border border-nu-200">
                                     <div class="text-3xl mb-3">🎯</div>
-                                    <h4 class="font-bold text-nu-900 mb-2">High Density (The Curl)</h4>
+                                    <h4 class="font-bold text-nu-900 mb-2">
+                                        <span class="lang-en">High Density (The Curl)</span>
+                                        <span class="lang-zh hidden">高密度（蜷缩）</span>
+                                    </h4>
                                     <p class="text-sm text-gray-600">
-                                        When needed, a pangolin curls into a tight, compact ball. This is the perfect visual metaphor for Nu-lang's mission: <strong>compressing verbose boilerplate</strong> into high-density, efficient logic.
+                                        <span class="lang-en">When needed, a pangolin curls into a tight, compact ball. This is the perfect visual metaphor for Nu-lang's mission: <strong>compressing verbose boilerplate</strong> into high-density, efficient logic.</span>
+                                        <span class="lang-zh hidden">在需要时，穿山甲会蜷缩成紧凑的球。这是 Nu-lang 使命的完美视觉隐喻：<strong>将冗长的样板代码压缩</strong>为高密度、高效的逻辑。</span>
                                     </p>
                                 </div>
 
                                 <!-- Philosophy 2 -->
                                 <div class="bg-nu-50 p-6 rounded-xl border border-nu-200">
                                     <div class="text-3xl mb-3">🛡️</div>
-                                    <h4 class="font-bold text-nu-900 mb-2">Armored Safety (The Scales)</h4>
+                                    <h4 class="font-bold text-nu-900 mb-2">
+                                        <span class="lang-en">AI-friendly: Designed for AI collaboration</span>
+                                        <span class="lang-zh hidden">AI 友好：为 AI 协作而设计</span>
+                                    </h4>
                                     <p class="text-sm text-gray-600">
-                                        Just as Rust's mascot <em>Ferris the Crab</em> is protected by a shell, Pango is protected by tough, overlapping scales. This represents that Nu-lang inherits <strong>100% of Rust's memory safety guarantees</strong>.
+                                        <span class="lang-en">Modern languages are optimized for compilers. Nu is optimized for humans and AI. <strong>Less syntax noise, fewer tokens, more predictable structure.</strong> This makes LLMs faster, cheaper, and more reliable.</span>
+                                        <span class="lang-zh hidden">现代语言针对编译器优化。Nu 针对人类和 AI 优化。<strong>更少的语法噪音，更少的 token，更可预测的结构。</strong>这使 LLM 更快、更便宜、更可靠。</span>
                                     </p>
                                 </div>
 
                                 <!-- Philosophy 3 -->
                                 <div class="bg-nu-50 p-6 rounded-xl border border-nu-200">
                                     <div class="text-3xl mb-3">⚙️</div>
-                                    <h4 class="font-bold text-nu-900 mb-2">Unique Structure</h4>
+                                    <h4 class="font-bold text-nu-900 mb-2">
+                                        <span class="lang-en">Less waste: Efficiency by design</span>
+                                        <span class="lang-zh hidden">更少浪费：设计即效率</span>
+                                    </h4>
                                     <p class="text-sm text-gray-600">
-                                        The geometric arrangement of its scales reflects the structured, engineered nature of our syntax.
+                                        <span class="lang-en">Every unnecessary token costs energy. Every redundant abstraction increases computation. <strong>Nu reduces waste at the language level</strong> — by making code smaller, clearer, and easier to reason about.</span>
+                                        <span class="lang-zh hidden">每个不必要的 token 都消耗能源。每个冗余的抽象都增加计算。<strong>Nu 在语言层面减少浪费</strong> —— 让代码更小、更清晰、更易理解。</span>
                                     </p>
                                 </div>
                             </div>
@@ -808,6 +849,126 @@ f main() {
         </div>
     </section>
 
+    <!-- FAQ Section -->
+    <section id="faq" class="py-20 bg-white">
+        <div class="max-w-7xl mx-auto px-4">
+            <div class="text-center mb-16">
+                <h2 class="text-4xl md:text-5xl font-extrabold text-nu-900 mb-4">
+                    <span class="lang-en">Frequently Asked Questions</span>
+                    <span class="lang-zh hidden">常见问题</span>
+                </h2>
+                <p class="text-lg text-gray-600">
+                    <span class="lang-en">Everything you need to know about Nu Language</span>
+                    <span class="lang-zh hidden">关于 Nu 语言的一切</span>
+                </p>
+            </div>
+
+            <div class="max-w-3xl mx-auto space-y-4">
+                <!-- FAQ 1 -->
+                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="faq-question w-full text-left p-6 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-nu-900">
+                            <span class="lang-en">What is Nu Language?</span>
+                            <span class="lang-zh hidden">什么是 Nu 语言？</span>
+                        </h3>
+                        <i data-lucide="chevron-down" class="w-5 h-5 text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                        <p class="text-gray-600">
+                            <span class="lang-en">Nu is a high-density dialect of Rust. It removes syntactic noise, reduces token usage, and lets you focus on intent and structure. Nu is not a new runtime or scripting language—it's a better way to write Rust with 100% compatibility.</span>
+                            <span class="lang-zh hidden">Nu 是 Rust 的高密度方言。它消除了语法噪音，减少了 token 使用量，让你专注于意图和结构。Nu 不是新的运行时或脚本语言——它是书写 Rust 的更好方式，具有 100% 兼容性。</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 2 -->
+                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="faq-question w-full text-left p-6 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-nu-900">
+                            <span class="lang-en">Why is Nu "AI-friendly"?</span>
+                            <span class="lang-zh hidden">为什么 Nu 是"AI 友好"的？</span>
+                        </h3>
+                        <i data-lucide="chevron-down" class="w-5 h-5 text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                        <p class="text-gray-600">
+                            <span class="lang-en">Modern languages are optimized for compilers. Nu is optimized for humans and AI. With less syntax noise, fewer tokens, and more predictable structure, LLMs can generate Nu code faster, cheaper, and more reliably than traditional Rust.</span>
+                            <span class="lang-zh hidden">现代语言针对编译器优化。Nu 针对人类和 AI 优化。通过更少的语法噪音、更少的 token 和更可预测的结构，LLM 可以比传统 Rust 更快、更便宜、更可靠地生成 Nu 代码。</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 3 -->
+                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="faq-question w-full text-left p-6 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-nu-900">
+                            <span class="lang-en">Is Nu compatible with Rust?</span>
+                            <span class="lang-zh hidden">Nu 与 Rust 兼容吗？</span>
+                        </h3>
+                        <i data-lucide="chevron-down" class="w-5 h-5 text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                        <p class="text-gray-600">
+                            <span class="lang-en">Yes! Nu has 100% Rust compatibility with bidirectional transpiling. You can convert Nu code to Rust and Rust code to Nu seamlessly. All Rust safety guarantees, tooling, and ecosystem benefits are preserved.</span>
+                            <span class="lang-zh hidden">是的！Nu 具有 100% Rust 兼容性和双向转译。你可以无缝地将 Nu 代码转换为 Rust，将 Rust 代码转换为 Nu。所有 Rust 的安全保证、工具和生态系统优势都得以保留。</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 4 -->
+                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="faq-question w-full text-left p-6 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-nu-900">
+                            <span class="lang-en">What does "Nu is not a new runtime" mean?</span>
+                            <span class="lang-zh hidden">"Nu 不是新运行时"是什么意思？</span>
+                        </h3>
+                        <i data-lucide="chevron-down" class="w-5 h-5 text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                        <p class="text-gray-600">
+                            <span class="lang-en">Nu is Rust's "writing layer." It transpiles to standard Rust code, which means you get all of Rust's performance, memory safety, and ecosystem—without learning a completely new language or runtime environment.</span>
+                            <span class="lang-zh hidden">Nu 是 Rust 的"书写层"。它转译为标准 Rust 代码，这意味着你可以获得 Rust 的所有性能、内存安全和生态系统——而无需学习全新的语言或运行时环境。</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 5 -->
+                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="faq-question w-full text-left p-6 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-nu-900">
+                            <span class="lang-en">What's the current status of Nu?</span>
+                            <span class="lang-zh hidden">Nu 的当前状态如何？</span>
+                        </h3>
+                        <i data-lucide="chevron-down" class="w-5 h-5 text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                        <p class="text-gray-600">
+                            <span class="lang-en">Nu is in active development with stable v1.6.4 release. We're currently testing with 10+ real-world Rust open source libraries (50% complete) and working toward Bevy game engine support. The project has surpassed 90% of custom language projects by entering the engineering validation phase.</span>
+                            <span class="lang-zh hidden">Nu 正在积极开发中，已发布稳定版 v1.6.4。我们目前正在使用 10+ 个真实的 Rust 开源库进行测试（完成 50%），并致力于支持 Bevy 游戏引擎。该项目已超过 90% 的自制语言项目，进入工程验证阶段。</span>
+                        </p>
+                    </div>
+                </div>
+
+                <!-- FAQ 6 -->
+                <div class="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                    <button class="faq-question w-full text-left p-6 hover:bg-gray-50 transition-colors flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-nu-900">
+                            <span class="lang-en">How does Nu reduce "waste"?</span>
+                            <span class="lang-zh hidden">Nu 如何减少"浪费"？</span>
+                        </h3>
+                        <i data-lucide="chevron-down" class="w-5 h-5 text-gray-500 transition-transform"></i>
+                    </button>
+                    <div class="faq-answer hidden px-6 pb-6">
+                        <p class="text-gray-600">
+                            <span class="lang-en">Every unnecessary token costs energy. Every redundant abstraction increases computation. Nu reduces waste at the language level by making code smaller, clearer, and easier to reason about. This isn't just a philosophy—it's an engineering fact.</span>
+                            <span class="lang-zh hidden">每个不必要的 token 都消耗能源。每个冗余的抽象都增加计算。Nu 在语言层面通过让代码更小、更清晰、更易理解来减少浪费。这不仅仅是一种理念——这是工程事实。</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- Footer -->
     <footer class="bg-nu-900 border-t border-nu-900 pt-16 pb-8">
         <div class="max-w-7xl mx-auto px-4">
@@ -933,8 +1094,66 @@ transition-colors">Documentation</a></li>
             }, 600);
         }
 
-        // Run initial mock compilation
-        window.addEventListener('load', compileMock);
+        // Language Toggle Function
+        function setLanguage(lang) {
+            const html = document.documentElement;
+            html.setAttribute('lang', lang);
+            
+            // Hide all language elements
+            document.querySelectorAll('.lang-en, .lang-zh').forEach(el => {
+                el.classList.add('hidden');
+            });
+            
+            // Show only selected language elements
+            const showClass = lang === 'en' ? '.lang-en' : '.lang-zh';
+            document.querySelectorAll(showClass).forEach(el => {
+                el.classList.remove('hidden');
+            });
+        }
+
+        // Initialize everything after page load
+        window.addEventListener('load', () => {
+            // Run initial mock compilation
+            compileMock();
+            
+            // Re-initialize lucide icons
+            lucide.createIcons();
+            
+            // Language Toggle Setup
+            const langToggle = document.getElementById('lang-toggle');
+            const savedLang = localStorage.getItem('nu-lang-preference') || 'en';
+            setLanguage(savedLang);
+            
+            if (langToggle) {
+                langToggle.addEventListener('click', () => {
+                    const html = document.documentElement;
+                    const currentLang = html.getAttribute('lang') || 'en';
+                    const newLang = currentLang === 'en' ? 'zh' : 'en';
+                    setLanguage(newLang);
+                    localStorage.setItem('nu-lang-preference', newLang);
+                });
+            }
+            
+            // FAQ Accordion Setup
+            document.querySelectorAll('.faq-question').forEach(button => {
+                button.addEventListener('click', () => {
+                    const answer = button.nextElementSibling;
+                    const icon = button.querySelector('[data-lucide="chevron-down"]');
+                    
+                    // Toggle answer visibility
+                    answer.classList.toggle('hidden');
+                    
+                    // Rotate icon
+                    if (icon) {
+                        if (answer.classList.contains('hidden')) {
+                            icon.style.transform = 'rotate(0deg)';
+                        } else {
+                            icon.style.transform = 'rotate(180deg)';
+                        }
+                    }
+                });
+            });
+        });
     </script>
 </body>
 
