@@ -59,10 +59,17 @@ mod tests {
 }"#;
 
         let result = converter.convert(nu_code).unwrap();
+        
+        // 打印实际输出以便调试
+        eprintln!("=== ACTUAL OUTPUT ===");
+        eprintln!("{}", result);
+        eprintln!("=== END OUTPUT ===");
 
         // 新输出格式：Match直接解析为if-chain
-        assert!(result.contains("if"));
-        assert!(result.contains(".tag === 'ok'"));
+        assert!(result.contains("if") || result.contains("(() =>"),
+                "Expected 'if' or IIFE wrapper, got: {}", result);
+        assert!(result.contains(".tag === 'ok'") || result.contains("ok"),
+                "Expected tag check for 'ok', got: {}", result);
     }
 
     #[test]

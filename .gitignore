@@ -10,3 +10,4 @@ temp_*/
 *node_modules/
 *out/
 *.map
+test_tokio_nu/

@@ -697,6 +697,13 @@ leading-relaxed">
                     View Full Specification on deepwiki <i data-lucide="arrow-right" class="w-4 h-4"></i>
                 </a>
             </div>
+
+            <div class="text-center mt-12">
+                <a href="https://zread.ai/layola13/nu-lang" target="_blank"
+                    class="inline-flex items-center gap-2 text-nu-500 hover:text-nu-600 font-medium transition-colors">
+                    View Full Specification on zread<i data-lucide="arrow-right" class="w-4 h-4"></i>
+                </a>
+            </div>
         </div>
     </section>
 
@@ -1113,8 +1120,8 @@ transition-colors">Documentation</a></li>
 
         // Initialize everything after page load
         window.addEventListener('load', () => {
-            // Run initial mock compilation
-            compileMock();
+            // Don't run compilation automatically to avoid performance issues
+            // compileMock();
             
             // Re-initialize lucide icons
             lucide.createIcons();

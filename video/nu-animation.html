@@ -1,0 +1,376 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nu Language - Write Code Like You Write Thoughts</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- GSAP 动画库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    
+    <style>
+        body {
+            background-color: #0d1117;
+            overflow: hidden;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+
+        /* 场景容器 */
+        .scene {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 编辑器样式 */
+        .editor-container {
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            border: 1px solid #30363d;
+        }
+
+        .code-line {
+            opacity: 0;
+            white-space: pre;
+            line-height: 1.6;
+            font-size: 14px;
+        }
+
+        /* Rust 语法高亮 */
+        .kwd { color: #ff7b72; }
+        .typ { color: #79c0ff; }
+        .fn { color: #d2a8ff; }
+        .str { color: #a5d6ff; }
+        .punc { color: #c9d1d9; }
+
+        /* 警告印章 */
+        .stamp-box {
+            border: 8px solid #ff4444;
+            color: #ff4444;
+            text-transform: uppercase;
+            font-family: 'Impact', sans-serif;
+            letter-spacing: 4px;
+            transform: rotate(-15deg) scale(3);
+            opacity: 0;
+            mix-blend-mode: hard-light;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(2px);
+        }
+
+        /* 穿山甲动画 */
+        .pangolin {
+            width: 120px;
+            height: 120px;
+            font-size: 100px;
+            opacity: 0;
+            filter: drop-shadow(0 0 20px rgba(255,136,0,0.5));
+        }
+
+        /* 分屏效果 */
+        .split-screen {
+            width: 50%;
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 橙色光效 */
+        .orange-glow {
+            position: absolute;
+            width: 2px;
+            height: 100%;
+            background: linear-gradient(to bottom, 
+                transparent 0%, 
+                #ff8800 20%, 
+                #ff8800 80%, 
+                transparent 100%);
+            box-shadow: 0 0 40px #ff8800, 0 0 80px #ff8800;
+            left: 50%;
+            transform: translateX(-50%);
+            opacity: 0;
+        }
+
+        /* Token 粒子 */
+        .token-particle {
+            position: absolute;
+            width: 60px;
+            height: 30px;
+            background: linear-gradient(135deg, #ff8800, #ffaa00);
+            border-radius: 15px;
+            opacity: 0;
+            font-size: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 0 10px rgba(255,136,0,0.8);
+        }
+
+        /* Logo 呼吸效果 */
+        .logo-container {
+            opacity: 0;
+            filter: drop-shadow(0 0 30px rgba(255,136,0,0.6));
+        }
+
+        .breathing {
+            animation: breathe 3s ease-in-out infinite;
+        }
+
+        @keyframes breathe {
+            0%, 100% { filter: drop-shadow(0 0 20px rgba(255,136,0,0.4)); }
+            50% { filter: drop-shadow(0 0 40px rgba(255,136,0,0.8)); }
+        }
+
+        /* 按钮样式 */
+        .cta-button {
+            opacity: 0;
+            background: linear-gradient(135deg, #ff8800, #ff6600);
+            padding: 16px 48px;
+            border-radius: 30px;
+            color: white;
+            font-size: 20px;
+            font-weight: bold;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(255,136,0,0.5);
+            transition: all 0.3s;
+        }
+
+        .cta-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(255,136,0,0.7);
+        }
+
+        /* 文字发光 */
+        .glow-text {
+            text-shadow: 0 0 20px rgba(255,255,255,0.8);
+        }
+
+        /* 图表样式 */
+        .chart-bar {
+            opacity: 0;
+            transform-origin: bottom;
+        }
+
+        /* 传输管道 */
+        .pipeline {
+            position: absolute;
+            width: 100%;
+            height: 4px;
+            background: linear-gradient(to right, 
+                transparent 0%, 
+                #ff8800 50%, 
+                transparent 100%);
+            opacity: 0;
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d1117;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 4px;
+        }
+
+        /* Nu 语法高亮 */
+        .nu-kwd { color: #ff8800; }
+        .nu-typ { color: #79c0ff; }
+    </style>
+</head>
+<body>
+
+    <!-- Scene 1: 认知的重负 (0-5s) -->
+    <div id="scene1" class="scene">
+        <div class="w-full max-w-4xl h-[80vh] flex flex-col items-center justify-center">
+            <div class="editor-container w-full h-full bg-[#161b22] rounded-lg overflow-hidden flex flex-col relative">
+                <!-- 顶部栏 -->
+                <div class="h-8 bg-[#0d1117] border-b border-[#30363d] flex items-center px-4 space-x-2">
+                    <div class="w-3 h-3 rounded-full bg-[#ff5f56]"></div>
+                    <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+                    <div class="w-3 h-3 rounded-full bg-[#27c93f]"></div>
+                    <span class="ml-4 text-xs text-gray-400 font-sans">lib.rs — standard_rust</span>
+                </div>
+                
+                <!-- 代码区域 -->
+                <div id="code-area1" class="flex-1 p-6 overflow-hidden text-[#c9d1d9] font-mono text-sm relative">
+                    <div id="code-content1"></div>
+                </div>
+                
+                <!-- 假滚动条 -->
+                <div id="fake-scrollbar1" class="absolute right-1 top-8 w-2 bg-[#30363d] rounded opacity-0"></div>
+            </div>
+            
+            <!-- 字幕 -->
+            <div id="subtitle1" class="absolute text-white text-4xl font-bold opacity-0 glow-text">
+                Standard Rust is Powerful...
+            </div>
+            
+            <!-- 警告 -->
+            <div id="warning1" class="absolute opacity-0 flex flex-col items-center justify-center pointer-events-none">
+                <div class="stamp-box px-8 py-4 text-6xl font-black rounded-lg shadow-[0_0_30px_#ff0000]">
+                    VERBOSE
+                </div>
+                <div class="text-red-400 font-mono mt-4 text-lg bg-black/80 px-4 py-2 tracking-widest">
+                    BOILERPLATE OVERLOAD
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scene 2: 压缩的渴望 (5-10s) -->
+    <div id="scene2" class="scene">
+        <div class="relative w-full h-full flex items-center justify-center">
+            <!-- 代码块背景 -->
+            <div id="code-blocks" class="absolute grid grid-cols-3 gap-4 opacity-30">
+                <div class="w-32 h-24 bg-[#161b22] rounded border border-[#30363d]"></div>
+                <div class="w-32 h-24 bg-[#161b22] rounded border border-[#30363d]"></div>
+                <div class="w-32 h-24 bg-[#161b22] rounded border border-[#30363d]"></div>
+            </div>
+            
+            <!-- 穿山甲 -->
+            <div id="pangolin" class="pangolin absolute">
+                🦡
+            </div>
+            
+            <!-- 字幕 -->
+            <div id="subtitle2" class="absolute bottom-32 text-white text-3xl font-bold opacity-0 glow-text">
+                But why so much noise?
+            </div>
+        </div>
+    </div>
+
+    <!-- Scene 3: 核心转化 (10-18s) -->
+    <div id="scene3" class="scene">
+        <div class="w-full h-full flex relative">
+            <!-- 左侧：Rust 代码 -->
+            <div class="split-screen bg-[#0d1117] flex items-center justify-center">
+                <div class="w-[90%] h-[80%] bg-[#161b22] rounded-lg p-6 overflow-hidden border border-[#30363d]">
+                    <div class="text-xs text-gray-400 mb-4 font-sans">Rust (Standard)</div>
+                    <div id="rust-code" class="text-[#c9d1d9] font-mono text-sm space-y-2"></div>
+                </div>
+            </div>
+            
+            <!-- 橙色光效 -->
+            <div id="orange-light" class="orange-glow"></div>
+            
+            <!-- 右侧：Nu 代码 -->
+            <div class="split-screen bg-[#0d1117] flex items-center justify-center">
+                <div class="w-[90%] h-[80%] bg-[#161b22] rounded-lg p-6 overflow-hidden border border-[#ff8800]">
+                    <div class="text-xs text-[#ff8800] mb-4 font-sans">Nu (High Density)</div>
+                    <div id="nu-code" class="text-[#c9d1d9] font-mono text-sm space-y-2"></div>
+                </div>
+            </div>
+            
+            <!-- 标题 -->
+            <div id="subtitle3" class="absolute top-20 left-1/2 transform -translate-x-1/2 text-[#ff8800] text-4xl font-bold opacity-0 glow-text">
+                High Density Syntax
+            </div>
+            
+            <!-- 压缩统计 -->
+            <div id="compression-stats" class="absolute bottom-20 left-1/2 transform -translate-x-1/2 text-white text-2xl font-bold opacity-0">
+                <span class="text-red-400">100 lines</span> → <span class="text-green-400">50 lines</span>
+                <span class="text-[#ff8800] ml-4">50% compression</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scene 4: AI 与速度 (18-25s) -->
+    <div id="scene4" class="scene">
+        <div class="w-full h-full flex flex-col items-center justify-center relative">
+            <!-- 管道背景 -->
+            <div class="absolute w-full h-full overflow-hidden">
+                <div id="pipeline1" class="pipeline" style="top: 30%;"></div>
+                <div id="pipeline2" class="pipeline" style="top: 50%;"></div>
+                <div id="pipeline3" class="pipeline" style="top: 70%;"></div>
+            </div>
+            
+            <!-- Token 容器 -->
+            <div id="token-container" class="relative w-full h-64"></div>
+            
+            <!-- 标题 -->
+            <div id="subtitle4" class="text-white text-4xl font-bold mb-16 opacity-0 glow-text">
+                Optimized for AI & Humans
+            </div>
+            
+            <!-- 图表对比 -->
+            <div id="chart" class="flex items-end space-x-16 mt-16">
+                <div class="flex flex-col items-center">
+                    <div id="bar1" class="chart-bar w-24 bg-red-500" style="height: 200px;"></div>
+                    <div class="text-white mt-4 text-xl font-bold">Rust: 100 tokens</div>
+                </div>
+                <div class="flex flex-col items-center">
+                    <div id="bar2" class="chart-bar w-24 bg-green-500" style="height: 100px;"></div>
+                    <div class="text-white mt-4 text-xl font-bold">Nu: 50 tokens</div>
+                </div>
+            </div>
+            
+            <!-- 优势说明 -->
+            <div id="benefits" class="absolute bottom-20 text-center opacity-0">
+                <div class="text-[#ff8800] text-2xl font-bold mb-2">⚡ Faster Inference</div>
+                <div class="text-white text-xl">💰 Lower Cost  •  🚀 Better Performance</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scene 5: 最终号召 (25-30s) -->
+    <div id="scene5" class="scene">
+        <div class="w-full h-full flex flex-col items-center justify-center relative">
+            <!-- Logo -->
+            <div id="logo" class="logo-container mb-12">
+                <img src="../logos/logo_scale.png" alt="Nu Logo" class="w-64 h-64 object-contain">
+            </div>
+            
+            <!-- 标语 -->
+            <div id="tagline" class="text-white text-5xl font-bold mb-12 opacity-0 glow-text text-center">
+                Write code like you write thoughts.
+            </div>
+            
+            <!-- 按钮 -->
+            <button id="cta" class="cta-button">
+                Get Started →
+            </button>
+            
+            <!-- 装饰粒子 -->
+            <div class="absolute inset-0 pointer-events-none opacity-20" 
+                 style="background-image: radial-gradient(#ff8800 1px, transparent 1px); background-size: 30px 30px;">
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 生成冗长的 Rust 代码
+        function generateVerboseRust() {
+            const fields = [
+                'connection_pool', 'timeout_settings', 'retry_strategy', 'buffer_size',
+                'max_connections', 'keep_alive', 'tls_config', 'proxy_settings',
+                'user_agent', 'encoding', 'compression', 'metrics_collector'
+            ];
+            
+            let html = '';
+            html += `<div class="code-line"><span class="kwd">pub struct</span> <span class="typ">SystemConfig</span> {</div>`;
+            fields.forEach(f => {
+                html += `<div class="code-line">    <span class="kwd">pub</span> ${f}: <span class="typ">Option</span>&lt;<span class="typ">u64</span>&gt;,</div>`;
+            });
+            html += `<div class="code-line">}</div><div class="code-line"><br></div>`;
+            
+            html += `<div class="code-line"><span class="kwd">impl</span> <span class="typ">SystemConfig</span> {</div>`;
+            html += `<div class="code-line">    <span class="kwd">pub fn</span> <span class="fn">new</span>() -> <span class="typ">Self</span> {</div>`;
+            html += `<div class="code-line">        <span class="typ">Self</span> {</div>`;
+            fields.forEach(f => {
+                html += `<div class="code-line">            ${f}: <span class="kwd">None</span>,</div>`;
+            });
+            html += `<div class="code-line">        }</div>`;
+            html += `<div class="code-line">    }</div>`;
+            html += 

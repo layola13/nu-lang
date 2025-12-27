@@ -1,0 +1,200 @@
+=== FAILED: closures.ts ===
+136 | function apply<F>(f: F, x: number): i32 F : Fn (i32) -> i32, {
+                                              ^
+error: Expected ";" but found "F"
+    at /home/sonygod/projects/nu/temp_examples_ts/closures.ts:136:41
+
+
+=== FAILED: complex-chain-test.ts ===
+67 |  const _m1 = numbers.take(4).reduce(( acc, x ) => if acc> x;
+                                                       ^
+error: Unexpected if
+    at /home/sonygod/projects/nu/temp_examples_ts/complex-chain-test.ts:67:51
+
+
+=== FAILED: error-handling.ts ===
+77 |  return isuser);
+                   ^
+error: Expected ";" but found ")"
+    at /home/sonygod/projects/nu/temp_examples_ts/error-handling.ts:77:15
+
+
+=== FAILED: iterators.ts ===
+128 |  console.log(`全是正数: ${(numbers.all((x ) => x> 0)}`);
+                                                      ^
+error: Expected ")" but found "}"
+    at /home/sonygod/projects/nu/temp_examples_ts/iterators.ts:128:49
+
+
+=== FAILED: macros.ts ===
+95 | (/*$x*/, $(/*$y*/),+) => {;
+            ^
+error: Unexpected ,
+    at /home/sonygod/projects/nu/temp_examples_ts/macros.ts:95:8
+
+
+=== FAILED: macros_test.ts ===
+error: Unexpected end of file
+    at /home/sonygod/projects/nu/temp_examples_ts/macros_test.ts:43:1
+
+Bun v1.3.3 (Linux x64)
+
+=== FAILED: ownership.ts ===
+50 |  for (const [i, item] of bytes.entries()){if ( item === ' ' {return s[0..i];}};
+                                                                 ^
+error: Expected ")" but found "{"
+    at /home/sonygod/projects/nu/temp_examples_ts/ownership.ts:50:61
+
+
+=== FAILED: part3.ts ===
+78 |  console.log(`10000个999: 长度 = ${large_repeat.length}, 前3个 = ${JSON.stringify(large_repeat[.[3]])}`);
+                                                                                               ^
+error: Unexpected .
+    at /home/sonygod/projects/nu/temp_examples_ts/part3.ts:78:91
+
+
+=== FAILED: patterns.ts ===
+18 |  const 3 | 4 | 5 = _m0;
+            ^
+error: Expected identifier but found "3"
+    at /home/sonygod/projects/nu/temp_examples_ts/patterns.ts:18:8
+
+
+=== FAILED: rust_math.ts ===
+74 |  console.log(`e^${2[0]} = ${2[0]_f64.exp()}`);
+                                     ^
+error: Expected "}" but found "_f64"
+    at /home/sonygod/projects/nu/temp_examples_ts/rust_math.ts:74:33
+
+
+=== FAILED: rust_string.ts ===
+348 |  const all: string = s2.drain(..).collect();
+                                    ^
+error: Unexpected .
+    at /home/sonygod/projects/nu/temp_examples_ts/rust_string.ts:348:31
+
+
+=== FAILED: smart-pointers-simple.ts ===
+18 |  console.log(`2.Cell<T> Test:`);
+19 |  const cell = 10;
+20 |  console.log(`Cell initial: ${cell.get()}`);
+21 |  cell.set(20);
+22 |  console.log(`Cell after set: ${cell.get()}\n`);
+
+=== FAILED: smart-pointers.ts ===
+79 |  Config{settings: settings;
+            ^
+error: Expected ";" but found "{"
+    at /home/sonygod/projects/nu/temp_examples_ts/smart-pointers.ts:79:8
+
+
+=== FAILED: std_collections.ts ===
+196 |  const slice = deque.as_slices().0;
+                                      ^
+error: Expected ";" but found ".0"
+    at /home/sonygod/projects/nu/temp_examples_ts/std_collections.ts:196:33
+
+
+=== FAILED: std_fs.ts ===
+17 |  / fs.write(format!("{}/test1.txt", test_dir) /;
+                              ^
+error: Invalid flag "t" in regular expression
+    at /home/sonygod/projects/nu/temp_examples_ts/std_fs.ts:17:26
+
+
+=== FAILED: std_io.ts ===
+64 |  reader3.read_until(',', &buf)!;
+                              ^
+error: Unexpected &
+    at /home/sonygod/projects/nu/temp_examples_ts/std_io.ts:64:26
+
+
+=== FAILED: std_path.ts ===
+154 |  const path_6 = Path._new("C:\Users\user\file.txt");
+                                ^
+error: Syntax Error
+    at /home/sonygod/projects/nu/temp_examples_ts/std_path.ts:154:27
+
+
+=== FAILED: std_sync.ts ===
+17 |  const data = / Arc.new([1, 2, 3, 4,JSON.stringify(data)}`;
+                   ^
+error: Syntax Error
+    at /home/sonygod/projects/nu/temp_examples_ts/std_sync.ts:17:15
+
+
+=== FAILED: std_thread.ts ===
+56 |  $unwrap(}));
+              ^
+error: Unexpected }
+    at /home/sonygod/projects/nu/temp_examples_ts/std_thread.ts:56:10
+
+
+=== FAILED: std_time.ts ===
+243 | thread: :sleep(Duration.from_millis(100));
+              ^
+error: Unexpected :
+    at /home/sonygod/projects/nu/temp_examples_ts/std_time.ts:243:9
+
+
+=== FAILED: string-test.ts ===
+111 | }
+      ^
+error: Unexpected }
+    at /home/sonygod/projects/nu/temp_examples_ts/string-test.ts:111:1
+
+
+=== FAILED: test-if-in-closure.ts ===
+7 |  const _m0 = numbers.reduce(( acc, x ) => if acc> x;
+                                              ^
+error: Unexpected if
+    at /home/sonygod/projects/nu/temp_examples_ts/test-if-in-closure.ts:7:43
+
+
+=== FAILED: test_converter.ts ===
+46 |  const range(0, 6) = _m0;
+                 ^
+error: Expected ";" but found "("
+    at /home/sonygod/projects/nu/temp_examples_ts/test_converter.ts:46:13
+
+
+=== FAILED: test_lifetime_preservation.ts ===
+11 |  second: 'b i32;
+              ^
+error: Unterminated string literal
+    at /home/sonygod/projects/nu/temp_examples_ts/test_lifetime_preservation.ts:11:10
+
+
+=== FAILED: trait.ts ===
+64 | /* trait Mammal: Animal */ interface Mammal {;
+                                                  ^
+error: Unexpected ;
+    at /home/sonygod/projects/nu/temp_examples_ts/trait.ts:64:46
+
+
+=== FAILED: tuple.ts ===
+48 |  (a, b)=(b, a);
+       ^
+error: Invalid assignment target
+    at /home/sonygod/projects/nu/temp_examples_ts/tuple.ts:48:3
+
+
+=== FAILED: typeconvert.ts ===
+147 |  const pi_formatted = { : .2}", pi) };
+                              ^
+error: Expected identifier but found ":"
+    at /home/sonygod/projects/nu/temp_examples_ts/typeconvert.ts:147:25
+
+
+=== FAILED: vec.ts ===
+69 |  console.log(`10000个999: 长度 = ${large_repeat.length}, 前3个 = ${JSON.stringify(large_repeat[.[3]])}`);
+                                                                                               ^
+error: Unexpected .
+    at /home/sonygod/projects/nu/temp_examples_ts/vec.ts:69:91
+
+
+==================== 测试总结 ====================
+总计: 64 个测试文件
+通过: 36 个
+失败: 28 个
+

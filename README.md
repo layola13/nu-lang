@@ -109,19 +109,50 @@ Convert Nu code back to standard Rust.
 
 #### 3. `cargo2nu` - Cargo Project to Nu Converter
 
-Convert entire Cargo projects to Nu format.
+Convert entire Cargo projects to Nu format, with full workspace support.
 
 **Usage:**
 ```bash
 # Convert Cargo project
-./target/release/cargo2nu /path/to/rust-project -o /path/to/nu-project
+./target/release/cargo2nu /path/to/rust-project /path/to/nu-project
+
+# Verbose output
+./target/release/cargo2nu project output -v
+
+# Dry-run (preview without writing files)
+./target/release/cargo2nu project output --dry-run
+
+# Incremental conversion (only convert changed files)
+./target/release/cargo2nu project output -i
+
+# Force overwrite (ignore timestamps)
+./target/release/cargo2nu project output -f
+
+# Exclude specific workspace members
+./target/release/cargo2nu project output --exclude member1 --exclude member2
+
+# Only convert specific workspace members
+./target/release/cargo2nu project output --only member1 --only member2
 ```
 
-This tool will:
-- Convert all `.rs` files to `.nu` files
-- Preserve project structure
-- Maintain `Cargo.toml` configuration
-- Handle workspace projects
+**Options:**
+- `INPUT`: Input Cargo project directory
+- `OUTPUT`: Output Nu project directory
+- `-v, --verbose`: Verbose output
+- `--dry-run`: Preview without writing files
+- `-i, --incremental`: Only convert changed files
+- `-f, --force`: Force overwrite (ignore timestamps)
+- `--exclude <MEMBER>`: Exclude workspace members (can be used multiple times)
+- `--only <MEMBER>`: Only convert specific members (can be used multiple times)
+
+**Features:**
+- Full workspace support (virtual, mixed, single)
+- Converts `Cargo.toml` to `Nu.toml` with compressed syntax
+- Converts all `.rs` files to `.nu` files
+- Preserves project structure
+- Handles `workspace.dependencies`, `workspace.package`, `workspace.lints`
+- Preserves `[profile.*]`, `[patch.*]`, `[target.*]` sections unchanged
+- Copies configuration files (`.cargo/config.toml`, `rust-toolchain.toml`, `Cargo.lock`)
 
 #### 4. `nu2cargo` - Nu Project to Cargo Converter
 
@@ -130,8 +161,13 @@ Convert Nu projects back to standard Cargo projects.
 **Usage:**
 ```bash
 # Convert Nu project back to Rust
-./target/release/nu2cargo /path/to/nu-project -o /path/to/rust-project
+./target/release/nu2cargo /path/to/nu-project /path/to/rust-project
+
+# With all options (same as cargo2nu)
+./target/release/nu2cargo project output -v --dry-run -i -f
 ```
+
+**Options:** Same as `cargo2nu`
 
 ### Conversion Example
 
@@ -180,6 +216,60 @@ f main() {
     println!("{}", person.name);
 }
 ```
+
+### Nu.toml Format
+
+Nu.toml uses compressed section and key names for high-density configuration:
+
+**Section Mappings:**
+| Cargo.toml | Nu.toml |
+|------------|---------|
+| `[package]` | `[P]` |
+| `[workspace]` | `[W]` |
+| `[dependencies]` | `[D]` |
+| `[dev-dependencies]` | `[DD]` |
+| `[build-dependencies]` | `[BD]` |
+| `[workspace.dependencies]` | `[W.D]` |
+| `[workspace.package]` | `[W.P]` |
+| `[lib]` | `[L]` |
+| `[[bin]]` | `[[B]]` |
+| `[[example]]` | `[[EX]]` |
+| `[features]` | `[FE]` |
+
+**Key Mappings:**
+| Cargo.toml | Nu.toml |
+|------------|---------|
+| `name` | `id` |
+| `version` | `v` |
+| `edition` | `ed` |
+| `authors` | `au` |
+| `members` | `m` |
+| `exclude` | `ex` |
+| `resolver` | `r` |
+| `workspace` | `w` |
+| `default-features` | `df` |
+| `proc-macro` | `pm` |
+
+**Example:**
+```toml
+# Cargo.toml
+[workspace]
+members = ["lib1", "lib2"]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+
+# Nu.toml (converted)
+[W]
+m = ["lib1", "lib2"]
+r = "2"
+
+[W.D]
+serde = { v = "1.0", features = ["derive"] }
+```
+
+**Preserved Sections:** `[profile.*]`, `[patch.*]`, `[target.*]`, `[badges]` remain unchanged.
 
 ### Compression Statistics
 

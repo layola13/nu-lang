@@ -27,6 +27,30 @@ export function $fmt(template: string, ...args: any[]): string {
   });
 }
 
+// Result Helpers
+export function isOk<T, E>(r: Result<T, E>): boolean {
+  return r.tag === 'ok';
+}
+
+export function isErr<T, E>(r: Result<T, E>): boolean {
+  return r.tag === 'err';
+}
+
+export function $expect<T, E>(r: Result<T, E>, msg: string): T {
+  if (r.tag === 'err') {
+    throw new Error(`${msg}: ${r.err}`);
+  }
+  return r.val;
+}
+
+export function $unwrapOr<T, E>(r: Result<T, E>, defaultValue: T): T {
+  return r.tag === 'ok' ? r.val : defaultValue;
+}
+
+export function $unwrapOrElse<T, E>(r: Result<T, E>, fn: (e: E) => T): T {
+  return r.tag === 'ok' ? r.val : fn(r.err);
+}
+
 // Option Helpers
 export function isSome<T>(opt: T | null): opt is T {
   return opt !== null;

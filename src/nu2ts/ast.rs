@@ -292,21 +292,26 @@ pub enum Literal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
-    Add,    // +
-    Sub,    // -
-    Mul,    // *
-    Div,    // /
-    Mod,    // %
-    And,    // &&
-    Or,     // ||
-    Eq,     // ==
-    Ne,     // !=
-    Lt,     // <
-    Le,     // <=
-    Gt,     // >
-    Ge,     // >=
-    Assign, // =
-    Range,  // ..
+    Add,       // +
+    Sub,       // -
+    Mul,       // *
+    Div,       // /
+    Mod,       // %
+    And,       // &&
+    Or,        // ||
+    Eq,        // ==
+    Ne,        // !=
+    Lt,        // <
+    Le,        // <=
+    Gt,        // >
+    Ge,        // >=
+    Assign,    // =
+    AddAssign, // +=
+    SubAssign, // -=
+    MulAssign, // *=
+    DivAssign, // /=
+    ModAssign, // %=
+    Range,     // ..
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

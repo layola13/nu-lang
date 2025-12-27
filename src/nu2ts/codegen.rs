@@ -1203,7 +1203,12 @@ impl TsCodegen {
         match name {
             "println" | "println!" => {
                 // 修复#5: println!转换为console.log
-                self.write(&format!("console.log({})", args));
+                // 修复问题1: 移除参数中的 & 和 &mut 引用符号
+                let clean_args = args
+                    .replace("& ", "")
+                    .replace("&mut ", "")
+                    .replace("&", "");
+                self.write(&format!("console.log({})", clean_args));
             }
             "print" | "print!" => {
                 self.write(&format!("process.stdout.write({})", args));
@@ -1339,6 +1344,11 @@ impl TsCodegen {
             BinOp::Ge => ">=",
             BinOp::Assign => "=",
             BinOp::Range => "/* .. */",
+            BinOp::AddAssign => "+=",
+            BinOp::SubAssign => "-=",
+            BinOp::MulAssign => "*=",
+            BinOp::DivAssign => "/=",
+            BinOp::ModAssign => "%=",
         }
     }
 

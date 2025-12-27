@@ -24,18 +24,33 @@
                         mono: ['JetBrains Mono', 'monospace'],
                     },
                     colors: {
+                        // Updated to Rust Orange Palette based on Design Brief
                         nu: {
-                            400: '#22d3ee', // Cyan-400
-                            500: '#06b6d4', // Cyan-500
-                            900: '#083344',
+                            400: '#E88D6D', // Light Rust
+                            500: '#D96C47', // Primary Rust Orange
+                            600: '#B54E2C', // Darker Rust
+                            900: '#2E3440', // Deep Charcoal/Slate Blue (Accent)
+                        },
+                        // Background tones
+                        slate: {
+                            850: '#1e293b', // Custom slate
+                            900: '#0f172a', // Standard slate 900
+                            950: '#020617', // Darker
                         },
                         rust: {
-                            500: '#ef4444', // Red-500 equivalent for Rust generic vibe
-                            600: '#b91c1c',
+                            500: '#D96C47', // Synced with Nu
                         }
                     },
                     animation: {
                         'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'spin-slow': 'spin 12s linear infinite',
+                        'cursor-blink': 'blink 1s step-end infinite',
+                    },
+                    keyframes: {
+                        blink: {
+                            '0%, 100%': { opacity: '1' },
+                            '50%': { opacity: '0' },
+                        }
                     }
                 }
             }
@@ -49,37 +64,54 @@
             /* Slate 50 */
         }
 
-        .code-syntax-keyword {
+        /* Syntax Highlighting Colors */
+        .token-keyword {
+            color: #fca5a5;
+        }
+
+        /* Red/Pinkish */
+        .token-def {
             color: #c084fc;
+            font-weight: bold;
         }
 
-        /* Purple */
-        .code-syntax-func {
-            color: #22d3ee;
+        /* Purple for S, F, I */
+        .token-func {
+            color: #fdba74;
         }
 
-        /* Cyan */
-        .code-syntax-string {
+        /* Orange */
+        .token-string {
             color: #86efac;
         }
 
         /* Green */
-        .code-syntax-type {
-            color: #fbbf24;
+        .token-type {
+            color: #fcd34d;
         }
 
         /* Amber */
-        .code-syntax-comment {
+        .token-comment {
             color: #64748b;
             font-style: italic;
         }
 
-        /* Slate 500 */
+        /* Slate */
 
         .glass-panel {
             background: rgba(30, 41, 59, 0.7);
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(217, 108, 71, 0.2);
+            /* Orange tint border */
+        }
+
+        .cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1.2em;
+            background-color: #E88D6D;
+            vertical-align: text-bottom;
+            margin-left: 1px;
         }
 
         /* Custom Scrollbar */
@@ -93,12 +125,14 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #334155;
+            background: #2E3440;
             border-radius: 4px;
+            border: 1px solid #334155;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #475569;
+            background: #D96C47;
+            /* Orange hover */
         }
     </style>
 </head>
@@ -106,16 +140,61 @@
 <body class="antialiased selection:bg-nu-500 selection:text-white">
 
     <!-- Navbar -->
-    <nav class="fixed w-full z-50 top-0 start-0 border-b border-slate-800 bg-slate-900/90 backdrop-blur-md">
+    <nav class="fixed w-full z-50 top-0 start-0 border-b border-nu-900 bg-slate-900/90 backdrop-blur-md">
         <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between p-4">
             <a href="#" class="flex items-center space-x-3 rtl:space-x-reverse group">
-                <!-- Nu Pangolin Logo -->
-                <img src="logos/logo_scale.png" alt="Nu Language Logo" class="w-10 h-10 group-hover:scale-110 transition-transform duration-300 drop-shadow-lg">
-                <span class="self-center text-2xl font-semibold whitespace-nowrap tracking-tight">Nu-lang</span>
+                <!-- Pangolin Logo SVG -->
+                <div class="relative w-12 h-12 group-hover:scale-105 transition-transform duration-300">
+                    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"
+                        class="w-full h-full drop-shadow-lg shadow-nu-500/30">
+                        <defs>
+                            <linearGradient id="pangolinGradient" x1="10%" y1="10%" x2="90%" y2="90%">
+                                <stop offset="0%" stop-color="#E88D6D" /> <!-- Light Rust -->
+                                <stop offset="100%" stop-color="#B54E2C" /> <!-- Dark Rust -->
+                            </linearGradient>
+                            <filter id="insetShadow">
+                                <feOffset dx="0" dy="1" />
+                                <feGaussianBlur stdDeviation="1" result="offset-blur" />
+                                <feComposite operator="out" in="SourceGraphic" in2="offset-blur" result="inverse" />
+                                <feFlood flood-color="black" flood-opacity="0.5" result="color" />
+                                <feComposite operator="in" in="color" in2="inverse" result="shadow" />
+                                <feComposite operator="over" in="shadow" in2="SourceGraphic" />
+                            </filter>
+                        </defs>
+
+                        <!-- Abstract Geometric Pangolin curled in a circle -->
+                        <g transform="translate(50, 50) rotate(-15)">
+                            <!-- Outer Scales (Spiral formation) -->
+                            <path d="M0 -45 A45 45 0 1 1 -35 28 L-25 20 A35 35 0 1 0 0 -35 Z"
+                                fill="url(#pangolinGradient)" stroke="#2E3440" stroke-width="1.5" />
+
+                            <!-- Scale Detail Lines (Geometric plates) -->
+                            <path d="M0 -45 L0 -35" stroke="#2E3440" stroke-width="1" />
+                            <path d="M28 -35 L20 -28" stroke="#2E3440" stroke-width="1" />
+                            <path d="M40 -18 L30 -14" stroke="#2E3440" stroke-width="1" />
+                            <path d="M43 10 L33 8" stroke="#2E3440" stroke-width="1" />
+                            <path d="M30 32 L24 24" stroke="#2E3440" stroke-width="1" />
+                            <path d="M8 43 L6 33" stroke="#2E3440" stroke-width="1" />
+                            <path d="M-18 40 L-14 30" stroke="#2E3440" stroke-width="1" />
+                            <path d="M-38 22 L-28 18" stroke="#2E3440" stroke-width="1" />
+
+                            <!-- Inner Body/Head Tucked in -->
+                            <path d="M0 -35 A35 35 0 1 1 -25 20 L-15 12 A20 20 0 1 0 0 -20 Z" fill="#D96C47"
+                                opacity="0.9" />
+
+                            <!-- Core / Eye (The "Nu" Nucleus) -->
+                            <circle cx="-5" cy="5" r="8" fill="#2E3440" />
+                            <circle cx="-5" cy="5" r="3" fill="#ffffff" class="animate-pulse" />
+                        </g>
+                    </svg>
+                </div>
+                <span
+                    class="self-center text-2xl font-bold whitespace-nowrap tracking-tight text-white font-mono">Nu<span
+                        class="text-nu-500">.lang</span></span>
             </a>
             <div class="flex md:order-2 space-x-3 md:space-x-0 rtl:space-x-reverse">
                 <a href="https://github.com/layola13/nu-lang/releases/tag/v1.6.4" target="_blank"
-                    class="text-white bg-nu-500 hover:bg-nu-400 focus:ring-4 focus:outline-none focus:ring-nu-900 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors flex items-center gap-2">
+                    class="text-white bg-nu-500 hover:bg-nu-600 focus:ring-4 focus:outline-none focus:ring-nu-900 font-medium rounded-lg text-sm px-4 py-2 text-center transition-colors flex items-center gap-2 shadow-lg shadow-nu-500/20">
                     <i data-lucide="download" class="w-4 h-4"></i> Get v1.6.4
                 </a>
                 <button data-collapse-toggle="navbar-sticky" type="button"
@@ -155,114 +234,140 @@
     <section class="relative pt-32 pb-20 lg:pt-40 lg:pb-28 overflow-hidden">
         <!-- Background Elements -->
         <div class="absolute top-0 left-1/2 w-full -translate-x-1/2 h-full z-0 pointer-events-none">
+            <!-- Orange Glow -->
             <div class="absolute top-20 left-10 w-72 h-72 bg-nu-500/10 rounded-full blur-[100px]"></div>
-            <div class="absolute bottom-20 right-10 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px]"></div>
+            <!-- Slate/Blue Glow -->
+            <div class="absolute bottom-20 right-10 w-96 h-96 bg-nu-900/40 rounded-full blur-[100px]"></div>
         </div>
 
         <div class="max-w-7xl mx-auto px-4 relative z-10">
             <div class="text-center mb-12">
                 <span
-                    class="bg-slate-800 text-nu-400 text-xs font-medium inline-flex items-center px-2.5 py-0.5 rounded border border-slate-700 mb-4">
-                    <span class="w-2 h-2 me-1 bg-green-500 rounded-full animate-pulse"></span>
+                    class="bg-nu-900 text-nu-400 text-xs font-medium inline-flex items-center px-2.5 py-0.5 rounded border border-slate-700 mb-4">
+                    <span class="w-2 h-2 me-1 bg-nu-500 rounded-full animate-pulse"></span>
                     v1.6.4 Stable Release
                 </span>
-                <h1
-                    class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 bg-clip-text text-transparent bg-gradient-to-r from-white via-gray-200 to-gray-400">
-                    Write Less. <span class="text-transparent bg-clip-text bg-gradient-to-r from-nu-400 to-blue-500">Do
-                        More.</span>
+                <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 text-white">
+                    Write Less. <span
+                        class="text-transparent bg-clip-text bg-gradient-to-r from-nu-500 to-orange-300">Do More.</span>
                 </h1>
                 <p class="text-lg md:text-xl text-slate-400 max-w-2xl mx-auto mb-8">
                     A high-density dialect of Rust designed for AI-Native systems programming.
                     <br class="hidden md:block">
-                    100% Rust compatibility with 50% less boilerplate.
+                    Armored safety with folded syntax.
                 </p>
                 <div class="flex flex-col sm:flex-row justify-center gap-4">
                     <a href="#quick-start"
-                        class="text-white bg-gradient-to-r from-nu-500 to-blue-600 hover:bg-gradient-to-bl focus:ring-4 focus:outline-none focus:ring-cyan-300/50 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 transition-all shadow-lg shadow-nu-500/25">
+                        class="text-white bg-gradient-to-r from-nu-500 to-nu-600 hover:bg-gradient-to-bl focus:ring-4 focus:outline-none focus:ring-nu-900 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 transition-all shadow-lg shadow-nu-500/25">
                         Get Started <i data-lucide="arrow-right" class="w-5 h-5"></i>
                     </a>
                     <a href="#docs"
-                        class="text-gray-300 bg-slate-800 hover:bg-slate-700 focus:ring-4 focus:outline-none focus:ring-slate-800 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 border border-slate-700 transition-all">
+                        class="text-gray-300 bg-nu-900 hover:bg-slate-800 focus:ring-4 focus:outline-none focus:ring-slate-800 font-medium rounded-lg text-lg px-8 py-3.5 text-center flex items-center justify-center gap-2 border border-slate-700 transition-all">
                         <i data-lucide="book" class="w-5 h-5"></i> Documentation
                     </a>
                 </div>
             </div>
 
-            <!-- Code Comparison -->
+            <!-- VS Code Animation Container -->
             <div
-                class="grid md:grid-cols-2 gap-0 md:gap-4 max-w-5xl mx-auto mt-16 glass-panel rounded-xl overflow-hidden shadow-2xl">
-                <!-- Rust Side -->
-                <div class="border-b md:border-b-0 md:border-r border-slate-700 bg-slate-900/50">
-                    <div class="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800/50">
-                        <div class="flex items-center gap-2">
-                            <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/rust/rust-plain.svg"
-                                class="w-4 h-4" alt="Rust">
-                            <span class="text-xs font-mono text-slate-400">hello.rs</span>
-                        </div>
-                        <span class="text-[10px] text-red-400 font-mono">Verbose</span>
+                class="mt-16 max-w-6xl mx-auto shadow-2xl rounded-lg overflow-hidden border border-slate-700 bg-[#1e1e1e] transform transition-all duration-500 hover:shadow-nu-500/10">
+                <!-- Title Bar -->
+                <div class="h-8 bg-[#252526] flex items-center px-4 justify-between border-b border-[#1e1e1e]">
+                    <div class="flex items-center gap-2">
+                        <div class="w-3 h-3 rounded-full bg-[#ff5f56]"></div>
+                        <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+                        <div class="w-3 h-3 rounded-full bg-[#27c93f]"></div>
                     </div>
-                    <div class="p-4 overflow-x-auto">
-                        <pre class="font-mono text-sm leading-6"><code class="language-rust"><span class="code-syntax-keyword">pub struct</span> <span class="code-syntax-type">Person</span> {
-    <span class="code-syntax-keyword">pub</span> name: <span class="code-syntax-type">String</span>,
-    <span class="code-syntax-keyword">pub</span> age: <span class="code-syntax-type">u32</span>,
-}
+                    <div class="text-xs text-gray-400 font-sans">visual_studio_code - nu_project</div>
+                    <div class="w-10"></div> <!-- Spacer for balance -->
+                </div>
 
-<span class="code-syntax-keyword">impl</span> <span class="code-syntax-type">Person</span> {
-    <span class="code-syntax-keyword">pub fn</span> <span class="code-syntax-func">new</span>(name: <span class="code-syntax-type">String</span>, age: <span class="code-syntax-type">u32</span>) -> <span class="code-syntax-type">Self</span> {
-        <span class="code-syntax-type">Person</span> { name, age }
-    }
-}
-
-<span class="code-syntax-keyword">fn</span> <span class="code-syntax-func">main</span>() {
-    <span class="code-syntax-keyword">let</span> person = <span class="code-syntax-type">Person</span>::<span class="code-syntax-func">new</span>(<span class="code-syntax-string">"Alice"</span>.<span class="code-syntax-func">to_string</span>(), <span class="code-syntax-type">30</span>);
-    <span class="code-syntax-func">println!</span>(<span class="code-syntax-string">"{}"</span>, person.name);
-}</code></pre>
+                <!-- Editor Tabs -->
+                <div class="h-9 bg-[#252526] flex items-center border-b border-[#1e1e1e] overflow-hidden">
+                    <div class="flex w-1/2 border-r border-[#1e1e1e] h-full">
+                        <div
+                            class="px-4 h-full flex items-center gap-2 bg-[#1e1e1e] text-nu-400 border-t-2 border-nu-500 text-sm font-sans min-w-[120px]">
+                            <div
+                                class="w-3 h-3 bg-nu-500 rounded-sm flex items-center justify-center text-[6px] font-bold text-black">
+                                N</div>
+                            <span>main.nu</span>
+                            <i data-lucide="x" class="w-3 h-3 ml-auto opacity-50 hover:opacity-100 cursor-pointer"></i>
+                        </div>
+                    </div>
+                    <div class="flex w-1/2 h-full">
+                        <div
+                            class="px-4 h-full flex items-center gap-2 bg-[#1e1e1e] text-gray-300 border-t-2 border-transparent text-sm font-sans min-w-[120px]">
+                            <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/rust/rust-plain.svg"
+                                class="w-3 h-3" alt="Rust">
+                            <span>main.rs</span>
+                            <span class="text-xs text-gray-500 ml-2">(Preview)</span>
+                        </div>
                     </div>
                 </div>
 
-                <!-- Nu Side -->
-                <div class="bg-slate-900/80 relative group">
-                    <div class="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <span
-                            class="bg-green-500/20 text-green-400 text-xs px-2 py-1 rounded border border-green-500/30">55%
-                            Compressed</span>
-                    </div>
-                    <div class="flex items-center justify-between px-4 py-2 border-b border-slate-700 bg-slate-800/50">
-                        <div class="flex items-center gap-2">
-                            <!-- Nu Icon (Small) -->
-                            <img src="logos/logo_scale.png" alt="Nu Logo" class="w-4 h-4">
-                            <span class="text-xs font-mono text-nu-400">hello.nu</span>
+                <!-- Editor Content Area -->
+                <div class="flex h-[400px] font-mono text-sm">
+
+                    <!-- Left: Nu Editor (Animated Typing) -->
+                    <div class="w-1/2 border-r border-[#1e1e1e] bg-[#1e1e1e] flex flex-col relative">
+                        <div class="flex-1 flex overflow-hidden">
+                            <!-- Line Numbers -->
+                            <div class="w-12 bg-[#1e1e1e] text-[#858585] text-right pr-4 py-4 select-none leading-6 text-xs flex flex-col"
+                                id="nu-lines">
+                                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+                            </div>
+                            <!-- Code Area -->
+                            <div class="flex-1 p-4 overflow-hidden relative">
+                                <pre
+                                    class="font-mono leading-6 whitespace-pre text-gray-300"><code id="typewriter-nu"></code><span class="cursor animate-cursor-blink"></span></pre>
+                            </div>
                         </div>
-                        <span class="text-[10px] text-nu-400 font-mono">High Density</span>
+                        <!-- Status Bar Left -->
+                        <div class="h-6 bg-[#007acc] text-white text-[10px] flex items-center px-3 gap-3">
+                            <span><i data-lucide="git-branch" class="inline w-3 h-3 mr-1"></i>main</span>
+                            <span>0 errors</span>
+                            <span class="ml-auto">Ln 12, Col 45</span>
+                            <span>UTF-8</span>
+                            <span>Nu</span>
+                        </div>
                     </div>
-                    <div class="p-4 overflow-x-auto">
-                        <pre class="font-mono text-sm leading-6"><code class="language-nu"><span class="code-syntax-keyword">S</span> <span class="code-syntax-type">Person</span> {
-    name: <span class="code-syntax-type">String</span>,
-    age: <span class="code-syntax-type">u32</span>,
-}
 
-<span class="code-syntax-keyword">I</span> <span class="code-syntax-type">Person</span> {
-    <span class="code-syntax-keyword">F</span> <span class="code-syntax-func">new</span>(name: <span class="code-syntax-type">String</span>, age: <span class="code-syntax-type">u32</span>) -> <span class="code-syntax-type">Self</span> {
-        <span class="code-syntax-type">Person</span> { name, age }
-    }
-}
-
-<span class="code-syntax-keyword">f</span> <span class="code-syntax-func">main</span>() {
-    <span class="code-syntax-keyword">l</span> person = <span class="code-syntax-type">Person</span>::<span class="code-syntax-func">new</span>(<span class="code-syntax-string">"Alice"</span>.<span class="code-syntax-func">to_string</span>(), <span class="code-syntax-type">30</span>);
-    <span class="code-syntax-func">println!</span>(<span class="code-syntax-string">"{}"</span>, person.name);
-}</code></pre>
+                    <!-- Right: Rust Preview (Animated Generation) -->
+                    <div class="w-1/2 bg-[#1e1e1e] flex flex-col">
+                        <div class="flex-1 flex overflow-hidden">
+                            <!-- Line Numbers -->
+                            <div class="w-12 bg-[#1e1e1e] text-[#858585] text-right pr-4 py-4 select-none leading-6 text-xs flex flex-col"
+                                id="rust-lines">
+                                <span>1</span><span>2</span><span>3</span><span>4</span><span>5</span><span>6</span><span>7</span><span>8</span><span>9</span><span>10</span><span>11</span><span>12</span><span>13</span><span>14</span><span>15</span>
+                            </div>
+                            <!-- Code Area -->
+                            <div class="flex-1 p-4 overflow-hidden relative">
+                                <div class="absolute top-2 right-2 flex gap-1 pointer-events-none">
+                                    <span
+                                        class="text-[10px] text-gray-500 bg-[#2d2d2d] px-2 py-1 rounded border border-[#3d3d3d] opacity-0 transition-opacity duration-300"
+                                        id="compiling-badge">Compiling...</span>
+                                </div>
+                                <pre
+                                    class="font-mono leading-6 whitespace-pre text-gray-300"><code id="typewriter-rust"></code></pre>
+                            </div>
+                        </div>
+                        <!-- Status Bar Right -->
+                        <div class="h-6 bg-[#007acc] text-white text-[10px] flex items-center px-3 gap-3">
+                            <span class="ml-auto">Rust</span>
+                        </div>
                     </div>
                 </div>
             </div>
+
         </div>
     </section>
 
     <!-- Stats Section -->
-    <section class="border-y border-slate-800 bg-slate-900/50">
+    <section class="border-y border-nu-900 bg-slate-900/50">
         <div class="max-w-7xl mx-auto px-4 py-12">
             <div class="grid grid-cols-1 md:grid-cols-3 gap-8 text-center">
                 <div class="p-6">
-                    <dt class="mb-2 text-4xl font-extrabold text-nu-400">~100%</dt>
+                    <dt class="mb-2 text-4xl font-extrabold text-nu-500">~100%</dt>
                     <dd class="text-gray-400">Token Density Improvement</dd>
                 </div>
                 <div class="p-6">
@@ -270,7 +375,7 @@
                     <dd class="text-gray-400">Reduction in Lines of Code</dd>
                 </div>
                 <div class="p-6">
-                    <dt class="mb-2 text-4xl font-extrabold text-orange-500">100%</dt>
+                    <dt class="mb-2 text-4xl font-extrabold text-slate-500">100%</dt>
                     <dd class="text-gray-400">Rust Compatible & Safe</dd>
                 </div>
             </div>
@@ -289,41 +394,41 @@
             <div class="grid md:grid-cols-3 gap-8">
                 <!-- Feature 1 -->
                 <div
-                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors">
+                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors group">
                     <div
-                        class="w-12 h-12 bg-blue-900/50 rounded-lg flex items-center justify-center mb-6 text-blue-400">
-                        <i data-lucide="zap" class="w-6 h-6"></i>
+                        class="w-12 h-12 bg-nu-900/80 rounded-lg flex items-center justify-center mb-6 text-nu-400 group-hover:text-nu-500 transition-colors">
+                        <i data-lucide="layers" class="w-6 h-6"></i>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-white">High Density Syntax</h3>
+                    <h3 class="text-xl font-bold mb-3 text-white">High Density Packing</h3>
                     <p class="text-gray-400 leading-relaxed">
-                        Compress definitions (`struct` → `S`) and control flow (`return` → `<`) while preserving the
-                            semantic core. Optimized for LLM context windows and developer typing speed. </p>
+                        Like the scales of a pangolin, syntax is tightly packed. Compress `struct` to `S` and `return`
+                        to `<`. Optimized for developer velocity. </p>
                 </div>
 
                 <!-- Feature 2 -->
                 <div
-                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors">
+                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors group">
                     <div
-                        class="w-12 h-12 bg-orange-900/50 rounded-lg flex items-center justify-center mb-6 text-orange-400">
-                        <i data-lucide="refresh-cw" class="w-6 h-6"></i>
+                        class="w-12 h-12 bg-slate-800 rounded-lg flex items-center justify-center mb-6 text-white group-hover:text-nu-400 transition-colors">
+                        <i data-lucide="shield" class="w-6 h-6"></i>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-white">Bidirectional Transpilation</h3>
+                    <h3 class="text-xl font-bold mb-3 text-white">Armored Safety</h3>
                     <p class="text-gray-400 leading-relaxed">
-                        Lossless conversion between Rust and Nu. Use `rust2nu` to modernize legacy codebases and
-                        `nu2rust` to compile standard binaries.
+                        Inherits 100% of Rust's memory safety guarantees. The "scales" don't just look cool; they
+                        protect your memory model.
                     </p>
                 </div>
 
                 <!-- Feature 3 -->
                 <div
-                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors">
-                    <div class="w-12 h-12 bg-nu-900/50 rounded-lg flex items-center justify-center mb-6 text-nu-400">
-                        <i data-lucide="box" class="w-6 h-6"></i>
+                    class="p-8 rounded-2xl border border-slate-700 bg-slate-800/30 hover:bg-slate-800/50 transition-colors group">
+                    <div class="w-12 h-12 bg-nu-500/10 rounded-lg flex items-center justify-center mb-6 text-nu-500">
+                        <i data-lucide="cpu" class="w-6 h-6"></i>
                     </div>
-                    <h3 class="text-xl font-bold mb-3 text-white">First-Class Tooling</h3>
+                    <h3 class="text-xl font-bold mb-3 text-white">AI-Native Systems</h3>
                     <p class="text-gray-400 leading-relaxed">
-                        Production-ready VSCode extension with Auto-Compilation, Error Mapping, F5 Debugging, and
-                        real-time formatting.
+                        Built for the AI era with optimized context usage. First-class tooling for LLM-assisted coding
+                        workflows.
                     </p>
                 </div>
             </div>
@@ -338,8 +443,8 @@
             <div class="grid md:grid-cols-2 gap-12">
                 <!-- Keywords Table -->
                 <div class="rounded-xl overflow-hidden border border-slate-700">
-                    <div class="bg-slate-800 px-6 py-4 border-b border-slate-700">
-                        <h3 class="font-bold text-lg">Definition Keywords</h3>
+                    <div class="bg-nu-900 px-6 py-4 border-b border-slate-700">
+                        <h3 class="font-bold text-lg text-white">Definition Keywords</h3>
                     </div>
                     <table class="w-full text-left text-sm text-gray-400">
                         <thead class="bg-slate-900 text-gray-200">
@@ -386,8 +491,8 @@
 
                 <!-- Symbols Table -->
                 <div class="rounded-xl overflow-hidden border border-slate-700">
-                    <div class="bg-slate-800 px-6 py-4 border-b border-slate-700">
-                        <h3 class="font-bold text-lg">Flow & Symbols</h3>
+                    <div class="bg-nu-900 px-6 py-4 border-b border-slate-700">
+                        <h3 class="font-bold text-lg text-white">Flow & Symbols</h3>
                     </div>
                     <table class="w-full text-left text-sm text-gray-400">
                         <thead class="bg-slate-900 text-gray-200">
@@ -399,27 +504,27 @@
                         </thead>
                         <tbody class="divide-y divide-slate-800 bg-slate-900/50">
                             <tr>
-                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">&lt;</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">&lt;</td>
                                 <td class="px-6 py-3">Return</td>
                                 <td class="px-6 py-3 font-mono">&lt; value</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">?</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">?</td>
                                 <td class="px-6 py-3">If</td>
                                 <td class="px-6 py-3 font-mono">? x > 0 { }</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">M</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">M</td>
                                 <td class="px-6 py-3">Match</td>
                                 <td class="px-6 py-3 font-mono">M val { }</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">L</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">L</td>
                                 <td class="px-6 py-3">Loop</td>
                                 <td class="px-6 py-3 font-mono">L i: list</td>
                             </tr>
                             <tr>
-                                <td class="px-6 py-3 font-mono text-purple-400 font-bold">!</td>
+                                <td class="px-6 py-3 font-mono text-nu-400 font-bold">!</td>
                                 <td class="px-6 py-3">Try</td>
                                 <td class="px-6 py-3 font-mono">func()!</td>
                             </tr>
@@ -430,15 +535,8 @@
 
             <div class="text-center mt-12">
                 <a href="https://github.com/layola13/nu-lang" target="_blank"
-                    class="inline-flex items-center gap-2 text-nu-400 hover:text-nu-300 font-medium transition-colors">
+                    class="inline-flex items-center gap-2 text-nu-400 hover:text-nu-500 font-medium transition-colors">
                     View Full Specification <i data-lucide="arrow-right" class="w-4 h-4"></i>
-                </a>
-            </div>
-
-              <div class="text-center mt-12">
-                <a href="https://deepwiki.com/layola13/nu-lang" target="_blank"
-                    class="inline-flex items-center gap-2 text-nu-400 hover:text-nu-300 font-medium transition-colors">
-                    View Full Specification on deepwiki <i data-lucide="arrow-right" class="w-4 h-4"></i>
                 </a>
             </div>
         </div>
@@ -454,7 +552,7 @@
                 </div>
                 <div class="flex gap-2">
                     <button onclick="compileMock()"
-                        class="px-4 py-2 bg-green-600 hover:bg-green-500 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2">
+                        class="px-4 py-2 bg-nu-600 hover:bg-nu-500 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-2">
                         <i data-lucide="play" class="w-3 h-3"></i> Run / Transpile
                     </button>
                 </div>
@@ -464,7 +562,7 @@
                 <!-- Input -->
                 <div class="flex flex-col h-full rounded-lg border border-slate-700 bg-slate-950 overflow-hidden">
                     <div
-                        class="bg-slate-800 px-4 py-2 text-xs text-gray-400 font-mono border-b border-slate-700 flex justify-between">
+                        class="bg-nu-900 px-4 py-2 text-xs text-gray-300 font-mono border-b border-slate-700 flex justify-between">
                         <span>main.nu</span>
                         <span>Input</span>
                     </div>
@@ -533,7 +631,7 @@ f main() {
                             <a href="https://github.com/layola13/nu-lang/releases/tag/v1.6.4" target="_blank"
                                 class="block">
                                 <div
-                                    class="absolute -inset-1 bg-gradient-to-r from-nu-500 to-blue-600 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200">
+                                    class="absolute -inset-1 bg-gradient-to-r from-nu-500 to-orange-600 rounded-lg blur opacity-25 group-hover:opacity-50 transition duration-1000 group-hover:duration-200">
                                 </div>
                                 <div
                                     class="relative bg-black rounded-lg p-4 font-mono text-sm text-gray-300 flex items-center justify-between hover:text-white transition-colors">
@@ -574,7 +672,14 @@ f main() {
             <div class="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
                 <div class="col-span-2 md:col-span-1">
                     <div class="flex items-center gap-2 mb-4">
-                        <img src="logos/logo_scale.png" alt="Nu Logo" class="w-6 h-6">
+                        <!-- SVG Mini Logo for Footer -->
+                        <div class="w-6 h-6">
+                            <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg"
+                                class="w-full h-full">
+                                <circle cx="50" cy="50" r="45" fill="#D96C47" />
+                                <circle cx="50" cy="50" r="20" fill="#2E3440" />
+                            </svg>
+                        </div>
                         <span class="font-bold text-white">Nu-lang</span>
                     </div>
                     <p class="text-gray-500 text-sm">
@@ -637,7 +742,7 @@ f main() {
             navbarSticky.classList.toggle('hidden');
         });
 
-        // Simple Transpiler Simulation Logic (Mock)
+        // --- Mock Playground Compiler ---
         function compileMock() {
             const input = document.getElementById('nu-input').value;
             const outputEl = document.getElementById('rust-output');
@@ -659,20 +764,134 @@ f main() {
                     .replace(/(\w+)\((.+)\)!/g, '$1($2)?') // Try operator simple mock
                     .replace(/String/g, 'String') // Keep String
 
-                // Add some Rust specific imports usually added by compiler
                 const header = "// Generated by nu2rust v1.6.4\nuse std::collections::HashMap;\n\n";
-
                 outputEl.textContent = header + output;
 
-                // Simple highlight effect (mock)
                 outputEl.classList.add('animate-pulse');
                 setTimeout(() => outputEl.classList.remove('animate-pulse'), 500);
-
             }, 600);
         }
 
-        // Run initial mock compilation
-        window.addEventListener('load', compileMock);
+        // --- Hero Animation: Typewriter Effect ---
+        const nuCodeChunks = [
+            "S Person {\n    name: String,\n    age: u32,\n}\n\n",
+            "I Person {\n    F new(name: String, age: u32) -> Self {\n        Person { name, age }\n    }\n}\n\n",
+            "f main() {\n    l person = Person::new(\"Alice\".to_string(), 30);\n    println!(\"{}\", person.name);\n}"
+        ];
+
+        const rustCodeChunks = [
+            "pub struct Person {\n    pub name: String,\n    pub age: u32,\n}\n\n",
+            "impl Person {\n    pub fn new(name: String, age: u32) -> Self {\n        Person { name, age }\n    }\n}\n\n",
+            "fn main() {\n    let person = Person::new(\"Alice\".to_string(), 30);\n    println!(\"{}\", person.name);\n}"
+        ];
+
+        let chunkIndex = 0;
+        let charIndex = 0;
+        let currentNuText = "";
+        let currentRustText = "";
+        let isTypingNu = true;
+        let isWaiting = false;
+
+        const nuEl = document.getElementById('typewriter-nu');
+        const rustEl = document.getElementById('typewriter-rust');
+        const compilingBadge = document.getElementById('compiling-badge');
+
+        function highlightSyntax(code, lang) {
+            // Simple regex based highlighter for animation
+            if (!code) return "";
+
+            let html = code
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;");
+
+            // Common Keywords
+            html = html.replace(/\b(struct|impl|pub|fn|let|mut|if|else|match|return)\b/g, '<span class="token-keyword">$1</span>');
+
+            // Nu Keywords
+            html = html.replace(/\b(S|E|F|f|l|v|M|L)\b/g, '<span class="token-def">$1</span>');
+            html = html.replace(/(\&lt;)/g, '<span class="token-keyword">&lt;</span>'); // < return
+
+            // Types
+            html = html.replace(/\b(String|u32|i32|u64|Self|Result|Option|Vec)\b/g, '<span class="token-type">$1</span>');
+
+            // Strings
+            html = html.replace(/(".*?")/g, '<span class="token-string">$1</span>');
+
+            return html;
+        }
+
+        function typeWriter() {
+            if (chunkIndex >= nuCodeChunks.length) {
+                // Animation finished, wait and reset
+                setTimeout(() => {
+                    chunkIndex = 0;
+                    charIndex = 0;
+                    currentNuText = "";
+                    currentRustText = "";
+                    nuEl.innerHTML = "";
+                    rustEl.innerHTML = "";
+                    typeWriter();
+                }, 5000);
+                return;
+            }
+
+            const targetNuChunk = nuCodeChunks[chunkIndex];
+            const targetRustChunk = rustCodeChunks[chunkIndex];
+
+            if (isTypingNu) {
+                // Typing Nu Code
+                if (charIndex < targetNuChunk.length) {
+                    currentNuText += targetNuChunk.charAt(charIndex);
+                    charIndex++;
+                    nuEl.innerHTML = highlightSyntax(currentNuText, 'nu');
+
+                    // Scroll to bottom
+                    nuEl.parentElement.scrollTop = nuEl.parentElement.scrollHeight;
+
+                    // Random typing speed
+                    setTimeout(typeWriter, Math.random() * 50 + 30);
+                } else {
+                    // Nu chunk finished, switch to Rust generation
+                    isTypingNu = false;
+                    charIndex = 0;
+                    isWaiting = true;
+
+                    // Simulate compilation delay
+                    compilingBadge.style.opacity = '1';
+                    setTimeout(() => {
+                        isWaiting = false;
+                        compilingBadge.style.opacity = '0';
+                        typeWriter();
+                    }, 600);
+                }
+            } else {
+                // Generating Rust Code (Fast)
+                if (charIndex < targetRustChunk.length) {
+                    // Add multiple chars at once to simulate fast generation
+                    const slice = targetRustChunk.slice(charIndex, charIndex + 5);
+                    currentRustText += slice;
+                    charIndex += 5;
+                    rustEl.innerHTML = highlightSyntax(currentRustText, 'rust');
+
+                    rustEl.parentElement.scrollTop = rustEl.parentElement.scrollHeight;
+
+                    setTimeout(typeWriter, 10);
+                } else {
+                    // Rust chunk finished, move to next chunk
+                    chunkIndex++;
+                    charIndex = 0;
+                    isTypingNu = true;
+                    setTimeout(typeWriter, 300); // Small pause before next chunk
+                }
+            }
+        }
+
+        // Start animations on load
+        window.addEventListener('load', () => {
+            compileMock();
+            setTimeout(typeWriter, 1000); // Delay start
+        });
     </script>
 </body>
 

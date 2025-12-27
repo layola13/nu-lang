@@ -422,7 +422,14 @@ impl Parser {
         // 解析返回类型
         if let Some(arrow_pos) = content.find("->") {
             let after_arrow = &content[arrow_pos + 2..];
-            let type_str = after_arrow.split('{').next().unwrap_or("").trim();
+            // 修复：正确处理WHERE子句
+            // 先移除WHERE子句（如果存在），然后再提取类型
+            let type_part = if let Some(where_pos) = after_arrow.find(" where ") {
+                &after_arrow[..where_pos]
+            } else {
+                after_arrow
+            };
+            let type_str = type_part.split('{').next().unwrap_or("").trim();
             if !type_str.is_empty() {
                 return_type = Some(self.parse_type(type_str));
             }
@@ -773,9 +780,17 @@ impl Parser {
         let trimmed = s.trim();
         println!("DEBUG: parse_closure_expr input='{}'", trimmed);
 
-        // 检查是否是 move 闭包: $|params|
-        let is_move = trimmed.starts_with("$|");
-        let content = if is_move {
+        // 检查是否是 move 闭包: move |params| 或 $|params|
+        let is_move = trimmed.starts_with("move ") || trimmed.starts_with("$|");
+        let content = if trimmed.starts_with("move ") {
+            // 移除 "move " 前缀，然后跳过 "|"
+            let after_move = &trimmed[5..].trim();
+            if after_move.starts_with('|') {
+                &after_move[1..]
+            } else {
+                after_move
+            }
+        } else if is_move {
             &trimmed[2..] // 跳过 "$|"
         } else {
             &trimmed[1..] // 跳过 "|"
@@ -1720,8 +1735,8 @@ impl Parser {
             return Ok(Expr::Return(Some(Box::new(value))));
         }
 
-        // Closure (High priority)
-        if trimmed.starts_with('|') {
+        // Closure (High priority) - 检测 move 闭包或普通闭包
+        if trimmed.starts_with("move |") || trimmed.starts_with('|') || trimmed.starts_with("$|") {
             if let Ok(closure) = self.parse_closure_expr(trimmed) {
                 return Ok(closure);
             }
@@ -1731,6 +1746,28 @@ impl Parser {
         if trimmed.starts_with('?') {
             if let Ok(if_expr) = self.parse_if_expr_string(trimmed) {
                 return Ok(if_expr);
+            }
+        }
+
+        // 元组字面量: (value1, value2, ...)
+        // 必须在函数调用检测之前，且需要区分：
+        // - 元组：(1, 2, 3) - 包含逗号，不是类型转换
+        // - 分组表达式：(x + y) - 单个表达式
+        // - 函数调用：func(args) - 有函数名在前
+        if trimmed.starts_with('(') && trimmed.ends_with(')') && trimmed.contains(',') {
+            // 检查是否真的是元组字面量而不是函数调用
+            // 通过检查括号前是否有标识符来判断
+            let inner = &trimmed[1..trimmed.len() - 1];
+            
+            // 解析元组元素
+            let elements: Result<Vec<Expr>> = self
+                .split_args(inner)
+                .into_iter()
+                .map(|s| self.parse_expr_string(s.trim()))
+                .collect();
+            
+            if let Ok(exprs) = elements {
+                return Ok(Expr::Tuple(exprs));
             }
         }
 
@@ -2018,7 +2055,13 @@ impl Parser {
         }
 
         // 二元操作（简化）
+        // 优先检测复合赋值运算符，避免被拆分成二元操作
         for (op_str, op) in [
+            ("+=", BinOp::AddAssign),
+            ("-=", BinOp::SubAssign),
+            ("*=", BinOp::MulAssign),
+            ("/=", BinOp::DivAssign),
+            ("%=", BinOp::ModAssign),
             ("==", BinOp::Eq),
             ("!=", BinOp::Ne),
             ("<=", BinOp::Le),

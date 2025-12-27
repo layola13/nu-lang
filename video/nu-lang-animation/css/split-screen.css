@@ -1,0 +1,170 @@
+/* Split Screen Styles for Nu ↔ Rust Demo */
+
+/* 箭头动画 */
+#arrow-indicator {
+    min-width: 80px;
+}
+
+#arrow-indicator > div:first-child {
+    animation: arrow-pulse 2s ease-in-out infinite;
+}
+
+@keyframes arrow-pulse {
+    0%, 100% {
+        transform: translateX(0);
+        opacity: 0.6;
+    }
+    50% {
+        transform: translateX(10px);
+        opacity: 1;
+    }
+}
+
+/* 编辑器面板 */
+#nu-editor-panel,
+#rust-editor-panel {
+    transition: all 0.5s ease;
+}
+
+#nu-editor-panel:hover {
+    border-color: #ff9900;
+    box-shadow: 0 0 20px rgba(255, 136, 0, 0.3);
+}
+
+/* 光标 */
+#nu-cursor {
+    transition: all 0.1s;
+}
+
+/* 按钮样式 */
+#format-btn,
+#compile-btn {
+    transition: all 0.2s;
+}
+
+#format-btn:active,
+#compile-btn:active {
+    transform: scale(0.95);
+}
+
+/* 同步指示器 */
+#sync-indicator {
+    animation: sync-flash 0.5s ease-in-out;
+}
+
+@keyframes sync-flash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* 输出面板 */
+#output-panel {
+    transition: all 0.3s;
+}
+
+#output-content {
+    line-height: 1.6;
+}
+
+/* 输出文本动画 */
+.output-line {
+    opacity: 0;
+    animation: fadeInLine 0.3s ease-out forwards;
+}
+
+@keyframes fadeInLine {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 格式化前后对比 */
+.format-before {
+    background: rgba(255, 0, 0, 0.1);
+    transition: all 0.5s;
+}
+
+.format-after {
+    background: rgba(0, 255, 0, 0.1);
+    animation: formatHighlight 1s ease-out;
+}
+
+@keyframes formatHighlight {
+    0% { background: rgba(0, 255, 0, 0.3); }
+    100% { background: rgba(0, 255, 0, 0); }
+}
+
+/* 编译loading */
+.compiling-indicator {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid #ff8800;
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 0.8s linear infinite;
+    margin-right: 8px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 成功/错误状态 */
+.status-success {
+    color: #4ec9b0;
+}
+
+.status-error {
+    color: #f48771;
+}
+
+.status-compiling {
+    color: #ff8800;
+}
+
+/* 代码高亮动画 */
+.code-highlight {
+    animation: highlightFade 2s ease-out;
+}
+
+@keyframes highlightFade {
+    0% { background: rgba(255, 255, 0, 0.3); }
+    100% { background: transparent; }
+}
+
+/* 行号 */
+#nu-line-numbers div,
+#rust-line-numbers div {
+    line-height: 1.6;
+    padding: 2px 0;
+    transition: background 0.2s;
+}
+
+#nu-line-numbers div:hover,
+#rust-line-numbers div:hover {
+    background: rgba(255,255,255,0.05);
+}
+
+/* 响应式 */
+@media (max-width: 1024px) {
+    #full-demo .flex {
+        flex-direction: column;
+    }
+    
+    #arrow-indicator {
+        transform: rotate(90deg);
+        margin: 20px 0;
+    }
+    
+    #nu-editor-panel,
+    #rust-editor-panel {
+        width: 100%;
+        max-height: 40vh;
+    }
+}

@@ -1,0 +1,271 @@
+/* Nu Language Animation - 全局样式 */
+
+body {
+    background-color: #0d1117;
+    overflow: hidden;
+    font-family: 'Fira Code', 'Consolas', monospace;
+    margin: 0;
+    padding: 0;
+}
+
+/* ============================================
+   场景容器
+   ============================================ */
+.scene {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ============================================
+   Scene 1: 编辑器样式
+   ============================================ */
+.editor-container {
+    box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+    border: 1px solid #30363d;
+}
+
+.code-line {
+    opacity: 0;
+    white-space: pre;
+    line-height: 1.6;
+    font-size: 14px;
+}
+
+/* Rust 语法高亮 */
+.kwd { color: #ff7b72; }     /* 关键字 pub, fn, impl */
+.typ { color: #79c0ff; }     /* 类型 struct, String, u32 */
+.fn { color: #d2a8ff; }      /* 函数名 */
+.str { color: #a5d6ff; }     /* 字符串 */
+.punc { color: #c9d1d9; }    /* 标点符号 */
+
+/* 警告印章效果 */
+.stamp-box {
+    border: 8px solid #ff4444;
+    color: #ff4444;
+    text-transform: uppercase;
+    font-family: 'Impact', sans-serif;
+    letter-spacing: 4px;
+    transform: rotate(-15deg) scale(3);
+    opacity: 0;
+    mix-blend-mode: hard-light;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(2px);
+}
+
+/* ============================================
+   Scene 2: 穿山甲动画
+   ============================================ */
+.pangolin {
+    width: 120px;
+    height: 120px;
+    font-size: 100px;
+    opacity: 0;
+    filter: drop-shadow(0 0 20px rgba(255,136,0,0.5));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* ============================================
+   Scene 3: 分屏效果
+   ============================================ */
+.split-screen {
+    width: 50%;
+    height: 100%;
+    position: relative;
+    overflow: hidden;
+}
+
+/* 橙色光效 */
+.orange-glow {
+    position: absolute;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, 
+        transparent 0%, 
+        #ff8800 20%, 
+        #ff8800 80%, 
+        transparent 100%);
+    box-shadow: 0 0 40px #ff8800, 0 0 80px #ff8800;
+    left: 50%;
+    transform: translateX(-50%);
+    opacity: 0;
+    z-index: 100;
+}
+
+/* Nu 语法高亮 */
+.nu-kwd { color: #ff8800; }
+.nu-typ { color: #79c0ff; }
+
+/* ============================================
+   Scene 4: Token 流动效果
+   ============================================ */
+.pipeline {
+    position: absolute;
+    width: 100%;
+    height: 4px;
+    background: linear-gradient(to right, 
+        transparent 0%, 
+        #ff8800 50%, 
+        transparent 100%);
+    opacity: 0;
+}
+
+.token-particle {
+    position: absolute;
+    width: 60px;
+    height: 30px;
+    background: linear-gradient(135deg, #ff8800, #ffaa00);
+    border-radius: 15px;
+    opacity: 0;
+    font-size: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    font-weight: bold;
+    box-shadow: 0 0 10px rgba(255,136,0,0.8);
+}
+
+/* 图表样式 */
+.chart-bar {
+    opacity: 0;
+    transform-origin: bottom;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 0 20px rgba(255,136,0,0.3);
+}
+
+/* ============================================
+   Scene 5: Logo 和 CTA
+   ============================================ */
+.logo-container {
+    opacity: 0;
+    filter: drop-shadow(0 0 30px rgba(255,136,0,0.6));
+}
+
+.breathing {
+    animation: breathe 3s ease-in-out infinite;
+}
+
+@keyframes breathe {
+    0%, 100% { 
+        filter: drop-shadow(0 0 20px rgba(255,136,0,0.4)); 
+    }
+    50% { 
+        filter: drop-shadow(0 0 40px rgba(255,136,0,0.8)); 
+    }
+}
+
+/* CTA 按钮 */
+.cta-button {
+    opacity: 0;
+    background: linear-gradient(135deg, #ff8800, #ff6600);
+    padding: 16px 48px;
+    border-radius: 30px;
+    color: white;
+    font-size: 20px;
+    font-weight: bold;
+    border: none;
+    cursor: pointer;
+    box-shadow: 0 10px 30px rgba(255,136,0,0.5);
+    transition: all 0.3s;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.cta-button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 15px 40px rgba(255,136,0,0.7);
+    background: linear-gradient(135deg, #ff9900, #ff7700);
+}
+
+.cta-button:active {
+    transform: translateY(-1px);
+}
+
+/* ============================================
+   通用效果
+   ============================================ */
+.glow-text {
+    text-shadow: 0 0 20px rgba(255,255,255,0.8);
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+    width: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #484f58;
+}
+
+/* ============================================
+   响应式设计
+   ============================================ */
+@media (max-width: 768px) {
+    .split-screen {
+        width: 100%;
+        height: 50%;
+    }
+    
+    #scene3 .w-full {
+        flex-direction: column;
+    }
+    
+    .text-4xl {
+        font-size: 2rem;
+    }
+    
+    .text-5xl {
+        font-size: 2.5rem;
+    }
+    
+    .cta-button {
+        font-size: 16px;
+        padding: 12px 32px;
+    }
+}
+
+/* ============================================
+   动画关键帧
+   ============================================ */
+@keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-20px); }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+}
+
+@keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   工具类
+   ============================================ */
+.pointer-events-none {
+    pointer-events: none;
+}
+
+.perspective-1000 {
+    perspective: 1000px;
+}

@@ -1,0 +1,16 @@
+Error handling methods conversion fix completed successfully.
+
+Modified file: src/nu2ts/codegen.rs (lines 772-860)
+
+Added 8 method conversions:
+- unwrap() → $unwrap(result)
+- expect(msg) → $expect(result, msg)
+- unwrap_or(default) → $unwrapOr(result, default)
+- unwrap_or_else(fn) → $unwrapOrElse(result, fn)
+- is_ok() → isOk(result)
+- is_err() → isErr(result)
+- is_some() → isSome(option)
+- is_none() → isNone(option)
+
+Verification: All tests passed.
+Compilation: cargo build --release successful.

@@ -34,6 +34,7 @@ pub mod parser;
 pub mod project;
 pub mod rust2nu;
 pub mod utils;
+pub mod workspace;
 
 pub use ast::*;
 pub use nu2rust::Nu2RustConverter;

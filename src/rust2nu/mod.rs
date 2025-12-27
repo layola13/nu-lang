@@ -10,6 +10,48 @@ use syn::{
     spanned::Spanned,
 };
 
+/// v1.8.3: 检查字符是否是标识符的一部分
+fn is_ident_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// v1.8.3: 智能替换类型名称，只替换独立的类型名（不是其他标识符的一部分）
+/// 例如：替换 "Result" 但不替换 "BarrierWaitResult" 中的 "Result"
+fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
+    let mut result = String::new();
+    let chars: Vec<char> = s.chars().collect();
+    let from_chars: Vec<char> = from.chars().collect();
+    let from_len = from_chars.len();
+    let mut i = 0;
+    
+    while i < chars.len() {
+        // 检查是否匹配 from
+        if i + from_len <= chars.len() {
+            let slice: String = chars[i..i + from_len].iter().collect();
+            if slice == from {
+                // 检查前后边界
+                let prev_is_ident = i > 0 && is_ident_char(chars[i - 1]);
+                let next_is_ident = i + from_len < chars.len() && is_ident_char(chars[i + from_len]);
+                
+                // 只有当前后都不是标识符字符时才替换
+                // 但允许 "Vec<" "Option<" "Result<" 等模式（后面是 < 或 ::）
+                let next_char = if i + from_len < chars.len() { Some(chars[i + from_len]) } else { None };
+                let is_type_context = next_char == Some('<') || next_char == Some(':') || next_char == Some(' ') || next_char == Some(',') || next_char == Some(')') || next_char == Some('>') || next_char == Some(';') || next_char == Some('{') || next_char.is_none();
+                
+                if !prev_is_ident && (!next_is_ident || is_type_context) {
+                    result.push_str(to);
+                    i += from_len;
+                    continue;
+                }
+            }
+        }
+        result.push(chars[i]);
+        i += 1;
+    }
+    
+    result
+}
+
 pub struct Rust2NuConverter {
     output: String,
     indent_level: usize,
@@ -251,6 +293,21 @@ impl Rust2NuConverter {
                     }
                 }
                 FnArg::Typed(pt) => {
+                    // v1.8.3: 处理参数上的 #[cfg] 属性
+                    for attr in &pt.attrs {
+                        let attr_str = attr.to_token_stream().to_string();
+                        let cleaned_attr = attr_str
+                            .replace("# [", "#[")
+                            .replace(" [", "[")
+                            .replace(" ]", "]")
+                            .replace(" (", "(")
+                            .replace(" )", ")")
+                            .replace(" ,", ",");
+                        if cleaned_attr.starts_with("#[cfg") {
+                            result.push_str(&cleaned_attr);
+                            result.push(' ');
+                        }
+                    }
                     result.push_str(&pt.pat.to_token_stream().to_string());
                     result.push_str(": ");
                     result.push_str(&self.convert_type(&pt.ty));
@@ -406,8 +463,45 @@ impl Rust2NuConverter {
     }
 
     /// v1.6.5: 转换类型路径（处理泛型参数中的生命周期）
+    /// v1.8.3: 添加对完全限定语法 <Type as Trait>::AssocType 的支持
     fn convert_type_path(&self, type_path: &syn::TypePath) -> String {
         let mut result = String::new();
+
+        // v1.8.3: 处理完全限定语法 <Type as Trait>::AssocType
+        if let Some(qself) = &type_path.qself {
+            result.push('<');
+            result.push_str(&self.convert_type(&qself.ty));
+            result.push_str(" as ");
+            // 输出 trait 路径（从 path 的开头到 qself.position）
+            for (i, segment) in type_path.path.segments.iter().take(qself.position).enumerate() {
+                if i > 0 {
+                    result.push_str("::");
+                }
+                result.push_str(&segment.ident.to_string());
+                // 处理泛型参数
+                if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
+                    result.push('<');
+                    let arg_strs: Vec<String> = args.args.iter().map(|arg| {
+                        match arg {
+                            syn::GenericArgument::Lifetime(l) => format!("'{}", l.ident),
+                            syn::GenericArgument::Type(t) => self.convert_type(t),
+                            _ => arg.to_token_stream().to_string(),
+                        }
+                    }).collect();
+                    result.push_str(&arg_strs.join(", "));
+                    result.push('>');
+                }
+            }
+            result.push_str(">::");
+            // 输出关联类型（从 qself.position 开始）
+            for (i, segment) in type_path.path.segments.iter().skip(qself.position).enumerate() {
+                if i > 0 {
+                    result.push_str("::");
+                }
+                result.push_str(&segment.ident.to_string());
+            }
+            return result;
+        }
 
         for (i, segment) in type_path.path.segments.iter().enumerate() {
             if i > 0 {
@@ -528,16 +622,23 @@ impl Rust2NuConverter {
                 self.write(&self.indent());
 
                 // let vs let mut
-                let pat_str = local.pat.to_token_stream().to_string();
-                let is_mut = pat_str.contains("mut");
+                // v1.8.2: 改进 is_mut 检测。只有简单的 PatIdent 且 mutability 为 Some 时才使用 "v "。
+                // 如果是复合模式（元组、结构体、切片等），保持 "l " 并让模式内部处理 mut。
+                let is_mut = if let syn::Pat::Ident(pat_ident) = &local.pat {
+                    pat_ident.mutability.is_some()
+                } else {
+                    false
+                };
 
                 // 变量声明（无论是否有初始化值）
                 self.write(if is_mut { "v " } else { "l " });
 
                 // 先转换类型（保护裸指针的mut关键字），再去掉变量名前的mut
+                let pat_str = local.pat.to_token_stream().to_string();
                 let converted_pat = self.convert_type_in_string(&pat_str);
-                // 只删除开头的 "mut "（变量名前的mut）
-                let clean_pat = if converted_pat.starts_with("mut ") {
+                
+                // 只有在 simple identifier 模式下且 is_mut 为 true 时，才去除开头的 "mut "
+                let clean_pat = if is_mut && converted_pat.starts_with("mut ") {
                     &converted_pat[4..] // 跳过 "mut "
                 } else {
                     &converted_pat
@@ -560,15 +661,18 @@ impl Rust2NuConverter {
                 self.write(";\n");
             }
             Stmt::Expr(expr, semi) => {
-                // Stmt::Expr本身不包含attrs字段，但如果代码中有 #[cfg] if expr { }这样的形式，
-                // syn会将其解析为特殊的结构。实际上在Rust中，属性后面跟的语句会被包装。
-                // 但对于我们当前遇到的情况，cfg属性+if语句在syn中可能被解析为其他形式。
-                // 这里我们先处理常规的表达式语句。
+                // v1.8.4: 处理表达式级别的属性（如 #[cfg(loom)]）
+                // syn 将带属性的表达式语句解析为 Stmt::Expr，属性存储在表达式的 attrs 字段中
+                let expr_attrs = self.get_expr_attrs(expr);
+                for attr in &expr_attrs {
+                    self.write(&self.indent());
+                    self.writeln(&self.convert_attribute(attr));
+                }
 
                 // 处理unsafe块（包括嵌套在其他表达式中的unsafe块）
                 if let Expr::Unsafe(unsafe_expr) = expr {
                     self.write(&self.indent());
-                    self.write("U { ");
+                    self.write("unsafe { ");
                     // 转换unsafe块内的语句
                     for inner_stmt in &unsafe_expr.block.stmts {
                         // 简化处理：直接输出赋值语句
@@ -590,9 +694,15 @@ impl Rust2NuConverter {
                 }
 
                 // 处理break和continue (使用br和ct)
-                if let Expr::Break(_) = expr {
+                // v1.8.4: 处理带值的 break 语句
+                if let Expr::Break(break_expr) = expr {
                     self.write(&self.indent());
-                    self.write("br");
+                    if let Some(val) = &break_expr.expr {
+                        self.write("br ");
+                        self.write(&self.convert_expr(val));
+                    } else {
+                        self.write("br");
+                    }
                     if semi.is_some() {
                         self.write(";");
                     }
@@ -667,7 +777,40 @@ impl Rust2NuConverter {
                 format!("{}.~", self.convert_expr(&await_expr.base))
             }
             Expr::Try(try_expr) => {
+                // v1.8.2: 确保内部表达式也被转换
                 format!("{}!", self.convert_expr(&try_expr.expr))
+            }
+            // v1.8.2: 添加常用表达式的递归转换，确保内部的 ? 被正确转换为 !
+            Expr::Binary(bin) => {
+                format!("{} {} {}", self.convert_expr(&bin.left), bin.op.to_token_stream().to_string(), self.convert_expr(&bin.right))
+            }
+            Expr::Cast(cast) => {
+                format!("{} as {}", self.convert_expr(&cast.expr), self.convert_type(&cast.ty))
+            }
+            Expr::Call(call) => {
+                let func = self.convert_expr(&call.func);
+                let args = call.args.iter().map(|arg| self.convert_expr(arg)).collect::<Vec<_>>().join(", ");
+                format!("{}({})", func, args)
+            }
+            Expr::Index(index) => {
+                format!("{}[{}]", self.convert_expr(&index.expr), self.convert_expr(&index.index))
+            }
+            Expr::Field(field) => {
+                let base = self.convert_expr(&field.base);
+                let member = field.member.to_token_stream().to_string();
+                format!("{}.{}", base, member)
+            }
+            Expr::Paren(paren) => {
+                format!("({})", self.convert_expr(&paren.expr))
+            }
+            Expr::Path(path) => {
+                self.clean_token_spaces(&path.to_token_stream().to_string())
+            }
+            Expr::Lit(lit) => {
+                lit.to_token_stream().to_string()
+            }
+            Expr::Unary(un) => {
+                format!("{}{}", un.op.to_token_stream().to_string(), self.convert_expr(&un.expr))
             }
             Expr::MethodCall(call) => {
                 let receiver = self.convert_expr(&call.receiver);
@@ -772,7 +915,14 @@ impl Rust2NuConverter {
                 // 递归转换then分支中的语句
                 for stmt in &if_expr.then_branch.stmts {
                     match stmt {
-                        Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
+                        Stmt::Expr(Expr::Break(break_expr), _) => {
+                            // v1.8.4: 处理带值的 break
+                            if let Some(val) = &break_expr.expr {
+                                result.push_str(&format!("br {}; ", self.convert_expr(val)));
+                            } else {
+                                result.push_str("br; ");
+                            }
+                        }
                         Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
                         _ => {
                             result.push_str(
@@ -791,13 +941,36 @@ impl Rust2NuConverter {
                 self.convert_type_in_string(&result)
             }
             Expr::Block(block_expr) => {
+                // v1.8.2: 保留 block 表达式上的 #[cfg] 属性
+                let mut attr_prefix = String::new();
+                for attr in &block_expr.attrs {
+                    let attr_str = attr.to_token_stream().to_string();
+                    let cleaned_attr = attr_str
+                        .replace("# [", "#[")
+                        .replace(" [", "[")
+                        .replace(" ]", "]")
+                        .replace(" (", "(")
+                        .replace(" )", ")")
+                        .replace(" ,", ",");
+                    if cleaned_attr.starts_with("#[cfg") {
+                        attr_prefix.push_str(&cleaned_attr);
+                        attr_prefix.push('\n');
+                    }
+                }
                 // 块表达式：递归转换内部语句
-                let mut result = String::from("{\n");
+                let mut result = format!("{}{{\n", attr_prefix);
                 for stmt in &block_expr.block.stmts {
                     result.push_str("        ");
                     // 递归转换语句以处理内部的if/match/break/continue
                     let stmt_str = match stmt {
-                        Stmt::Expr(Expr::Break(_), _) => String::from("br"),
+                        Stmt::Expr(Expr::Break(break_expr), _) => {
+                            // v1.8.4: 处理带值的 break
+                            if let Some(val) = &break_expr.expr {
+                                format!("br {}", self.convert_expr(val))
+                            } else {
+                                String::from("br")
+                            }
+                        }
                         Stmt::Expr(Expr::Continue(_), _) => String::from("ct"),
                         Stmt::Expr(Expr::Return(ret), _) => {
                             // v1.8: 处理return语句的 #[cfg] 等属性
@@ -829,7 +1002,14 @@ impl Rust2NuConverter {
                 // 递归转换循环体中的语句
                 for stmt in &for_loop.body.stmts {
                     match stmt {
-                        Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
+                        Stmt::Expr(Expr::Break(break_expr), _) => {
+                            // v1.8.4: 处理带值的 break
+                            if let Some(val) = &break_expr.expr {
+                                result.push_str(&format!("br {}; ", self.convert_expr(val)));
+                            } else {
+                                result.push_str("br; ");
+                            }
+                        }
                         Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
                         Stmt::Expr(Expr::If(if_expr), semi) => {
                             result.push_str(&self.convert_expr(&Expr::If(if_expr.clone())));
@@ -873,11 +1053,24 @@ impl Rust2NuConverter {
             }
             Expr::Loop(loop_expr) => {
                 // L = loop
-                let mut result = String::from("L { ");
+                // v1.8.3: 保留循环标签，如 'outer: loop { }
+                let label = if let Some(label) = &loop_expr.label {
+                    format!("{}: ", label.name.ident)
+                } else {
+                    String::new()
+                };
+                let mut result = format!("{}L {{ ", label);
                 // 递归转换循环体中的语句
                 for stmt in &loop_expr.body.stmts {
                     match stmt {
-                        Stmt::Expr(Expr::Break(_), _) => result.push_str("br; "),
+                        Stmt::Expr(Expr::Break(break_expr), _) => {
+                            // v1.8.4: 处理带值的 break
+                            if let Some(val) = &break_expr.expr {
+                                result.push_str(&format!("br {}; ", self.convert_expr(val)));
+                            } else {
+                                result.push_str("br; ");
+                            }
+                        }
                         Stmt::Expr(Expr::Continue(_), _) => result.push_str("ct; "),
                         Stmt::Expr(Expr::If(if_expr), semi) => {
                             result.push_str(&self.convert_expr(&Expr::If(if_expr.clone())));
@@ -907,8 +1100,37 @@ impl Rust2NuConverter {
                 result.push('}');
                 self.convert_type_in_string(&result)
             }
-            Expr::Break(_) => String::from("br"),
+            Expr::Break(break_expr) => {
+                // v1.8.4: 处理带值的 break 语句，如 break guard;
+                if let Some(expr) = &break_expr.expr {
+                    format!("br {}", self.convert_expr(expr))
+                } else {
+                    String::from("br")
+                }
+            }
             Expr::Continue(_) => String::from("ct"),
+            // v1.8.3: 处理 unsafe 块表达式
+            Expr::Unsafe(unsafe_expr) => {
+                let mut result = String::from("unsafe { ");
+                for stmt in &unsafe_expr.block.stmts {
+                    match stmt {
+                        Stmt::Expr(inner_expr, semi) => {
+                            result.push_str(&self.convert_expr(inner_expr));
+                            if semi.is_some() {
+                                result.push_str("; ");
+                            } else {
+                                result.push(' ');
+                            }
+                        }
+                        _ => {
+                            result.push_str(&self.clean_token_spaces(&stmt.to_token_stream().to_string()));
+                            result.push(' ');
+                        }
+                    }
+                }
+                result.push('}');
+                self.convert_type_in_string(&result)
+            }
             // v1.8: 处理引用表达式，递归处理内部表达式
             // 这样 &StructLiteral{} 可以正确格式化结构体字面量
             Expr::Reference(ref_expr) => {
@@ -954,7 +1176,23 @@ impl Rust2NuConverter {
                 let expr_str = self
                     .clean_token_spaces(&expr.to_token_stream().to_string())
                     .replace("vec!", "V!");
-                self.convert_type_in_string(&expr_str)
+                
+                // v1.8.2 Hotfix: 即使在 fallback 路径中，也要尝试将 ? 转换为 !
+                // 必须小心处理 ?Sized 和格式化字符串中的 {:?} 和 {:#?}
+                let mut result = expr_str.replace("? Sized", "__Q_SIZED__")
+                                       .replace("?Sized", "__Q_SIZED__")
+                                       .replace("{:#?}", "__FMT_DEBUG_ALT__")
+                                       .replace("{:?}", "__FMT_DEBUG__")
+                                       .replace(":?}", "__FMT_DEBUG_END__");
+                // 转换为 !
+                result = result.replace("?", "!");
+                // 恢复 ?Sized 和格式化
+                result = result.replace("__Q_SIZED__", "?Sized")
+                               .replace("__FMT_DEBUG_ALT__", "{:#?}")
+                               .replace("__FMT_DEBUG__", "{:?}")
+                               .replace("__FMT_DEBUG_END__", ":?}");
+                
+                self.convert_type_in_string(&result)
             }
         }
     }
@@ -962,7 +1200,36 @@ impl Rust2NuConverter {
     /// 清理 to_token_stream() 产生的多余空格
     /// 例如: "V < i32 >" -> "V<i32>", "vec ! []" -> "vec![]", "x . method()" -> "x.method()"
     fn clean_token_spaces(&self, s: &str) -> String {
+        // v1.8.2: 先保护字符串字面量，避免其中的空格被错误删除
+        let mut protected_strings: Vec<String> = Vec::new();
         let mut result = s.to_string();
+        
+        // 提取并保护所有字符串字面量
+        let chars: Vec<char> = result.chars().collect();
+        let mut i = 0;
+        let mut protected_result = String::new();
+        while i < chars.len() {
+            if chars[i] == '"' {
+                // 找到字符串开始
+                let start = i;
+                i += 1;
+                while i < chars.len() && !(chars[i] == '"' && chars[i - 1] != '\\') {
+                    i += 1;
+                }
+                if i < chars.len() {
+                    i += 1; // 包含结束的引号
+                }
+                // 保存整个字符串字面量
+                let string_literal: String = chars[start..i].iter().collect();
+                let placeholder = format!("__STRING_LITERAL_{}__", protected_strings.len());
+                protected_strings.push(string_literal);
+                protected_result.push_str(&placeholder);
+            } else {
+                protected_result.push(chars[i]);
+                i += 1;
+            }
+        }
+        result = protected_result;
 
         // 移除 < > 周围的空格（用于泛型如 Vec< i32 > -> Vec<i32>）
         // v1.8: 智能处理 - 只在同一行有成对 <> 时才清理空格（泛型上下文）
@@ -1032,6 +1299,12 @@ impl Rust2NuConverter {
 
         // 修复 *= += -= 等复合赋值运算符周围的空格
         result = result.replace("* ", "*"); // 解引用符后不需要空格
+
+        // v1.8.2: 恢复被保护的字符串字面量
+        for (idx, string_literal) in protected_strings.iter().enumerate() {
+            let placeholder = format!("__STRING_LITERAL_{}__", idx);
+            result = result.replace(&placeholder, string_literal);
+        }
 
         result
     }
@@ -1133,15 +1406,19 @@ impl Rust2NuConverter {
                 .replace("FromResult", "__FROMRESULT_IDENT__")
                 .replace("TryFromResult", "__TRYFROMRESULT_IDENT__");
 
-            // 执行类型名替换
+            // v1.8.3: 使用智能替换，只替换独立的类型名称
+            // 这样 "BarrierWaitResult" 不会被替换成 "BarrierWaitR"
+            result = replace_standalone_type(&result, "Vec", "V");
+            result = replace_standalone_type(&result, "Option", "O");
+            result = replace_standalone_type(&result, "Result", "R");
+            result = replace_standalone_type(&result, "Arc", "A");
+            result = replace_standalone_type(&result, "Mutex", "X");
+            result = replace_standalone_type(&result, "Box", "B");
+            
+            // 这些替换不需要边界检查
             result = result
-                .replace("Vec", "V")
-                .replace("Option", "O")
-                .replace("Result", "R")
-                .replace("Arc", "A")
-                .replace("Mutex", "X")
-                .replace("Box", "B")
                 .replace("& mut", "&!")
+                .replace("&mut", "&!")
                 .replace("vec!", "V!"); // vec! -> V!
             
             // 恢复被保护的标识符
@@ -1289,6 +1566,52 @@ impl Rust2NuConverter {
             }
         }
         false
+    }
+
+    /// v1.8.4: 获取表达式的属性
+    /// syn 将表达式的属性存储在各个 Expr 变体的 attrs 字段中
+    fn get_expr_attrs(&self, expr: &Expr) -> Vec<Attribute> {
+        match expr {
+            Expr::Array(e) => e.attrs.clone(),
+            Expr::Assign(e) => e.attrs.clone(),
+            Expr::Async(e) => e.attrs.clone(),
+            Expr::Await(e) => e.attrs.clone(),
+            Expr::Binary(e) => e.attrs.clone(),
+            Expr::Block(e) => e.attrs.clone(),
+            Expr::Break(e) => e.attrs.clone(),
+            Expr::Call(e) => e.attrs.clone(),
+            Expr::Cast(e) => e.attrs.clone(),
+            Expr::Closure(e) => e.attrs.clone(),
+            Expr::Const(e) => e.attrs.clone(),
+            Expr::Continue(e) => e.attrs.clone(),
+            Expr::Field(e) => e.attrs.clone(),
+            Expr::ForLoop(e) => e.attrs.clone(),
+            Expr::Group(e) => e.attrs.clone(),
+            Expr::If(e) => e.attrs.clone(),
+            Expr::Index(e) => e.attrs.clone(),
+            Expr::Infer(e) => e.attrs.clone(),
+            Expr::Let(e) => e.attrs.clone(),
+            Expr::Lit(e) => e.attrs.clone(),
+            Expr::Loop(e) => e.attrs.clone(),
+            Expr::Macro(e) => e.attrs.clone(),
+            Expr::Match(e) => e.attrs.clone(),
+            Expr::MethodCall(e) => e.attrs.clone(),
+            Expr::Paren(e) => e.attrs.clone(),
+            Expr::Path(e) => e.attrs.clone(),
+            Expr::Range(e) => e.attrs.clone(),
+            Expr::Reference(e) => e.attrs.clone(),
+            Expr::Repeat(e) => e.attrs.clone(),
+            Expr::Return(e) => e.attrs.clone(),
+            Expr::Struct(e) => e.attrs.clone(),
+            Expr::Try(e) => e.attrs.clone(),
+            Expr::TryBlock(e) => e.attrs.clone(),
+            Expr::Tuple(e) => e.attrs.clone(),
+            Expr::Unary(e) => e.attrs.clone(),
+            Expr::Unsafe(e) => e.attrs.clone(),
+            Expr::While(e) => e.attrs.clone(),
+            Expr::Yield(e) => e.attrs.clone(),
+            _ => Vec::new(),
+        }
     }
 
     fn convert_attribute(&self, attr: &Attribute) -> String {
@@ -1718,6 +2041,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             }
         }
         
+        // v1.8.3: 处理 unsafe trait
+        let unsafe_prefix = if node.unsafety.is_some() { "unsafe " } else { "" };
+        
         let keyword = if self.is_public(&node.vis) {
             "TR"
         } else {
@@ -1726,6 +2052,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
 
         // v1.8: 添加缩进以保持模块内 trait 的正确嵌套
         self.write(&self.indent());
+        self.write(unsafe_prefix);
         self.write(keyword);
         self.write(" ");
         self.write(&node.ident.to_string());
@@ -1782,6 +2109,11 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.write(&self.indent());
                     self.write("t ");
                     self.write(&assoc_type.ident.to_string());
+
+                    // v1.8.3: 处理泛型关联类型 (GAT)，如 type Rotator<const COUNT: u32>
+                    if !assoc_type.generics.params.is_empty() {
+                        self.write(&self.convert_generics(&assoc_type.generics));
+                    }
 
                     // 处理类型约束 (如 : 'a)
                     if !assoc_type.bounds.is_empty() {
@@ -1919,6 +2251,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.write(&self.indent());
                     self.write("t ");
                     self.write(&type_item.ident.to_string());
+                    
+                    // v1.8.3: 处理泛型关联类型 (GAT)，如 type Rotator<const COUNT: u32> = ...
+                    if !type_item.generics.params.is_empty() {
+                        self.write(&self.convert_generics(&type_item.generics));
+                    }
+                    
                     self.write(" = ");
                     self.write(&self.convert_type(&type_item.ty));
                     self.writeln(";");
@@ -1943,6 +2281,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.write(" = ");
                     self.write(&const_item.expr.to_token_stream().to_string());
                     self.writeln(";");
+                }
+                syn::ImplItem::Macro(mac) => {
+                    // v1.8.4: 处理 impl 块内的宏调用，如 deref_async_buf_read!();
+                    // 注意：impl 块内的宏调用需要分号结尾
+                    self.write(&self.indent());
+                    let macro_str = self.clean_token_spaces(&mac.mac.to_token_stream().to_string());
+                    self.write(&macro_str);
+                    // 检查宏是否已经有分号
+                    if mac.semi_token.is_some() {
+                        self.writeln(";");
+                    } else {
+                        self.writeln("");
+                    }
                 }
                 _ => {
                     // 其他类型的impl item暂时保持原样

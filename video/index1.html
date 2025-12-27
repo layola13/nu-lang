@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scene 1: 认知的重负</title>
+    <!-- 引入 Tailwind CSS 用于快速布局 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 GSAP 动画库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    
+    <style>
+        /* 自定义样式补充 */
+        body {
+            background-color: #0d1117; /* 深黑背景 */
+            overflow: hidden;
+            font-family: 'Fira Code', 'Consolas', monospace;
+        }
+
+        /* 编辑器内部样式 */
+        .editor-container {
+            box-shadow: 0 20px 50px rgba(0,0,0,0.8);
+            border: 1px solid #30363d;
+        }
+
+        .code-line {
+            opacity: 0; /* 初始隐藏，由 GSAP 控制显示 */
+            white-space: pre;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+
+        /* 简单的 Rust 语法高亮模拟 */
+        .kwd { color: #ff7b72; } /* 关键字 pub, fn, impl */
+        .typ { color: #79c0ff; } /* 类型 struct, String, u32 */
+        .fn { color: #d2a8ff; }  /* 函数名 */
+        .str { color: #a5d6ff; } /* 字符串 */
+        .comment { color: #8b949e; }
+        .punc { color: #c9d1d9; }
+
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0d1117;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #30363d;
+            border-radius: 5px;
+        }
+
+        /* 警告印章效果 */
+        .stamp-box {
+            border: 8px solid #ff4444;
+            color: #ff4444;
+            text-transform: uppercase;
+            font-family: 'Impact', sans-serif;
+            letter-spacing: 4px;
+            transform: rotate(-15deg) scale(3); /* 初始放大，用于动画 */
+            opacity: 0;
+            mix-blend-mode: hard-light;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(2px);
+        }
+
+        /* 光标闪烁 */
+        .cursor {
+            display: inline-block;
+            width: 8px;
+            height: 16px;
+            background-color: #58a6ff;
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            50% { opacity: 0; }
+        }
+
+        .glow-text {
+            text-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body class="flex items-center justify-center h-screen w-screen relative">
+
+    <!-- 背景装饰网格 -->
+    <div class="absolute inset-0 opacity-10" style="background-image: radial-gradient(#30363d 1px, transparent 1px); background-size: 20px 20px;"></div>
+
+    <!-- 动画主容器 -->
+    <div class="relative w-full max-w-4xl h-[80vh] flex flex-col items-center justify-center perspective-1000">
+        
+        <!-- 代码编辑器窗口 -->
+        <div id="editor" class="editor-container w-full h-full bg-[#161b22] rounded-lg overflow-hidden flex flex-col relative z-10">
+            <!-- 顶部栏 -->
+            <div class="h-8 bg-[#0d1117] border-b border-[#30363d] flex items-center px-4 space-x-2">
+                <div class="w-3 h-3 rounded-full bg-[#ff5f56]"></div>
+                <div class="w-3 h-3 rounded-full bg-[#ffbd2e]"></div>
+                <div class="w-3 h-3 rounded-full bg-[#27c93f]"></div>
+                <span class="ml-4 text-xs text-gray-400 font-sans">lib.rs — heavy_system_impl</span>
+            </div>
+
+            <!-- 代码区域 -->
+            <div id="code-area" class="flex-1 p-6 overflow-hidden text-[#c9d1d9] font-mono text-sm relative">
+                <div id="code-content"></div>
+                <span class="cursor"></span>
+            </div>
+
+            <!-- 侧边极速变长的滚动条 (视觉模拟) -->
+            <div id="fake-scrollbar" class="absolute right-1 top-8 w-2 bg-[#30363d] rounded opacity-0"></div>
+        </div>
+
+        <!-- 字幕层 -->
+        <div id="subtitle" class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white text-4xl font-bold opacity-0 z-20 whitespace-nowrap glow-text pointer-events-none">
+            Standard Rust is Powerful...
+        </div>
+
+        <!-- 警告层 -->
+        <div id="verbose-warning" class="absolute pointer-events-none z-30 opacity-0 flex flex-col items-center justify-center">
+            <div class="stamp-box px-8 py-4 text-6xl font-black rounded-lg shadow-[0_0_30px_#ff0000]">
+                VERBOSE
+            </div>
+            <div class="text-red-400 font-mono mt-4 text-lg bg-black/80 px-2 tracking-widest">BOILERPLATE OVERLOAD</div>
+        </div>
+
+    </div>
+
+    <script>
+        // 生成冗长 Rust 代码的辅助函数
+        function generateVerboseRust() {
+            const fields = [
+                'connection_pool', 'timeout_settings', 'retry_strategy', 'buffer_size', 
+                'max_connections', 'keep_alive', 'tls_config', 'proxy_settings',
+                'user_agent', 'encoding', 'compression', 'metrics_collector'
+            ];
+            
+            let html = '';
+            
+            // 冗长的 Struct 定义
+            html += `<div class="code-line"><span class="kwd">pub struct</span> <span class="typ">SystemConfigurationBuilder</span> {</div>`;
+            fields.forEach(f => {
+                html += `<div class="code-line">    <span class="kwd">pub</span> ${f}: <span class="typ">Option</span>&lt;<span class="typ">u64</span>&gt;,</div>`;
+            });
+            html += `<div class="code-line">}</div><div class="code-line"><br></div>`;
+
+            // 冗长的 Impl 块
+            html += `<div class="code-line"><span class="kwd">impl</span> <span class="typ">SystemConfigurationBuilder</span> {</div>`;
+            html += `<div class="code-line">    <span class="kwd">pub fn</span> <span class="fn">new</span>() -> <span class="typ">Self</span> {</div>`;
+            html += `<div class="code-line">        <span class="typ">Self</span> {</div>`;
+            fields.forEach(f => {
+                html += `<div class="code-line">            ${f}: <span class="kwd">None</span>,</div>`;
+            });
+            html += `<div class="code-line">        }</div>`;
+            html += `<div class="code-line">    }</div><div class="code-line"><br></div>`;
+
+            // 极为冗长的 Getter/Setter
+            fields.forEach(f => {
+                html += `<div class="code-line">    <span class="kwd">pub fn</span> <span class="fn">set_${f}</span>(&<span class="kwd">mut</span> <span class="kwd">self</span>, val: <span class="typ">u64</span>) -> &<span class="kwd">mut</span> <span class="typ">Self</span> {</div>`;
+                html += `<div class="code-line">        <span class="kwd">self</span>.${f} = <span class="typ">Some</span>(val);</div>`;
+                html += `<div class="code-line">        <span class="kwd">self</span></div>`;
+                html += `<div class="code-line">    }</div><div class="code-line"><br></div>`;
+                
+                html += `<div class="code-line">    <span class="kwd">pub fn</span> <span class="fn">get_${f}</span>(&<span class="kwd">self</span>) -> <span class="typ">Option</span>&lt;<span class="typ">u64</span>&gt; {</div>`;
+                html += `<div class="code-line">        <span class="kwd">self</span>.${f}</div>`;
+                html += `<div class="code-line">    }</div><div class="code-line"><br></div>`;
+            });
+            
+            html += `<div class="code-line">}</div>`;
+            return html;
+        }
+
+        // 初始化
+        document.addEventListener("DOMContentLoaded", () => {
+            const codeContainer = document.getElementById('code-content');
+            codeContainer.innerHTML = generateVerboseRust();
+            
+            const lines = document.querySelectorAll('.code-line');
+            const editor = document.getElementById('editor');
+            const fakeScrollbar = document.getElementById('fake-scrollbar');
+            
+            // GSAP Timeline
+            const tl = gsap.timeline();
+
+            // 0s - 0.5s: 场景初始化
+            tl.set(lines, { display: 'none' });
+
+            // 0.5s - 3s: 极速打字效果 (视觉噪音)
+            // 不使用逐字打印，而是逐行快速显示，模拟粘贴/快速生成的感觉
+            tl.to(lines, {
+                display: 'block',
+                opacity: 1,
+                duration: 2.5,
+                stagger: 0.02, // 极快速度
+                ease: "none",
+                onUpdate: () => {
+                    // 自动滚动到底部
+                    const area = document.getElementById('code-area');
+                    area.scrollTop = area.scrollHeight;
+                }
+            }, "start_typing");
+
+            // 1.0s - 2.5s: 字幕 "Standard Rust is Powerful..." 浮现并消失
+            tl.to("#subtitle", {
+                opacity: 1,
+                scale: 1.1,
+                duration: 0.8,
+                ease: "power2.out"
+            }, "start_typing+=0.5");
+            
+            tl.to("#subtitle", {
+                opacity: 0,
+                blur: 10,
+                duration: 0.5
+            }, "start_typing+=2.5");
+
+            // 3.0s: 模拟编辑器变得拥挤，滚动条变长变红
+            tl.to(fakeScrollbar, {
+                opacity: 1,
+                height: '10%',
+                top: '8px',
+                backgroundColor: '#30363d',
+                duration: 0.1
+            }, "start_typing");
+
+            tl.to(fakeScrollbar, {
+                height: '90%', // 滚动条变小意味着内容极其多
+                top: '90%', // 滚动到底部
+                backgroundColor: '#ff4444', // 变红警告
+                duration: 2,
+                ease: "none"
+            }, "start_typing+=0.5");
+
+            // 3.5s - 5.0s: 出现 "Verbose" 警告
+            tl.to("#verbose-warning", {
+                opacity: 1,
+                duration: 0
+            }, "stamp_time+=3.2");
+
+            tl.fromTo(".stamp-box", 
+                { scale: 3, rotation: -45, opacity: 0 },
+                { 
+                    scale: 1, 
+                    rotation: -15, 
+                    opacity: 1, 
+                    duration: 0.3, 
+                    ease: "elastic.out(1, 0.3)" 
+                }
+            , "stamp_time+=3.2");
+
+            // 伴随震动效果
+            tl.to(editor, {
+                x: 5,
+                y: 5,
+                duration: 0.05,
+                repeat: 5,
+                yoyo: true,
+                ease: "rough"
+            }, "stamp_time+=3.2");
+
+            // 背景变红暗示危险/过载
+            tl.to("body", {
+                backgroundColor: "#1a0505",
+                duration: 1
+            }, "stamp_time+=3.2");
+
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nu Language - Complete VSCode Demo</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- GSAP 动画库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+    
+    <!-- 自定义样式 -->
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/vscode-theme.css">
+    <link rel="stylesheet" href="css/split-screen.css">
+</head>
+<body class="bg-[#0d1117]">
+
+    <!-- 完整演示：分屏实时转换 + 格式化 + 编译运行 -->
+    <div id="full-demo" class="w-full h-screen flex flex-col">
+        
+        <!-- 标题 -->
+        <div class="text-center py-6">
+            <h1 id="demo-title" class="text-4xl font-bold text-[#ff8800] glow-text opacity-0">
+                Nu Language VSCode Integration
+            </h1>
+            <p id="demo-subtitle" class="text-gray-400 mt-2 opacity-0">
+                Real-time Nu ↔ Rust Conversion
+            </p>
+        </div>
+
+        <!-- 分屏编辑器 -->
+        <div class="flex-1 flex gap-4 px-8 pb-8">
+            
+            <!-- 左侧：Nu 编辑器 -->
+            <div class="flex-1 flex flex-col bg-[#1e1e1e] rounded-lg overflow-hidden border-2 border-[#ff8800] opacity-0" id="nu-editor-panel">
+                <!-- 标签栏 -->
+                <div class="h-10 bg-[#252526] border-b border-[#2d2d2d] flex items-center justify-between px-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-[#ff8800] font-bold">📝</span>
+                        <span class="text-white text-sm">example.nu</span>
+                        <span class="text-[#ff8800] text-xs">(Nu Language)</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <button id="format-btn" class="px-3 py-1 bg-[#007ACC] text-white text-xs rounded hover:bg-[#005A9E] transition opacity-0">
+                            Format (Shift+Alt+F)
+                        </button>
+                        <button id="compile-btn" class="px-3 py-1 bg-[#ff8800] text-white text-xs rounded hover:bg-[#ff6600] transition opacity-0">
+                            Compile & Run (F5)
+                        </button>
+                    </div>
+                </div>
+                
+                <!-- 编辑器内容 -->
+                <div class="flex-1 flex">
+                    <!-- 行号 -->
+                    <div class="w-12 bg-[#1e1e1e] border-r border-[#2d2d2d] text-right pr-2 pt-3 text-gray-600 font-mono text-sm">
+                        <div id="nu-line-numbers"></div>
+                    </div>
+                    <!-- 代码区 -->
+                    <div class="flex-1 p-3 font-mono text-sm overflow-auto">
+                        <div id="nu-code-content" class="text-[#d4d4d4] whitespace-pre"></div>
+                        <span id="nu-cursor" class="inline-block w-2 h-5 bg-white animate-pulse opacity-0"></span>
+                    </div>
+                </div>
+                
+                <!-- 状态栏 -->
+                <div class="h-6 bg-[#007ACC] flex items-center justify-between px-4 text-xs text-white">
+                    <span>Nu Language</span>
+                    <span id="nu-status">Ready</span>
+                </div>
+            </div>
+
+            <!-- 箭头指示器 -->
+            <div class="flex flex-col justify-center items-center opacity-0" id="arrow-indicator">
+                <div class="text-5xl text-[#ff8800] animate-pulse">→</div>
+                <div class="text-xs text-gray-400 mt-2">Real-time<br/>Conversion</div>
+            </div>
+
+            <!-- 右侧：Rust 编辑器 -->
+            <div class="flex-1 flex flex-col bg-[#1e1e1e] rounded-lg overflow-hidden border-2 border-gray-600 opacity-0" id="rust-editor-panel">
+                <!-- 标签栏 -->
+                <div class="h-10 bg-[#252526] border-b border-[#2d2d2d] flex items-center justify-between px-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-gray-400 font-bold">📄</span>
+                        <span class="text-gray-300 text-sm">example.rs</span>
+                        <span class="text-gray-500 text-xs">(Generated Rust)</span>
+                    </div>
+                    <div class="text-xs text-green-400 opacity-0" id="sync-indicator">
+                        ✓ Synced
+                    </div>
+                </div>
+                
+                <!-- 编辑器内容 -->
+                <div class="flex-1 flex">
+                    <!-- 行号 -->
+                    <div class="w-12 bg-[#1e1e1e] border-r border-[#2d2d2d] text-right pr-2 pt-3 text-gray-600 font-mono text-sm">
+                        <div id="rust-line-numbers"></div>
+                    </div>
+                    <!-- 代码区 -->
+                    <div class="flex-1 p-3 font-mono text-sm overflow-auto">
+                        <div id="rust-code-content" class="text-[#d4d4d4] whitespace-pre"></div>
+                    </div>
+                </div>
+                
+                <!-- 状态栏 -->
+                <div class="h-6 bg-[#858585] flex items-center justify-between px-4 text-xs text-white">
+                    <span>Rust (Read-only)</span>
+                    <span id="rust-status">Auto-generated</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 输出面板 -->
+        <div class="h-48 mx-8 mb-8 bg-[#1e1e1e] rounded-lg border-2 border-[#2d2d2d] overflow-hidden opacity-0" id="output-panel">
+            <div class="h-8 bg-[#252526] border-b border-[#2d2d2d] flex items-center justify-between px-4">
+                <div class="flex items-center space-x-4">
+                    <span class="text-white text-sm font-bold">OUTPUT</span>
+                    <span class="text-xs text-gray-500">|</span>
+                    <span class="text-xs text-gray-400">example.nu</span>
+                </div>
+                <button id="clear-output" class="text-xs text-gray-400 hover:text-white">Clear</button>
+            </div>
+            <div class="p-4 font-mono text-sm text-green-400 overflow-auto h-[calc(100%-2rem)]">
+                <div id="output-content"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载脚本 -->
+    <script src="js/nu-rust-converter.js"></script>
+    <script src="js/full-demo.js"></script>
+
+</body>
+</html>
