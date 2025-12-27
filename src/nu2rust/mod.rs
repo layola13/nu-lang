@@ -689,7 +689,7 @@ impl Nu2RustConverter {
     // v1.8: 处理带受限可见性的 struct (如 pub(crate) S)
     fn convert_struct_with_visibility(&self, line: &str) -> Result<String> {
         // DEBUG: 跟踪调用
-        eprintln!("DEBUG convert_struct_with_visibility: line=[{}]", line);
+
         
         // 格式: "pub(crate) S Name" 或 "pub(super) S Name {...}"
         // 找到 ") S " 或 ") s " 的位置
@@ -706,7 +706,7 @@ impl Nu2RustConverter {
         let converted = self.convert_types_in_string(rest);
         
         let result = format!("{} struct {}", visibility, converted);
-        eprintln!("DEBUG convert_struct_with_visibility: result=[{}]", result);
+
         Ok(result)
     }
 
@@ -1145,6 +1145,8 @@ impl Nu2RustConverter {
             }
 
             // 跳过空白
+            // v1.8.8: 跟踪是否跳过了空白，以便在跳过后重新检查字符串保护
+            let whitespace_start = i;
             while i < chars.len() && chars[i].is_whitespace() {
                 result.push(chars[i]);
                 i += 1;
@@ -1153,9 +1155,16 @@ impl Nu2RustConverter {
             if i >= chars.len() {
                 break;
             }
+            
+            // v1.8.8: 如果跳过了空白，回到循环顶部重新检查字符串保护
+            // 这是必要的，因为空白后可能紧跟着字符串字面量
+            if i > whitespace_start {
+                continue;
+            }
 
             // 检查关键字
             let remaining: String = chars[i..].iter().collect();
+
 
             // break: br 或 br; 或 br, (使用双字母避免与变量b冲突)
             if remaining.starts_with("br;")
@@ -1455,6 +1464,7 @@ impl Nu2RustConverter {
             // v1.7.4: 增强where子句保护，避免误转换泛型参数
             // v1.7.6: 添加 M( 模式支持用于元组匹配
             // 单字母M很可能是泛型参数，需要非常保守地转换
+
             if remaining.starts_with("M ")
                 || remaining.starts_with("M&")
                 || remaining.starts_with("M(")
@@ -1483,55 +1493,94 @@ impl Nu2RustConverter {
 
                 // 检查前面的上下文，避免在泛型/类型位置转换
                 let mut is_in_generic_or_type = false;
+                let mut skip_generic_check = false;
+                
                 if i > 0 {
-                    // 前面是 < , : 表示在泛型/类型上下文中
-                    if chars[i - 1] == '<' || chars[i - 1] == ',' || chars[i - 1] == ':' {
-                        is_in_generic_or_type = true;
-                        
-                        // v1.8.2: 特殊处理函数调用中的 match。
-                        // 如果 M 后面紧跟着一个标识符和 {，那它极度可能是 match 而不是泛型参数 M。
-                        // 例如 Self::new(vec![], M rule { ... })
-                        // v1.8.4: 允许标识符中包含 . (如 src.repr)
-                        let mut j = i + 1;
-                        if remaining.starts_with("M ") { j = i + 2; }
-                        else if remaining.starts_with("M&") { j = i + 2; }
-                        else if remaining.starts_with("M(") { j = i + 1; }
-                        
-                        while j < chars.len() && chars[j].is_whitespace() { j += 1; }
-                        let word_start = j;
-                        // v1.8.4: 允许标识符中包含 . (如 src.repr)
-                        while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_' || chars[j] == '.') { j += 1; }
-                        if j > word_start {
-                            while j < chars.len() && chars[j].is_whitespace() { j += 1; }
-                            if j < chars.len() && chars[j] == '{' {
-                                is_in_generic_or_type = false;
-                            }
+                    // v1.8.8: 先向前查找非空白字符
+                    let mut prev_nonws_idx = i - 1;
+                    while prev_nonws_idx > 0 && chars[prev_nonws_idx].is_whitespace() {
+                        prev_nonws_idx -= 1;
+                    }
+                    let prev_nonws = chars[prev_nonws_idx];
+
+                    
+                    // 如果 M 前面是 { 且 { 前面是 ] 或 ) 则这是块上下文，不是泛型
+                    // 例如: &[(1, "x")] {M expr { ... } 中的 M 应该转换为 match
+                    if prev_nonws == '{' {
+                        // 检查 { 前面是否是 ] 或 )
+                        let mut brace_prev_idx = prev_nonws_idx;
+                        if brace_prev_idx > 0 { brace_prev_idx -= 1; }
+                        while brace_prev_idx > 0 && chars[brace_prev_idx].is_whitespace() {
+                            brace_prev_idx -= 1;
                         }
-                    } else if chars[i - 1].is_whitespace() {
-                        // 如果前面是空格，向前查找最近的非空格字符
-                        let mut j = i - 1;
-                        while j > 0 && chars[j].is_whitespace() {
-                            j -= 1;
+                        if chars[brace_prev_idx] == ']' || chars[brace_prev_idx] == ')' {
+                            // 这是块上下文，跳过泛型检查
+
+                            skip_generic_check = true;
                         }
-                        // 检查空格前的字符是否是泛型分隔符
-                        if chars[j] == '<' || chars[j] == ',' || chars[j] == ':' {
+                    }
+                    
+                    if !skip_generic_check {
+                        // 前面是 < , : 表示在泛型/类型上下文中
+                        if chars[i - 1] == '<' || chars[i - 1] == ',' || chars[i - 1] == ':' {
                             is_in_generic_or_type = true;
                             
-                            // v1.8.2: 同样处理空格后的 match
+                            // v1.8.2: 特殊处理函数调用中的 match。
+                            // 如果 M 后面紧跟着一个标识符和 {，那它极度可能是 match 而不是泛型参数 M。
+                            // 例如 Self::new(vec![], M rule { ... })
                             // v1.8.4: 允许标识符中包含 . (如 src.repr)
-                            let mut k = i + 1;
-                            if remaining.starts_with("M ") { k = i + 2; }
-                            else if remaining.starts_with("M&") { k = i + 2; }
-                            else if remaining.starts_with("M(") { k = i + 1; }
+                            let mut j = i + 1;
+                            if remaining.starts_with("M ") { j = i + 2; }
+                            else if remaining.starts_with("M&") { j = i + 2; }
+                            else if remaining.starts_with("M(") { j = i + 1; }
                             
-                            while k < chars.len() && chars[k].is_whitespace() { k += 1; }
-                            let word_start = k;
+                            while j < chars.len() && chars[j].is_whitespace() { j += 1; }
+                            let word_start = j;
                             // v1.8.4: 允许标识符中包含 . (如 src.repr)
-                            while k < chars.len() && (chars[k].is_alphanumeric() || chars[k] == '_' || chars[k] == '.') { k += 1; }
-                            if k > word_start {
-                                while k < chars.len() && chars[k].is_whitespace() { k += 1; }
-                                if k < chars.len() && chars[k] == '{' {
+                            while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_' || chars[j] == '.') { j += 1; }
+                            if j > word_start {
+                                while j < chars.len() && chars[j].is_whitespace() { j += 1; }
+                                if j < chars.len() && chars[j] == '{' {
                                     is_in_generic_or_type = false;
+                                }
+                            }
+                        } else if chars[i - 1].is_whitespace() {
+                            // 如果前面是空格，向前查找最近的非空格字符
+                            let mut j = i - 1;
+                            while j > 0 && chars[j].is_whitespace() {
+                                j -= 1;
+                            }
+                            
+                            // v1.8.8: 如果非空白字符是 {，检查 { 前面是否是 ] 或 )
+                            if chars[j] == '{' {
+                                let mut brace_prev_idx = j;
+                                if brace_prev_idx > 0 { brace_prev_idx -= 1; }
+                                while brace_prev_idx > 0 && chars[brace_prev_idx].is_whitespace() {
+                                    brace_prev_idx -= 1;
+                                }
+                                if chars[brace_prev_idx] == ']' || chars[brace_prev_idx] == ')' {
+                                    // 这是块上下文，跳过泛型检查
+                                    // is_in_generic_or_type 保持 false
+                                }
+                            } else if chars[j] == '<' || chars[j] == ',' || chars[j] == ':' {
+                                is_in_generic_or_type = true;
+                                
+                                // v1.8.2: 同样处理空格后的 match
+                                // v1.8.4: 允许标识符中包含 . (如 src.repr)
+                                let mut k = i + 1;
+                                if remaining.starts_with("M ") { k = i + 2; }
+                                else if remaining.starts_with("M&") { k = i + 2; }
+                                else if remaining.starts_with("M(") { k = i + 1; }
+                                
+                                while k < chars.len() && chars[k].is_whitespace() { k += 1; }
+                                let word_start = k;
+                                // v1.8.4: 允许标识符中包含 . (如 src.repr)
+                                while k < chars.len() && (chars[k].is_alphanumeric() || chars[k] == '_' || chars[k] == '.') { k += 1; }
+                                if k > word_start {
+                                    while k < chars.len() && chars[k].is_whitespace() { k += 1; }
+                                    if k < chars.len() && chars[k] == '{' {
+                                        is_in_generic_or_type = false;
+                                    }
                                 }
                             }
                         }
