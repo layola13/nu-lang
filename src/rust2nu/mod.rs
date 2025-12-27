@@ -270,8 +270,12 @@ impl Rust2NuConverter {
                     // Receiver的reference和mutability只在没有显式类型时有效
                     // 如果有显式类型(r.colon_token存在)，则使用完整的类型信息
                     if r.colon_token.is_some() {
-                        // 显式类型：输出完整的 self: Type
-                        result.push_str("self: ");
+                        // v1.8.4: 处理 mut self: Type 的情况
+                        if r.mutability.is_some() {
+                            result.push_str("!self: "); // mut self -> !self
+                        } else {
+                            result.push_str("self: ");
+                        }
                         result.push_str(&self.convert_type(&r.ty));
                     } else if let Some((_, lifetime)) = &r.reference {
                         // v1.8: 保留 &'a self 中的生命周期
@@ -882,7 +886,8 @@ impl Rust2NuConverter {
                     result
                         .push_str(&self.clean_token_spaces(&arm.pat.to_token_stream().to_string()));
                     if let Some((_, guard)) = &arm.guard {
-                        result.push_str(" ? ");
+                        // v1.8.8: 保留 if 原样（不再转换为 ?）
+                        result.push_str(" if ");
                         result.push_str(&self.convert_expr(guard));
                     }
                     result.push_str(" => ");
@@ -909,9 +914,9 @@ impl Rust2NuConverter {
                         attr_prefix.push('\n');
                     }
                 }
-                // ? = if
+                // v1.8.8: 保留 if 原样（不再转换为 ?）
                 let cond = self.convert_expr(&if_expr.cond);
-                let mut result = format!("{}? {} {{ ", attr_prefix, cond);
+                let mut result = format!("{}if {} {{ ", attr_prefix, cond);
                 // 递归转换then分支中的语句
                 for stmt in &if_expr.then_branch.stmts {
                     match stmt {
@@ -1884,16 +1889,23 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             self.write(&self.convert_generics(&node.generics));
         }
 
+        // v1.8.7: 对于元组结构体，where 子句应该在字段之后输出
+        // 对于命名字段结构体和单元结构体，where 子句在字段之前输出
+        let is_tuple_struct = matches!(&node.fields, syn::Fields::Unnamed(_));
+        
         // v1.7.5: 结构体的 where 子句支持（关键修复！）
-        if let Some(where_clause) = &node.generics.where_clause {
-            self.write(" wh ");
-            self.write(
-                &where_clause
-                    .to_token_stream()
-                    .to_string()
-                    .replace("where", "")
-                    .trim(),
-            );
+        // 只有非元组结构体才在这里输出 where 子句
+        if !is_tuple_struct {
+            if let Some(where_clause) = &node.generics.where_clause {
+                self.write(" wh ");
+                self.write(
+                    &where_clause
+                        .to_token_stream()
+                        .to_string()
+                        .replace("where", "")
+                        .trim(),
+                );
+            }
         }
 
         // 字段
@@ -1932,6 +1944,8 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             }
             syn::Fields::Unnamed(fields) => {
                 // Tuple struct: pub struct ParseLevelError(());
+                // v1.8.7: 对于元组结构体，where 子句应该在字段之后
+                // 先输出字段
                 self.write("(");
                 let type_strs: Vec<String> = fields
                     .unnamed
@@ -1939,7 +1953,19 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     .map(|f| self.convert_type(&f.ty))
                     .collect();
                 self.write(&type_strs.join(", "));
-                self.writeln(");");
+                self.write(")");
+                // 然后输出 where 子句（如果有的话）
+                if let Some(where_clause) = &node.generics.where_clause {
+                    self.write(" wh ");
+                    self.write(
+                        &where_clause
+                            .to_token_stream()
+                            .to_string()
+                            .replace("where", "")
+                            .trim(),
+                    );
+                }
+                self.writeln(";");
             }
             syn::Fields::Unit => {
                 // Unit struct: pub struct UnitStruct;
@@ -1987,6 +2013,20 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         self.indent_level += 1;
 
         for variant in &node.variants {
+            // v1.8.5: 保留 enum variant 上的 #[cfg] 和其他属性
+            for attr in &variant.attrs {
+                let attr_str = attr.to_token_stream().to_string();
+                let cleaned_attr = attr_str
+                    .replace("# [", "#[")
+                    .replace(" [", "[")
+                    .replace(" ]", "]")
+                    .replace(" (", "(")
+                    .replace(" )", ")")
+                    .replace(" ,", ",");
+                self.write(&self.indent());
+                self.writeln(&cleaned_attr);
+            }
+            
             self.write(&self.indent());
             self.write(&variant.ident.to_string());
 

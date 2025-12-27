@@ -121,12 +121,11 @@
 | 符号 | 含义 | Rust 原文 | 语法规则 |
 | --- | --- | --- | --- |
 | **<** | Return | `return` | 语句首: `< val` |
-| **?** | If | `if` | `? x > 0 { }` |
 | **M** | Match | `match` | `M val { ... }` |
 | **L** | Loop | `loop`/`for` | `L { }`, `L i: list` |
 | **!** | Try | `?` | 仅**后缀**: `func()!` |
 
-> **注意**：由于宏恢复了原样，**`>` 符号不再表示 Print，仅表示“大于号”**。这彻底消除了二义性。
+> **注意**：`if` 保持原样（不缩写）。由于宏恢复了原样，**`>` 符号不再表示 Print，仅表示"大于号"**。
 
 ### 5.2 内存修饰符
 
@@ -199,7 +198,7 @@ F run_logic(input: &str) -> R<V<i32>, String> {
         M parse(part) {
             Ok(n): {
                 // < 在变量间 = 小于号
-                ? n < 0 {
+                if n < 0 {
                     println!("Skipping negative: {}", n);
                     ct // continue (v1.7)
                 }

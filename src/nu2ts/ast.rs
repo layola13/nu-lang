@@ -311,7 +311,8 @@ pub enum BinOp {
     MulAssign, // *=
     DivAssign, // /=
     ModAssign, // %=
-    Range,     // ..
+    Range,          // ..
+    RangeInclusive, // ..=
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

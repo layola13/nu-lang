@@ -152,11 +152,15 @@ impl Nu2RustConverter {
                 if context.in_struct_block {
                     let trimmed = line.trim();
                     // 检测是否是字段行（包含冒号，不是注释，不是已有pub，不是struct定义本身）
+                    // v1.8.4: 排除 pub(crate) S / pub(super) S 等受限可见性的 struct 定义行
+                    let is_visibility_struct = (trimmed.contains(") S ") || trimmed.contains(") s "))
+                        && trimmed.starts_with("pub(");
                     if !trimmed.is_empty()
                         && !trimmed.starts_with("//")
                         && !trimmed.starts_with("pub ")
                         && !trimmed.starts_with("S ")   // 排除 struct 定义行
                         && !trimmed.starts_with("s ")   // 排除 struct 定义行
+                        && !is_visibility_struct        // v1.8.4: 排除受限可见性的 struct 定义行
                         && trimmed.contains(':')
                         && !trimmed.starts_with("fn ")
                         && !trimmed.starts_with('}')
@@ -495,8 +499,10 @@ impl Nu2RustConverter {
 
         // 处理 !self -> mut self (按值接收的可变self)
         // v1.8.3: 处理更多模式
+        // v1.8.4: 添加 !self: 模式 (如 !self: Pin<&mut Self>)
         converted = converted.replace("(!self)", "(mut self)");
         converted = converted.replace("(!self,", "(mut self,");
+        converted = converted.replace("(!self:", "(mut self:");
         converted = converted.replace("(!self", "(mut self");
 
         Ok(format!("{}fn {}", visibility, converted))
@@ -523,8 +529,10 @@ impl Nu2RustConverter {
 
         // 处理 !self -> mut self (按值接收的可变self)
         // v1.8.3: 处理更多模式
+        // v1.8.4: 添加 !self: 模式 (如 !self: Pin<&mut Self>)
         converted = converted.replace("(!self)", "(mut self)");
         converted = converted.replace("(!self,", "(mut self,");
+        converted = converted.replace("(!self:", "(mut self:");
         converted = converted.replace("(!self", "(mut self");
 
         Ok(format!("{}unsafe fn {}", visibility, converted))
@@ -549,8 +557,10 @@ impl Nu2RustConverter {
 
         let mut converted = self.convert_types_in_string(content);
         // v1.8.3: 处理更多模式
+        // v1.8.4: 添加 !self: 模式 (如 !self: Pin<&mut Self>)
         converted = converted.replace("(!self)", "(mut self)");
         converted = converted.replace("(!self,", "(mut self,");
+        converted = converted.replace("(!self:", "(mut self:");
         converted = converted.replace("(!self", "(mut self");
 
         Ok(format!("{}const fn {}", visibility, converted))
@@ -578,6 +588,7 @@ impl Nu2RustConverter {
         // v1.8.3: 处理更多模式
         converted = converted.replace("(!self)", "(mut self)");
         converted = converted.replace("(!self,", "(mut self,");
+        converted = converted.replace("(!self:", "(mut self:");
         converted = converted.replace("(!self", "(mut self");
 
         Ok(format!("{}unsafe fn {}", visibility, converted))
@@ -593,6 +604,7 @@ impl Nu2RustConverter {
         // v1.8.3: 处理 !self -> mut self
         converted = converted.replace("(!self)", "(mut self)");
         converted = converted.replace("(!self,", "(mut self,");
+        converted = converted.replace("(!self:", "(mut self:");
         converted = converted.replace("(!self", "(mut self");
 
         Ok(format!("{}async fn {}", visibility, converted))
@@ -1300,6 +1312,8 @@ impl Nu2RustConverter {
             if chars[i] == '?' {
                 // 首先检查是否是错误传播运算符
                 // 需要检测: ?; ?, ?) ?} ?. 以及 ? . (空格后的点)
+                // v1.8.7: 也检测 ? / ? + ? - ? * ? % 等算术运算符（表达式继续）
+                // 但不包括 ? < ? > ? = 因为这些可能是条件语句的开始
                 let mut is_error_propagation = false;
                 if i + 1 < chars.len() {
                     let next_char = chars[i + 1];
@@ -1308,10 +1322,20 @@ impl Nu2RustConverter {
                         || next_char == ')'
                         || next_char == '}'
                         || next_char == '.'
+                        || next_char == '/'  // v1.8.7: 算术运算符
+                        || next_char == '+'
+                        || next_char == '-'
+                        || next_char == '*'
+                        || next_char == '%'
+                        || next_char == '&'  // 位运算符
+                        || next_char == '|'
+                        || next_char == '^'
+                        // 注意：不包括 < > = 因为这些可能是条件语句的开始
                     {
                         is_error_propagation = true;
                     } else if next_char == ' ' {
                         // v1.6.11: 检查空格后是否是 . , ; ) } (错误传播运算符: ? . 或 ? , 等)
+                        // v1.8.7: 也检查算术运算符，但不包括比较运算符
                         let mut j = i + 2;
                         while j < chars.len() && chars[j] == ' ' {
                             j += 1;
@@ -1323,6 +1347,15 @@ impl Nu2RustConverter {
                                 || char_after_spaces == ';'
                                 || char_after_spaces == ')'
                                 || char_after_spaces == '}'
+                                || char_after_spaces == '/'  // v1.8.7: 算术运算符
+                                || char_after_spaces == '+'
+                                || char_after_spaces == '-'
+                                || char_after_spaces == '*'
+                                || char_after_spaces == '%'
+                                || char_after_spaces == '&'  // 位运算符
+                                || char_after_spaces == '|'
+                                || char_after_spaces == '^'
+                                // 注意：不包括 < > = 因为这些可能是条件语句的开始
                             {
                                 is_error_propagation = true;
                             }
@@ -1458,6 +1491,7 @@ impl Nu2RustConverter {
                         // v1.8.2: 特殊处理函数调用中的 match。
                         // 如果 M 后面紧跟着一个标识符和 {，那它极度可能是 match 而不是泛型参数 M。
                         // 例如 Self::new(vec![], M rule { ... })
+                        // v1.8.4: 允许标识符中包含 . (如 src.repr)
                         let mut j = i + 1;
                         if remaining.starts_with("M ") { j = i + 2; }
                         else if remaining.starts_with("M&") { j = i + 2; }
@@ -1465,7 +1499,8 @@ impl Nu2RustConverter {
                         
                         while j < chars.len() && chars[j].is_whitespace() { j += 1; }
                         let word_start = j;
-                        while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') { j += 1; }
+                        // v1.8.4: 允许标识符中包含 . (如 src.repr)
+                        while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_' || chars[j] == '.') { j += 1; }
                         if j > word_start {
                             while j < chars.len() && chars[j].is_whitespace() { j += 1; }
                             if j < chars.len() && chars[j] == '{' {
@@ -1483,6 +1518,7 @@ impl Nu2RustConverter {
                             is_in_generic_or_type = true;
                             
                             // v1.8.2: 同样处理空格后的 match
+                            // v1.8.4: 允许标识符中包含 . (如 src.repr)
                             let mut k = i + 1;
                             if remaining.starts_with("M ") { k = i + 2; }
                             else if remaining.starts_with("M&") { k = i + 2; }
@@ -1490,7 +1526,8 @@ impl Nu2RustConverter {
                             
                             while k < chars.len() && chars[k].is_whitespace() { k += 1; }
                             let word_start = k;
-                            while k < chars.len() && (chars[k].is_alphanumeric() || chars[k] == '_') { k += 1; }
+                            // v1.8.4: 允许标识符中包含 . (如 src.repr)
+                            while k < chars.len() && (chars[k].is_alphanumeric() || chars[k] == '_' || chars[k] == '.') { k += 1; }
                             if k > word_start {
                                 while k < chars.len() && chars[k].is_whitespace() { k += 1; }
                                 if k < chars.len() && chars[k] == '{' {
@@ -1909,6 +1946,329 @@ impl Nu2RustConverter {
         result
     }
 
+    /// v1.8.5: 智能转换 V:: 到 Vec::
+    /// 只有当 V:: 后面跟着 Vec 特有的方法时才转换
+    /// 如果后面跟着通用方法或大写字母，则保持不变（如 V::Value 是泛型参数的关联类型）
+    fn convert_v_to_vec_smart(s: &str) -> String {
+        // Vec 特有的方法列表
+        let vec_specific_methods = [
+            "new", "with_capacity", "from_raw_parts", "from_raw_parts_in",
+            "new_in", "with_capacity_in",
+            "try_with_capacity", "try_with_capacity_in",
+        ];
+        
+        let mut result = String::new();
+        let chars: Vec<char> = s.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            // 检查 "V :: " 模式（带空格）
+            if i + 4 < chars.len() 
+                && chars[i] == 'V' 
+                && chars[i + 1] == ' ' 
+                && chars[i + 2] == ':' 
+                && chars[i + 3] == ':' 
+                && chars[i + 4] == ' '
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 5;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if vec_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Vec::");
+                        i += 5;
+                        continue;
+                    }
+                }
+            }
+            
+            // 检查 "V::" 模式（无空格）
+            if i + 2 < chars.len() 
+                && chars[i] == 'V' 
+                && chars[i + 1] == ':' 
+                && chars[i + 2] == ':'
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 3;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if vec_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Vec::");
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+
+            result.push(chars[i]);
+            i += 1;
+        }
+
+        result
+    }
+
+    /// v1.8.5: 智能转换 A:: 到 Arc::
+    /// 只有当 A:: 后面跟着 Arc 特有的方法时才转换
+    /// 如果后面跟着通用方法（如 default）或大写字母，则保持不变
+    fn convert_a_to_arc_smart(s: &str) -> String {
+        // Arc 特有的方法列表（不包括通用 trait 方法如 default, clone 等）
+        let arc_specific_methods = [
+            "new", "pin", "try_pin", "new_cyclic", "new_uninit", "new_zeroed",
+            "try_new", "try_new_uninit", "try_new_zeroed",
+            "new_uninit_slice", "new_zeroed_slice",
+            "downgrade", "weak_count", "strong_count", "ptr_eq",
+            "make_mut", "get_mut", "try_unwrap", "into_inner",
+            "increment_strong_count", "decrement_strong_count",
+            "as_ptr", "into_raw", "from_raw",
+        ];
+        
+        let mut result = String::new();
+        let chars: Vec<char> = s.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            // 检查 "A :: " 模式（带空格）
+            if i + 4 < chars.len() 
+                && chars[i] == 'A' 
+                && chars[i + 1] == ' ' 
+                && chars[i + 2] == ':' 
+                && chars[i + 3] == ':' 
+                && chars[i + 4] == ' '
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 5;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if arc_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Arc::");
+                        i += 5;
+                        continue;
+                    }
+                }
+            }
+            
+            // 检查 "A::" 模式（无空格）
+            if i + 2 < chars.len() 
+                && chars[i] == 'A' 
+                && chars[i + 1] == ':' 
+                && chars[i + 2] == ':'
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 3;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if arc_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Arc::");
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+
+            result.push(chars[i]);
+            i += 1;
+        }
+
+        result
+    }
+
+    /// v1.8.6: 智能转换 R:: 到 Result::
+    /// 只有当 R:: 后面跟着 Result 特有的方法时才转换
+    /// 如果后面跟着通用方法或大写字母，则保持不变（如 R::Output 是泛型参数的关联类型）
+    fn convert_r_to_result_smart(s: &str) -> String {
+        // Result 特有的方法列表
+        // 注意：Result 没有太多静态方法，大多数是实例方法
+        // 这里只列出可能作为 Result:: 调用的方法
+        let result_specific_methods: [&str; 0] = [];  // Result 几乎没有静态方法
+        
+        let mut result = String::new();
+        let chars: Vec<char> = s.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            // 检查 "R :: " 模式（带空格）
+            if i + 4 < chars.len() 
+                && chars[i] == 'R' 
+                && chars[i + 1] == ' ' 
+                && chars[i + 2] == ':' 
+                && chars[i + 3] == ':' 
+                && chars[i + 4] == ' '
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 5;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if result_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Result::");
+                        i += 5;
+                        continue;
+                    }
+                }
+            }
+            
+            // 检查 "R::" 模式（无空格）
+            if i + 2 < chars.len() 
+                && chars[i] == 'R' 
+                && chars[i + 1] == ':' 
+                && chars[i + 2] == ':'
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 3;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if result_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Result::");
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+
+            result.push(chars[i]);
+            i += 1;
+        }
+
+        result
+    }
+
+    /// v1.8.6: 智能转换 B:: 到 Box::
+    /// 只有当 B:: 后面跟着 Box 特有的方法时才转换
+    /// 如果后面跟着通用方法（如 default）或大写字母，则保持不变
+    fn convert_b_to_box_smart(s: &str) -> String {
+        // Box 特有的方法列表（不包括通用 trait 方法如 default, clone 等）
+        let box_specific_methods = [
+            "new", "new_uninit", "new_zeroed", "new_in", "new_uninit_in", "new_zeroed_in",
+            "try_new", "try_new_uninit", "try_new_zeroed",
+            "try_new_in", "try_new_uninit_in", "try_new_zeroed_in",
+            "pin", "pin_in", "into_pin",
+            "leak", "into_raw", "from_raw", "from_raw_in",
+            "downcast", "downcast_unchecked",
+            "into_boxed_slice", "into_inner",
+            "assume_init", "write",
+        ];
+        
+        let mut result = String::new();
+        let chars: Vec<char> = s.chars().collect();
+        let mut i = 0;
+
+        while i < chars.len() {
+            // 检查 "B :: " 模式（带空格）
+            if i + 4 < chars.len() 
+                && chars[i] == 'B' 
+                && chars[i + 1] == ' ' 
+                && chars[i + 2] == ':' 
+                && chars[i + 3] == ':' 
+                && chars[i + 4] == ' '
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 5;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if box_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Box::");
+                        i += 5;
+                        continue;
+                    }
+                }
+            }
+            
+            // 检查 "B::" 模式（无空格）
+            if i + 2 < chars.len() 
+                && chars[i] == 'B' 
+                && chars[i + 1] == ':' 
+                && chars[i + 2] == ':'
+            {
+                // 检查前边界
+                let has_start_boundary = i == 0 || 
+                    (!chars[i - 1].is_alphanumeric() && chars[i - 1] != '_');
+                
+                if has_start_boundary {
+                    // 提取后面的方法名
+                    let method_start = i + 3;
+                    let mut method_end = method_start;
+                    while method_end < chars.len() && (chars[method_end].is_alphanumeric() || chars[method_end] == '_') {
+                        method_end += 1;
+                    }
+                    let method_name: String = chars[method_start..method_end].iter().collect();
+                    
+                    if box_specific_methods.contains(&method_name.as_str()) {
+                        result.push_str("Box::");
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+
+            result.push(chars[i]);
+            i += 1;
+        }
+
+        result
+    }
+
     /// 转换Nu类型回Rust类型
     fn convert_types_in_string(&self, s: &str) -> String {
         // 第一步：先转换 $| -> move | (在保护闭包之前)
@@ -1987,9 +2347,12 @@ impl Nu2RustConverter {
             .replace("VDeque::", "VecDeque::") // VDeque:: -> VecDeque:: (优先处理，避免被V::转换)
             .replace("VDeque <", "VecDeque<") // VDeque < -> VecDeque< (带空格)
             .replace("VDeque<", "VecDeque<") // VDeque< -> VecDeque< (rust2nu错误缩写)
-            .replace("Vec<", "Vec<") // 保持Vec<不变，它已经是完整的
-            .replace("V :: ", "Vec::") // V :: -> Vec:: (Vec的关联函数，带空格)
-            .replace("V::", "Vec::"); // V:: -> Vec:: (Vec的关联函数，无空格)
+            .replace("Vec<", "Vec<"); // 保持Vec<不变，它已经是完整的
+        
+        // v1.8.5: 智能处理 V:: -> Vec:: 转换
+        // 只有当 V:: 后面跟着小写字母时才转换（如 V::new, V::with_capacity）
+        // 如果后面跟着大写字母，则保持不变（如 V::Value 是泛型参数的关联类型）
+        result = Self::convert_v_to_vec_smart(&result);
         
         // v1.8.1: 使用边界检查的替换，避免 YEAR < 被替换成 YEAResult<
         result = Self::replace_type_with_boundary(&result, "V <", "Vec<");
@@ -1999,19 +2362,22 @@ impl Nu2RustConverter {
         result = Self::replace_type_with_boundary(&result, "O::", "Option::");
         result = Self::replace_type_with_boundary(&result, "R <", "Result<");
         result = Self::replace_type_with_boundary(&result, "R<", "Result<");
-        result = Self::replace_type_with_boundary(&result, "R::", "Result::");
+        // v1.8.6: 使用智能转换 R:: -> Result:: (只在后面跟小写字母时转换)
+        result = Self::convert_r_to_result_smart(&result);
         result = result
             .replace("::R ", "::Result ") // ::R  -> ::Result (模块路径后的Result，带空格)
             .replace("::R<", "::Result<") // ::R< -> ::Result< (模块路径后的Result泛型)
             // v1.8.3: 处理 io::R< 模式（io模块的Result类型）
             .replace("io::R<", "io::Result<")
-            .replace("BedError", "BoxedError") // Bed -> Boxed (类型缩写，anyhow库)
-            .replace("B :: ", "Box::") // B :: -> Box:: (Box的关联函数，带空格)
-            .replace("B::", "Box::"); // B:: -> Box:: (Box的关联函数，无空格) - 修复regex库错误
+            .replace("BedError", "BoxedError"); // Bed -> Boxed (类型缩写，anyhow库)
+        
+        // v1.8.6: 使用智能转换 B:: -> Box:: (只在后面跟小写字母时转换)
+        result = Self::convert_b_to_box_smart(&result);
         
         // v1.8.1: A/X/B 也使用边界检查
         result = Self::replace_type_with_boundary(&result, "A<", "Arc<");
-        result = Self::replace_type_with_boundary(&result, "A::", "Arc::");
+        // v1.8.5: 使用智能转换 A:: -> Arc:: (只在后面跟小写字母时转换)
+        result = Self::convert_a_to_arc_smart(&result);
         result = Self::replace_type_with_boundary(&result, "X<", "Mutex<");
         result = Self::replace_type_with_boundary(&result, "X::", "Mutex::");
         result = Self::replace_type_with_boundary(&result, "B <", "Box<");

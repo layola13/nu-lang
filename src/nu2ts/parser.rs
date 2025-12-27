@@ -422,10 +422,13 @@ impl Parser {
         // 解析返回类型
         if let Some(arrow_pos) = content.find("->") {
             let after_arrow = &content[arrow_pos + 2..];
-            // 修复：正确处理WHERE子句
+            // 修复：正确处理WHERE子句（包括缩写形式wh）
             // 先移除WHERE子句（如果存在），然后再提取类型
-            let type_part = if let Some(where_pos) = after_arrow.find(" where ") {
+            let type_part = if let Some(where_pos) = after_arrow.to_lowercase().find(" where ") {
                 &after_arrow[..where_pos]
+            } else if let Some(wh_pos) = after_arrow.to_lowercase().find(" wh ") {
+                // 处理缩写形式 "wh"
+                &after_arrow[..wh_pos]
             } else {
                 after_arrow
             };
@@ -2068,6 +2071,8 @@ impl Parser {
             (">=", BinOp::Ge),
             ("&&", BinOp::And),
             ("||", BinOp::Or),
+            ("..=", BinOp::RangeInclusive), // 必须在 .. 之前检测
+            ("..", BinOp::Range),
             ("+", BinOp::Add),
             ("-", BinOp::Sub),
             ("*", BinOp::Mul),

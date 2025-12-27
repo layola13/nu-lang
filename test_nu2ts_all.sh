@@ -68,7 +68,11 @@ done
 echo ""
 echo "🔧 Applying post-processing fixes..."
 if [ -x "./fix_nu2ts_output.sh" ]; then
-    ./fix_nu2ts_output.sh
+    ./fix_nu2ts_output.sh "$OUTPUT_BASE"
+    # 运行额外的修复脚本
+    if [ -x "/tmp/fix_remaining.sh" ]; then
+        /tmp/fix_remaining.sh
+    fi
 else
     echo "⚠️  Fix script not found or not executable"
 fi

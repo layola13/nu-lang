@@ -85,6 +85,11 @@ for rs_file in examples/*.rs; do
         if cargo run --bin nu2ts -- "$TEMP_NU_DIR/$filename.nu" -o "$TEMP_TS_DIR/$filename.ts" -f 2>"$nu2ts_output"; then
             echo -e "  ${GREEN}✓${NC} Nu -> TypeScript 成功"
             rm -f "$nu2ts_output"
+            
+            # 应用修复脚本（如果存在）
+            if [ -f "fix_nu2ts_output.sh" ]; then
+                bash fix_nu2ts_output.sh "$TEMP_TS_DIR" > /dev/null 2>&1
+            fi
         else
             echo -e "  ${RED}✗${NC} Nu -> TypeScript 失败"
             echo -e "  ${RED}错误信息:${NC}"

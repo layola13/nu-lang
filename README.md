@@ -702,12 +702,11 @@ Mixed strategy: compress only high-frequency attributes, preserve cfg for cross-
 | Symbol | Meaning | Rust Original | Syntax Rule |
 | --- | --- | --- | --- |
 | **<** | Return | `return` | Statement start: `< val` |
-| **?** | If | `if` | `? x > 0 { }` |
 | **M** | Match | `match` | `M val { ... }` |
 | **L** | Loop | `loop`/`for` | `L { }`, `L i: list` |
 | **!** | Try | `?` | **Suffix only**: `func()!` |
 
-> **Note**: Since macros are restored to original form, **`>` symbol no longer represents Print, only "greater than"**. This completely eliminates ambiguity.
+> **Note**: `if` is preserved as-is (no abbreviation). Since macros are restored to original form, **`>` symbol no longer represents Print, only "greater than"**.
 
 ### 5.2 Memory Modifiers
 
@@ -780,9 +779,9 @@ F run_logic(input: &str) -> R<V<i32>, String> {
         M parse(part) {
             Ok(n): {
                 // < between variables = less than
-                ? n < 0 { 
+                if n < 0 { 
                     println!("Skipping negative: {}", n);
-                    c // continue
+                    ct // continue
                 }
                 results.push(n);
             },
@@ -848,7 +847,7 @@ Since macros are restored to native syntax, the Parser no longer needs complex L
 1.  **Keywords:** `l`=let, `v`=let mut, `a`=as, `u`=use, `t`=type, **`wh`=where**, `br`=break, `ct`=continue.
 2.  **Definitions:** `S`=struct, `E`=enum (Visibility by Identifier Case). `F`=pub fn, `f`=fn (Visibility by Keyword Case). `TR`=trait, `I`=impl, **`unsafe I`=unsafe impl (v1.8)**, `D`=mod.
 3.  **Static:** `ST`=static, **`SM`=static mut**.
-4.  **Flow:** `<` (start of stmt)=return. `?`=if, `M`=match, `L i: list`=for loop.
+4.  **Flow:** `<` (start of stmt)=return. `M`=match, `L i: list`=for loop. **`if` preserved as-is**.
 5.  **Macros:** **KEEP** all macros as is (`println!`, `vec!`, `panic!`).
 6.  **Operators:** `!`(suffix)=try. `>`=greater than.
 7.  **Strings:** `String`=String(owned, no abbreviation), `str`=str(slice).
