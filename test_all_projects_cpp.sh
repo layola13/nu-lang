@@ -40,7 +40,7 @@ for project in "${projects[@]}"; do
     continue
   fi
   
-  echo "步骤1: Nu → C++ (nu2cpp)"
+  echo "步骤1: Nu → C++ (nu2cpp - 字符串转换器)"
   if ! cargo run --bin nu2cpp -- "$nu_dir" "$cpp_dir" -v; then
     echo "❌ nu2cpp转换失败: $project"
     fail_count=$((fail_count + 1))

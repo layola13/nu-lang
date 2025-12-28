@@ -3348,15 +3348,17 @@ impl Nu2RustConverter {
         // 这个问题来自于错误的.unwrap_or_else转换
         result = result.replace("if ;", "?;");
 
-        // 修复 serde_core -> serde
-        // 在路径和类型中替换，但保留 cfg 属性
-        if !result.contains("#![cfg") && !result.contains("#[cfg") {
-            result = result.replace("serde_core", "serde");
-        } else {
-            // 只替换非cfg上下文中的serde_core
-            result = result.replace("use serde_core", "use serde");
-            result = result.replace("serde_core::", "serde::");
-        }
+
+        // v1.8.28: 移除 serde_core -> serde 的错误替换
+        // serde_core 是一个独立的 crate，不应该被替换为 serde
+        // 原本的替换规则会破坏 serde workspace 的编译
+
+        // v1.8.28: 修复 Unexpected::O -> Unexpected::Option
+        // rust2nu 错误地把 enum variant 名 Option 缩写成了 O
+        // 但 serde 的 Unexpected enum 有一个 variant 叫 Option
+        result = result.replace("Unexpected::O,", "Unexpected::Option,");
+        result = result.replace("Unexpected::O}", "Unexpected::Option}");
+        result = result.replace("Unexpected::O)", "Unexpected::Option)");
 
         // 修复 FudIterator -> FusedIterator
         result = result.replace("FudIterator", "FusedIterator");

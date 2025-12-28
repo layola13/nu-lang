@@ -390,9 +390,9 @@ impl Nu2CppConverter {
 
         let converted = self.convert_types_in_string(content);
         
-        // 检查是否是main函数
-        if converted.trim_start().starts_with("main(") {
-            // main函数特殊处理
+        // 检查是否是main函数 - 必须在所有其他处理之前
+        if converted.trim_start().starts_with("main(") || converted.trim_start().starts_with("main ") {
+            // main函数特殊处理: 直接返回int main()，不添加任何修饰符
             return self.convert_main_function(&converted);
         }
         
@@ -426,12 +426,25 @@ impl Nu2CppConverter {
     }
 
     fn convert_main_function(&self, sig: &str) -> Result<String> {
-        // main函数必须返回int - 但保留函数体内容
+        // 根据NU2CPP23.md规范: f main() 必须生成 int main()
+        // 不添加static修饰符，不管是F还是f
+        
+        // 提取函数体（如果有）
         if let Some(brace_pos) = sig.find('{') {
             let rest = &sig[brace_pos..];
-            // 不添加任何内容，保留原始函数体
             return Ok(format!("int main() {}", rest));
         }
+        
+        // 如果有参数列表但没有函数体
+        if let Some(paren_start) = sig.find('(') {
+            if let Some(paren_end) = sig[paren_start..].find(')') {
+                let after_paren = &sig[paren_start + paren_end + 1..].trim();
+                if !after_paren.is_empty() {
+                    return Ok(format!("int main() {}", after_paren));
+                }
+            }
+        }
+        
         Ok("int main()".to_string())
     }
 
@@ -756,22 +769,60 @@ impl Nu2CppConverter {
     fn convert_enum(&self, line: &str) -> Result<String> {
         let content = &line[2..];
         
-        // P0修复5: enum带数据变体转换
+        // 根据NU2CPP23.md规范: E Shape { Circle(f32) }
+        // 应该生成: struct Circle { float _0; }; using Shape = std::variant<Circle>;
+        
         // 检查是否是带数据的enum变体（在enum块内）
         if content.contains('(') && !content.ends_with('{') && !content.contains("enum ") {
-            // 这是enum变体，如 InvalidOperator(String)
-            // C++需要使用std::variant或tagged union
-            // 简化实现：转换为注释说明
+            // 这是enum变体，如 Move { x: i32, y: i32 } 或 Circle(f32)
             let parts: Vec<&str> = content.splitn(2, '(').collect();
             if parts.len() == 2 {
                 let variant_name = parts[0].trim();
                 let variant_data = parts[1].trim().trim_end_matches(')').trim_end_matches(',');
+                
+                // 转换类型
                 let converted_type = self.convert_types_in_string(variant_data);
                 
-                // 转换为C++结构体变体（需要用户实现完整的variant）
-                return Ok(format!("// {} variant with data: {}", variant_name, converted_type));
+                // 检查是否有多个字段（逗号分隔）
+                let fields: Vec<&str> = variant_data.split(',').collect();
+                
+                if fields.len() == 1 {
+                    // 单字段tuple variant: Circle(f32) -> struct Circle { float _0; };
+                    return Ok(format!("struct {} {{ {} _0; }};", variant_name, converted_type));
+                } else {
+                    // 多字段: 生成带编号的字段
+                    let mut struct_def = format!("struct {} {{", variant_name);
+                    for (i, field) in fields.iter().enumerate() {
+                        let field_type = self.convert_types_in_string(field.trim());
+                        struct_def.push_str(&format!(" {} _{};", field_type, i));
+                    }
+                    struct_def.push_str(" };");
+                    return Ok(struct_def);
+                }
             }
-            return Ok(format!("// enum variant: {}", content));
+        }
+        
+        // 检查是否是带命名字段的变体: Move { x: i32, y: i32 }
+        if content.contains('{') && !content.contains("enum ") && !content.ends_with('{') {
+            let parts: Vec<&str> = content.splitn(2, '{').collect();
+            if parts.len() == 2 {
+                let variant_name = parts[0].trim();
+                let fields_str = parts[1].trim().trim_end_matches('}').trim_end_matches(',');
+                
+                // 解析字段: x: i32, y: i32
+                let mut struct_def = format!("struct {} {{", variant_name);
+                for field in fields_str.split(',') {
+                    let field = field.trim();
+                    if let Some(colon_pos) = field.find(':') {
+                        let field_name = field[..colon_pos].trim();
+                        let field_type = field[colon_pos + 1..].trim();
+                        let converted_type = self.convert_types_in_string(field_type);
+                        struct_def.push_str(&format!(" {} {};", converted_type, field_name));
+                    }
+                }
+                struct_def.push_str(" };");
+                return Ok(struct_def);
+            }
         }
         
         let converted = self.convert_types_in_string(content);
@@ -794,7 +845,10 @@ impl Nu2CppConverter {
     fn convert_impl(&self, line: &str) -> Result<String> {
         let content = &line[2..];
         
-        // P0修复: impl块转换 - 在convert_line中已经设置了current_class_name
+        // 根据NU2CPP23.md: impl块方法应该注入到struct定义中
+        // 但在逐行转换中，我们无法回溯修改前面的struct定义
+        // 因此这里生成注释，并在方法转换时不添加作用域前缀
+        
         if content.contains(" for ") {
             // trait implementation: impl Trait for Type
             let parts: Vec<&str> = content.split(" for ").collect();
@@ -802,21 +856,19 @@ impl Nu2CppConverter {
                 let trait_name = parts[0].trim();
                 let type_name = parts[1].trim().trim_end_matches(" {").trim();
                 
-                // C++需要在类定义内部实现接口
-                // 这里生成注释，实际实现需要将方法添加到类内
-                return Ok(format!("// Implementation of {} for {}", trait_name, type_name));
+                // C++中trait实现需要在类定义内部或使用concept
+                // 生成注释说明，方法会在后续转换中处理
+                return Ok(format!("// Implementation of {} for {} - methods follow", trait_name, type_name));
             }
         }
         
         // 普通impl块: impl Type { ... }
-        // 提取类型名称
         let type_name = content.trim().trim_end_matches(" {").trim();
         
-        // C++中impl块的方法需要以 ClassName::methodName 形式定义
-        // 或者直接在类内部定义
-        // 这里输出注释标记impl块开始
-        // context.current_class_name已经在convert_line中设置
-        Ok(format!("// Implementation for {}", type_name))
+        // 注意: C++中需要将这些方法注入到struct定义中
+        // 在逐行转换模式下，我们只能生成带作用域的方法定义
+        // 格式: ReturnType ClassName::methodName(params) { body }
+        Ok(format!("// Methods for {}", type_name))
     }
 
     fn convert_module(&self, line: &str) -> Result<String> {
@@ -3303,6 +3355,78 @@ impl Nu2CppConverter {
             result.push(chars[i]);
             i += 1;
         }
+        
+        result
+    }
+    
+    /// 修复问题3: 转换where子句为C++20 requires子句
+    /// wh T: Trait -> requires Trait<T>
+    /// where T: Trait -> requires Trait<T>
+    fn convert_where_clause(&self, s: &str) -> String {
+        let mut result = s.to_string();
+        
+        // 检查是否包含where子句
+        if !result.contains("wh ") && !result.contains("where ") {
+            return result;
+        }
+        
+        // 处理 "wh " 格式（Nu简写）
+        if result.contains("wh ") {
+            // 查找 wh 的位置
+            let chars: Vec<char> = result.chars().collect();
+            let mut i = 0;
+            let mut new_result = String::new();
+            
+            while i < chars.len() {
+                // 查找 "wh " 模式
+                if i + 3 <= chars.len() {
+                    let slice: String = chars[i..i.min(i+3)].iter().collect();
+                    if slice == "wh " {
+                        // 检查是否是单词边界
+                        let is_word_start = i == 0 || (!chars[i-1].is_alphanumeric() && chars[i-1] != '_');
+                        
+                        if is_word_start {
+                            // 找到where子句，跳过并提取约束
+                            i += 3; // 跳过 "wh "
+                            
+                            // 提取类型变量和trait约束
+                            // 格式: T: Trait 或 T : Trait
+                            let constraint_start = i;
+                            
+                            // 找到约束结束位置（遇到{或行尾）
+                            while i < chars.len() && chars[i] != '{' && chars[i] != '\n' {
+                                i += 1;
+                            }
+                            
+                            let constraint: String = chars[constraint_start..i].iter().collect();
+                            let constraint = constraint.trim();
+                            
+                            // 解析约束: T: Trait -> requires Trait<T>
+                            if let Some(colon_pos) = constraint.find(':') {
+                                let type_var = constraint[..colon_pos].trim();
+                                let trait_name = constraint[colon_pos + 1..].trim();
+                                
+                                // 根据NU2CPP23.md规范: wh T: Graph -> requires Graph<T>
+                                new_result.push_str(&format!("requires {}<{}>", trait_name, type_var));
+                            }
+                            // 如果无法解析，就移除where子句（不添加任何内容）
+                            
+                            continue;
+                        }
+                    }
+                }
+                
+                new_result.push(chars[i]);
+                i += 1;
+            }
+            
+            result = new_result;
+        }
+        
+        // 处理 "where " 格式（完整关键字）
+        // 在C++中，requires子句应该在函数签名的末尾
+        // 在逐行转换中很难精确定位，所以这里选择移除
+        result = result.replace("where ", "/* where */ ");
         
         result
     }

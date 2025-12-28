@@ -259,6 +259,13 @@ pub enum CppStmt {
         range: CppExpr,
         body: Vec<CppStmt>,
     },
+    /// For loop with enumerate: size_t index = 0; for (const auto& var : range) { body; index++; }
+    ForEnumerate {
+        index_var: String,
+        value_var: String,
+        collection: CppExpr,
+        body: Vec<CppStmt>,
+    },
     /// Switch statement
     Switch {
         expr: CppExpr,

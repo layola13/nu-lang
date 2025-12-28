@@ -36,7 +36,7 @@ struct Args {
     #[arg(short = 'm', long)]
     sourcemap: bool,
 
-    /// Use new AST-based converter (experimental, fixes generics/templates)
+    /// Use new AST-based converter (experimental, incomplete)
     #[arg(long = "use-ast")]
     use_ast: bool,
 }
@@ -94,18 +94,21 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
         );
     }
 
-    // 转换代码
+    // 转换代码 - 默认使用字符串转换器（稳定）
     let cpp_code = if args.use_ast {
-        // 使用新的 AST 转换器
+        // 使用新的AST转换器（实验性）
         if args.verbose {
-            println!("Using AST-based converter (experimental)");
+            println!("Using AST-based converter (experimental, incomplete)");
         }
         let mut ast_converter = NuToCppAstConverter::new();
         let unit = ast_converter.convert(&nu_code)?;
         let mut codegen = CppCodegen::new();
         codegen.generate(&unit)
     } else {
-        // 使用原有的字符串转换器
+        // 默认：使用字符串转换器（稳定）
+        if args.verbose {
+            println!("Using string-based converter (stable)");
+        }
         let mut sourcemap = if args.sourcemap {
             let source_name = input_path.file_name()
                 .and_then(|n| n.to_str())
@@ -126,7 +129,7 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
             converter.convert(&nu_code)?
         };
 
-        // 写入源码映射 (only for legacy converter)
+        // 写入源码映射 (only for string converter)
         if let Some(sm) = sourcemap {
             let mut map_path = output_path.clone();
             map_path.set_extension("cpp.map");

@@ -301,6 +301,10 @@ impl CppCodegen {
     }
 
     fn gen_enum(&mut self, e: &CppEnum) {
+        // Note: ast_converter already handles Rust-style enums with data by generating
+        // separate structs + std::variant type alias. This function only handles
+        // simple C-style enums (enum class) without associated data.
+        
         self.write_indent();
         if e.is_class {
             self.output.push_str("enum class ");
@@ -452,6 +456,7 @@ impl CppCodegen {
             }
             CppStmt::ForRange { var_name, var_type, range, body } => {
                 self.write_indent();
+                // C++23 range-based for loop with proper syntax
                 self.output.push_str(&format!("for ({} {} : ", var_type, var_name));
                 self.gen_expr(range);
                 self.output.push_str(") {\n");
@@ -459,6 +464,28 @@ impl CppCodegen {
                 for s in body {
                     self.gen_stmt(s);
                 }
+                self.indent_level -= 1;
+                self.writeln("}");
+            }
+            CppStmt::ForEnumerate { index_var, value_var, collection, body } => {
+                // Generate: size_t index_var = 0; for (const auto& value_var : collection) { body; index_var++; }
+                self.write_indent();
+                self.output.push_str(&format!("size_t {} = 0;\n", index_var));
+                self.write_indent();
+                self.output.push_str(&format!("for (const auto& {} : ", value_var));
+                self.gen_expr(collection);
+                self.output.push_str(") {\n");
+                self.indent_level += 1;
+                
+                // Generate body statements
+                for s in body {
+                    self.gen_stmt(s);
+                }
+                
+                // Add index increment at the end
+                self.write_indent();
+                self.output.push_str(&format!("{}++;\n", index_var));
+                
                 self.indent_level -= 1;
                 self.writeln("}");
             }
@@ -504,14 +531,49 @@ impl CppCodegen {
                 self.writeln("}");
             }
             CppStmt::Comment(c) => self.writeln(&format!("// {}", c)),
-            CppStmt::Raw(s) => self.writeln(s),
+            CppStmt::Raw(s) => {
+                // Handle Raw statements - convert Nu syntax to C++
+                let converted = self.convert_raw_stmt(s);
+                self.writeln(&converted);
+            }
         }
+    }
+
+    /// Convert raw Nu statement syntax to C++ (helper for Raw statements)
+    fn convert_raw_stmt(&self, s: &str) -> String {
+        let mut result = s.to_string();
+        
+        // Convert self to this-> or *this
+        result = regex::Regex::new(r"\bself\.")
+            .unwrap()
+            .replace_all(&result, "this->")
+            .to_string();
+        result = regex::Regex::new(r"\bself\b")
+            .unwrap()
+            .replace_all(&result, "(*this)")
+            .to_string();
+        
+        // Convert Vec::new() to std::vector<auto>{}
+        result = result.replace("Vec::new()", "std::vector<auto>{}");
+        result = result.replace("Vec()", "std::vector<auto>{}");
+        
+        // Convert .clone() (for shared_ptr, just copy; for unique_ptr should use std::move)
+        result = result.replace(".clone()", "");
+        
+        result
     }
 
     fn gen_expr(&mut self, expr: &CppExpr) {
         match expr {
             CppExpr::Literal(s) => self.output.push_str(s),
-            CppExpr::Var(name) => self.output.push_str(name),
+            CppExpr::Var(name) => {
+                // Convert 'self' references in variable names
+                if name == "self" {
+                    self.output.push_str("(*this)");
+                } else {
+                    self.output.push_str(name);
+                }
+            }
             CppExpr::BinOp { left, op, right } => {
                 self.output.push('(');
                 self.gen_expr(left);
@@ -653,8 +715,75 @@ impl CppCodegen {
             }
             CppExpr::This => self.output.push_str("this"),
             CppExpr::Nullptr => self.output.push_str("nullptr"),
-            CppExpr::Raw(s) => self.output.push_str(s),
+            CppExpr::Raw(s) => {
+                // Convert raw Nu expressions to C++
+                let converted = self.convert_raw_expr(s);
+                self.output.push_str(&converted);
+            }
         }
+    }
+
+    /// Convert raw Nu expression syntax to C++ (helper for Raw expressions)
+    fn convert_raw_expr(&self, s: &str) -> String {
+        let mut result = s.to_string();
+        
+        // Convert self to this-> or *this
+        result = regex::Regex::new(r"\bself\.")
+            .unwrap()
+            .replace_all(&result, "this->")
+            .to_string();
+        result = regex::Regex::new(r"\bself\b")
+            .unwrap()
+            .replace_all(&result, "(*this)")
+            .to_string();
+        
+        // Convert closures: |x| expr -> [&](auto x) { return expr; }
+        if let Some(pipe_start) = result.find('|') {
+            if let Some(pipe_end) = result[pipe_start + 1..].find('|') {
+                let pipe_end = pipe_start + 1 + pipe_end;
+                let params = &result[pipe_start + 1..pipe_end];
+                let body = result[pipe_end + 1..].trim();
+                
+                // Handle special case: |_| -> no parameters
+                let cpp_params = if params.trim() == "_" {
+                    String::new()
+                } else {
+                    let param_vec: Vec<String> = params.split(',')
+                        .map(|p| {
+                            let p = p.trim();
+                            if p == "_" {
+                                "auto".to_string()
+                            } else {
+                                format!("auto {}", p)
+                            }
+                        })
+                        .collect();
+                    param_vec.join(", ")
+                };
+                
+                // Build C++ lambda
+                result = format!("[&]({}) {{ return {}; }}", cpp_params, body);
+            }
+        }
+        
+        // Convert Vec::new() to std::vector<auto>{}
+        result = result.replace("Vec::new()", "std::vector<auto>{}");
+        result = result.replace("Vec()", "std::vector<auto>{}");
+        
+        // Convert .clone() method calls
+        result = result.replace(".clone()", "");
+        
+        // Convert format! and println! macros
+        result = result.replace("format!", "std::format");
+        result = result.replace("println!", "std::println");
+        
+        // Convert string literal methods: "text".to_string() -> std::string("text")
+        result = regex::Regex::new(r#""([^"]+)"\s*\.\s*to_string\s*\(\s*\)"#)
+            .unwrap()
+            .replace_all(&result, r#"std::string("$1")"#)
+            .to_string();
+        
+        result
     }
 
     // Helper methods
