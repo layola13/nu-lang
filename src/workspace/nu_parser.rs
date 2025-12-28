@@ -31,8 +31,10 @@ impl NuParser {
                     line: None,
                 })?;
 
-        let mut config = WorkspaceConfig::default();
-        config.workspace_type = WorkspaceType::from_nu_toml(content);
+        let mut config = WorkspaceConfig {
+            workspace_type: WorkspaceType::from_nu_toml(content),
+            ..Default::default()
+        };
 
         // Nu.toml 使用 [W] 代替 [workspace]
         if let Some(workspace) = toml_value.get("W") {

@@ -123,10 +123,8 @@ impl NuToCppAstConverter {
         }
 
         // Priority 5: Enum definition: E Name { ... }
-        if line.starts_with("E ") || line.starts_with("e ") {
-            if !line.contains("=>") {
-                return self.parse_enum(line, lines, index);
-            }
+        if (line.starts_with("E ") || line.starts_with("e ")) && !line.contains("=>") {
+            return self.parse_enum(line, lines, index);
         }
 
         // Priority 6: Trait definition: TR Name or tr Name
@@ -485,6 +483,7 @@ impl NuToCppAstConverter {
     /// - Unit variants: DivisionByZero
     /// - Tuple variants: InvalidOperator(String)
     /// - Struct variants: Move { x: i32, y: i32 }
+    ///
     /// Generates: struct per variant + using EnumName = std::variant<...>
     fn parse_enum(
         &mut self,
@@ -534,8 +533,7 @@ impl NuToCppAstConverter {
 
         // If enum has variants with associated data, generate structs + std::variant
         if has_associated_data {
-            // Generate individual struct for each variant
-            let mut items = vec![];
+            // Generate individual struct for each variant and add to self.items
             let mut variant_names = vec![];
 
             for variant in &variants {
@@ -551,7 +549,7 @@ impl NuToCppAstConverter {
                     derive_traits: vec![],
                     cfg_condition: None,
                 };
-                items.push(CppItem::Class(variant_struct));
+                self.items.push(CppItem::Class(variant_struct));
                 variant_names.push(variant.name.clone());
             }
 
@@ -561,18 +559,15 @@ impl NuToCppAstConverter {
                 .map(|name| CppType::Named(name.clone()))
                 .collect();
 
-            items.push(CppItem::TypeAlias(CppTypeAlias {
+            self.items.push(CppItem::TypeAlias(CppTypeAlias {
                 name: name.clone(),
                 template_params: vec![],
                 target_type: CppType::variant(variant_types),
             }));
 
-            // Return multiple items as a comment + the actual items
-            // Since we can only return one CppItem, we'll return the first struct
-            // and rely on the caller to handle multiple items properly
-            // For now, return a Raw item that combines all generated code
-            let mut combined = format!("// Enum {} with associated data\n", name);
-            Ok(Some(CppItem::Comment(combined)))
+            // Return None since items are already added to self.items
+            // The convert() method will drain self.items and add them to the translation unit
+            Ok(None)
         } else {
             // Simple enum without associated data - use enum class
             Ok(Some(CppItem::Enum(CppEnum {

@@ -291,7 +291,7 @@ impl ConvertReport {
     pub fn format(&self) -> String {
         let mut output = String::new();
 
-        output.push_str(&"\n转换报告:\n".to_string());
+        output.push_str("\n转换报告:\n");
         output.push_str(&format!("  Workspace 类型: {:?}\n", self.workspace_type));
         output.push_str(&format!(
             "  成员: {}/{}\n",

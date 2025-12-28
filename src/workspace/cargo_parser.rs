@@ -31,8 +31,10 @@ impl CargoParser {
                     line: None,
                 })?;
 
-        let mut config = WorkspaceConfig::default();
-        config.workspace_type = WorkspaceType::from_cargo_toml(content);
+        let mut config = WorkspaceConfig {
+            workspace_type: WorkspaceType::from_cargo_toml(content),
+            ..Default::default()
+        };
 
         if let Some(workspace) = toml_value.get("workspace") {
             Self::parse_workspace_section(workspace, &mut config)?;
