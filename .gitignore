@@ -11,3 +11,4 @@ temp_*/
 *out/
 *.map
 test_tokio_nu/
+test_simple/

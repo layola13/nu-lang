@@ -17,6 +17,7 @@ fn is_ident_char(c: char) -> bool {
 
 /// v1.8.3: 智能替换类型名称，只替换独立的类型名（不是其他标识符的一部分）
 /// 例如：替换 "Result" 但不替换 "BarrierWaitResult" 中的 "Result"
+/// v1.8.8: 不替换枚举变体名（如 Self::Vec(...)、Some(...)、None 等）
 fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
     let mut result = String::new();
     let chars: Vec<char> = s.chars().collect();
@@ -33,12 +34,27 @@ fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
                 let prev_is_ident = i > 0 && is_ident_char(chars[i - 1]);
                 let next_is_ident = i + from_len < chars.len() && is_ident_char(chars[i + from_len]);
                 
+                // v1.8.8: 检查是否是枚举变体上下文（前面是 :: 或 Self::）
+                // 枚举变体名不应该被替换
+                let is_enum_variant = if i >= 2 {
+                    chars[i - 1] == ':' && chars[i - 2] == ':'
+                } else {
+                    false
+                };
+                
                 // 只有当前后都不是标识符字符时才替换
                 // 但允许 "Vec<" "Option<" "Result<" 等模式（后面是 < 或 ::）
+                // v1.8.8: 不替换枚举变体名（后面跟 ( 且前面是 ::）
                 let next_char = if i + from_len < chars.len() { Some(chars[i + from_len]) } else { None };
+                
+                // v1.8.8: 如果后面是 (，检查是否是枚举变体模式
+                // 枚举变体: Self::Vec(x), Some(x), None
+                // 类型构造: Vec::new(), Vec::with_capacity()
+                let is_variant_pattern = next_char == Some('(') && is_enum_variant;
+                
                 let is_type_context = next_char == Some('<') || next_char == Some(':') || next_char == Some(' ') || next_char == Some(',') || next_char == Some(')') || next_char == Some('>') || next_char == Some(';') || next_char == Some('{') || next_char.is_none();
                 
-                if !prev_is_ident && (!next_is_ident || is_type_context) {
+                if !prev_is_ident && (!next_is_ident || is_type_context) && !is_variant_pattern {
                     result.push_str(to);
                     i += from_len;
                     continue;
@@ -724,11 +740,7 @@ impl Rust2NuConverter {
 
                 // 原有的return和macro处理...(v1.8: 添加attrs支持)
                 if let Expr::Return(ret) = expr {
-                    // v1.8: 输出语句级别的 #[cfg] 等属性
-                    for attr in &ret.attrs {
-                        self.write(&self.indent());
-                        self.writeln(&self.convert_attribute(attr));
-                    }
+                    // v1.8.9: 属性已经在 Stmt::Expr 开头输出，这里不再重复输出
                     self.write(&self.indent());
                     self.write("< ");
                     if let Some(val) = &ret.expr {
@@ -756,6 +768,21 @@ impl Rust2NuConverter {
                 }
             }
             Stmt::Macro(mac) => {
+                // v1.8.9: 先处理宏语句上的 #[cfg] 属性
+                for attr in &mac.attrs {
+                    let attr_str = attr.to_token_stream().to_string();
+                    let cleaned_attr = attr_str
+                        .replace("# [", "#[")
+                        .replace(" [", "[")
+                        .replace(" ]", "]")
+                        .replace(" (", "(")
+                        .replace(" )", ")")
+                        .replace(" ,", ",");
+                    if cleaned_attr.starts_with("#[cfg") {
+                        self.write(&self.indent());
+                        self.writeln(&cleaned_attr);
+                    }
+                }
                 // v1.6: 宏语句，vec!转换为V!，其他保留（println!, assert!, etc.）
                 // 使用 clean_token_spaces 移除 to_token_stream() 插入的空格
                 self.write(&self.indent());
@@ -793,7 +820,27 @@ impl Rust2NuConverter {
             }
             Expr::Call(call) => {
                 let func = self.convert_expr(&call.func);
-                let args = call.args.iter().map(|arg| self.convert_expr(arg)).collect::<Vec<_>>().join(", ");
+                // v1.8.9: 保留函数调用参数上的 #[cfg] 属性
+                let args = call.args.iter().map(|arg| {
+                    let attrs = self.get_expr_attrs(arg);
+                    let mut arg_str = String::new();
+                    for attr in &attrs {
+                        let attr_str = attr.to_token_stream().to_string();
+                        let cleaned_attr = attr_str
+                            .replace("# [", "#[")
+                            .replace(" [", "[")
+                            .replace(" ]", "]")
+                            .replace(" (", "(")
+                            .replace(" )", ")")
+                            .replace(" ,", ",");
+                        if cleaned_attr.starts_with("#[cfg") {
+                            arg_str.push_str(&cleaned_attr);
+                            arg_str.push(' ');
+                        }
+                    }
+                    arg_str.push_str(&self.convert_expr(arg));
+                    arg_str
+                }).collect::<Vec<_>>().join(", ");
                 format!("{}({})", func, args)
             }
             Expr::Index(index) => {
@@ -1945,12 +1992,28 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
             syn::Fields::Unnamed(fields) => {
                 // Tuple struct: pub struct ParseLevelError(());
                 // v1.8.7: 对于元组结构体，where 子句应该在字段之后
+                // v1.8.8: 保留 tuple struct 字段的可见性（如 pub(crate)）
                 // 先输出字段
                 self.write("(");
                 let type_strs: Vec<String> = fields
                     .unnamed
                     .iter()
-                    .map(|f| self.convert_type(&f.ty))
+                    .map(|f| {
+                        // v1.8.8: 保留字段的可见性
+                        let vis_str = match &f.vis {
+                            syn::Visibility::Public(_) => "pub ".to_string(),
+                            syn::Visibility::Restricted(vis_restricted) => {
+                                let vis = vis_restricted.to_token_stream().to_string();
+                                let cleaned = vis
+                                    .replace("pub (", "pub(")
+                                    .replace("( ", "(")
+                                    .replace(" )", ")");
+                                format!("{} ", cleaned)
+                            }
+                            syn::Visibility::Inherited => String::new(),
+                        };
+                        format!("{}{}", vis_str, self.convert_type(&f.ty))
+                    })
                     .collect();
                 self.write(&type_strs.join(", "));
                 self.write(")");

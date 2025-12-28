@@ -29,6 +29,14 @@ path = "src/bin/nu2cargo.rs"
 name = "nu2ts"
 path = "src/bin/nu2ts.rs"
 
+[[bin]]
+name = "nu2cpp"
+path = "src/bin/nu2cpp.rs"
+
+[[bin]]
+name = "nu2cmake"
+path = "src/bin/nu2cmake.rs"
+
 [dependencies]
 syn = { version = "2.0", features = ["full", "extra-traits", "parsing", "visit", "visit-mut"] }
 quote = "1.0"

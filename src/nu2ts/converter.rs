@@ -289,7 +289,11 @@ impl Nu2TsConverter {
             return Ok(Some(self.convert_loop(trimmed, context)?));
         }
 
-        // If: ?
+        // v1.8.8: If 语句 - 直接使用 if（新标准），同时兼容 ? (legacy)
+        if trimmed.starts_with("if ") || trimmed.starts_with("if(") {
+            return Ok(Some(self.convert_if_direct(trimmed, context)?));
+        }
+        // Legacy: ?
         if trimmed.starts_with("? ") {
             return Ok(Some(self.convert_if(trimmed, context)?));
         }
@@ -885,6 +889,33 @@ impl Nu2TsConverter {
 
     fn convert_if(&self, line: &str, context: &mut ConversionContext) -> Result<String> {
         let content = &line[2..].trim();
+
+        // 检查if后面是否有条件表达式和大括号
+        if let Some(brace_pos) = content.find('{') {
+            let condition = content[..brace_pos].trim();
+            let rest = &content[brace_pos..];
+            let converted_cond = self.convert_expression(condition, context)?;
+
+            // 处理rest中的宏（可能包含println!等）
+            let converted_rest = self.convert_macros(rest)?;
+
+            Ok(format!("if ({}) {}", converted_cond, converted_rest))
+        } else {
+            // 没有大括号，只有条件
+            let converted = self.convert_expression(content, context)?;
+            Ok(format!("if ({})", converted))
+        }
+    }
+
+    // v1.8.8: 处理直接使用 if 的新标准语法
+    fn convert_if_direct(&self, line: &str, context: &mut ConversionContext) -> Result<String> {
+        // 处理 "if " 和 "if(" 两种模式
+        let content = if line.starts_with("if(") {
+            &line[2..] // 跳过 "if", 保留 "("
+        } else {
+            &line[3..] // 跳过 "if "
+        };
+        let content = content.trim();
 
         // 检查if后面是否有条件表达式和大括号
         if let Some(brace_pos) = content.find('{') {

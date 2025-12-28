@@ -28,6 +28,7 @@ pub mod ast;
 pub mod codegen;
 pub mod lexer;
 pub mod module;
+pub mod nu2cpp;
 pub mod nu2rust;
 pub mod nu2ts;
 pub mod parser;
@@ -37,6 +38,7 @@ pub mod utils;
 pub mod workspace;
 
 pub use ast::*;
+pub use nu2cpp::Nu2CppConverter;
 pub use nu2rust::Nu2RustConverter;
 pub use nu2ts::Nu2TsConverter;
 pub use rust2nu::Rust2NuConverter;

@@ -128,7 +128,12 @@ impl Parser {
             return Ok(Some(Item::Stmt(Stmt::ExprStmt(Box::new(match_expr)))));
         }
 
-        // 顶层 If 表达式: ? cond { ... }
+        // v1.8.8: 顶层 If 表达式 - 直接使用 if（新标准），同时兼容 ? (legacy)
+        if line.starts_with("if ") || line.starts_with("if(") {
+            let if_expr = self.parse_if()?;
+            return Ok(Some(Item::Stmt(Stmt::ExprStmt(Box::new(if_expr)))));
+        }
+        // Legacy: ? cond { ... }
         if line.starts_with("? ") {
             let if_expr = self.parse_if()?;
             return Ok(Some(Item::Stmt(Stmt::ExprStmt(Box::new(if_expr)))));
@@ -456,10 +461,12 @@ impl Parser {
             brace_depth
         );
         
-        // 如果当前行以M/? /L/l/v/c等开头，说明这是语句而不是block开始的{
+        // v1.8.8: 如果当前行以M/if/? /L/l/v/c等开头，说明这是语句而不是block开始的{
         // 这些行应该被parse_stmt处理，不应该在这里consume
         let is_statement_with_brace = trimmed.starts_with("M ")
-            || trimmed.starts_with("? ")
+            || trimmed.starts_with("if ")  // v1.8.8: 新标准
+            || trimmed.starts_with("if(")  // v1.8.8: 新标准
+            || trimmed.starts_with("? ")   // legacy
             || trimmed.starts_with("L ")
             || trimmed.starts_with("W ")
             || trimmed.starts_with("l ")
@@ -555,7 +562,12 @@ impl Parser {
 
         // ... existing match/if code ...
 
-        // If 表达式
+        // v1.8.8: If 表达式 - 直接使用 if（新标准），同时兼容 ? (legacy)
+        if line.starts_with("if ") || line.starts_with("if(") {
+            let if_expr = self.parse_if()?;
+            return Ok(Some(Stmt::ExprStmt(Box::new(if_expr))));
+        }
+        // Legacy: ?
         if line.starts_with("? ") {
             let if_expr = self.parse_if()?;
             return Ok(Some(Stmt::ExprStmt(Box::new(if_expr))));
@@ -1258,8 +1270,16 @@ impl Parser {
 
     fn parse_if(&mut self) -> Result<Expr> {
         let line = self.current_line().trim().to_string();
-        // line starts with "? " or "?"
-        let content_start = if line.starts_with("? ") { 2 } else { 1 };
+        // v1.8.8: 支持 "if " (新标准) 和 "? " (legacy)
+        let content_start = if line.starts_with("if ") {
+            3 // 跳过 "if "
+        } else if line.starts_with("if(") {
+            2 // 跳过 "if", 保留 "("
+        } else if line.starts_with("? ") {
+            2 // legacy: 跳过 "? "
+        } else {
+            1 // legacy: 跳过 "?"
+        };
         let content = &line[content_start..];
 
         // Find block start
@@ -1738,14 +1758,20 @@ impl Parser {
             return Ok(Expr::Return(Some(Box::new(value))));
         }
 
-        // Closure (High priority) - 检测 move 闭包或普通闭包
+        // Closure (High priority) - 检测 move 闭包或普通闘包
         if trimmed.starts_with("move |") || trimmed.starts_with('|') || trimmed.starts_with("$|") {
             if let Ok(closure) = self.parse_closure_expr(trimmed) {
                 return Ok(closure);
             }
         }
 
-        // If Expression (? ...)
+        // v1.8.8: If Expression - 支持 "if " (新标准) 和 "?" (legacy)
+        if trimmed.starts_with("if ") || trimmed.starts_with("if(") {
+            if let Ok(if_expr) = self.parse_if_expr_string(trimmed) {
+                return Ok(if_expr);
+            }
+        }
+        // Legacy: ? ...
         if trimmed.starts_with('?') {
             if let Ok(if_expr) = self.parse_if_expr_string(trimmed) {
                 return Ok(if_expr);
@@ -2153,7 +2179,14 @@ impl Parser {
     // ============ 辅助方法 ============
 
     fn parse_if_expr_string(&self, s: &str) -> Result<Expr> {
-        let content = s.trim().trim_start_matches('?').trim();
+        // v1.8.8: 支持 "if " (新标准) 和 "?" (legacy)
+        let content = if s.trim().starts_with("if ") {
+            s.trim().trim_start_matches("if ").trim()
+        } else if s.trim().starts_with("if(") {
+            s.trim().trim_start_matches("if").trim()
+        } else {
+            s.trim().trim_start_matches('?').trim()
+        };
 
         let brace_pos = content.find('{').unwrap_or(content.len());
         let condition_str = content[..brace_pos].trim();

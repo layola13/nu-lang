@@ -120,7 +120,7 @@ pub enum Expr {
         arms: Vec<MatchArm>,
     },
 
-    /// If 表达式: ? condition { then } else { else }
+    /// If 表达式: if condition { then } else { else } (v1.8.8: 直接使用 if，兼容 legacy ?)
     If {
         condition: Box<Expr>,
         then_body: Box<Expr>,
