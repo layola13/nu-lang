@@ -1048,9 +1048,15 @@ impl Rust2NuConverter {
             }
             Expr::ForLoop(for_loop) => {
                 // L = for
+                // v1.8.12: 处理带标签的 for 循环 ('label: for ...)
+                let label_prefix = if let Some(label) = &for_loop.label {
+                    format!("'{}: ", label.name.ident)
+                } else {
+                    String::new()
+                };
                 let pat = self.clean_token_spaces(&for_loop.pat.to_token_stream().to_string());
                 let iter = self.convert_expr(&for_loop.expr);
-                let mut result = format!("L {} in {} {{ ", pat, iter);
+                let mut result = format!("{}L {} in {} {{ ", label_prefix, pat, iter);
                 // 递归转换循环体中的语句
                 for stmt in &for_loop.body.stmts {
                     match stmt {
@@ -1093,8 +1099,14 @@ impl Rust2NuConverter {
             }
             Expr::While(while_expr) => {
                 // while暂时保持不变（nu没有while的简写）
+                // v1.8.12: 处理带标签的 while 循环
+                let label_prefix = if let Some(label) = &while_expr.label {
+                    format!("'{}: ", label.name.ident)
+                } else {
+                    String::new()
+                };
                 let cond = self.convert_expr(&while_expr.cond);
-                let mut result = format!("while {} {{\n", cond);
+                let mut result = format!("{}while {} {{\n", label_prefix, cond);
                 for stmt in &while_expr.body.stmts {
                     result.push_str("        ");
                     result.push_str(&self.clean_token_spaces(&stmt.to_token_stream().to_string()));
@@ -1106,8 +1118,9 @@ impl Rust2NuConverter {
             Expr::Loop(loop_expr) => {
                 // L = loop
                 // v1.8.3: 保留循环标签，如 'outer: loop { }
+                // v1.8.12: 修复标签格式，添加 ' 前缀
                 let label = if let Some(label) = &loop_expr.label {
-                    format!("{}: ", label.name.ident)
+                    format!("'{}: ", label.name.ident)
                 } else {
                     String::new()
                 };
@@ -1993,12 +2006,35 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 // Tuple struct: pub struct ParseLevelError(());
                 // v1.8.7: 对于元组结构体，where 子句应该在字段之后
                 // v1.8.8: 保留 tuple struct 字段的可见性（如 pub(crate)）
-                // 先输出字段
-                self.write("(");
-                let type_strs: Vec<String> = fields
-                    .unnamed
-                    .iter()
-                    .map(|f| {
+                // v1.8.21: 保留元组结构体字段的 #[cfg] 属性
+                // 检查是否有任何字段带有 #[cfg] 属性
+                let has_cfg_attrs = fields.unnamed.iter().any(|f| {
+                    f.attrs.iter().any(|attr| {
+                        attr.path().is_ident("cfg")
+                    })
+                });
+                
+                if has_cfg_attrs {
+                    // 如果有 #[cfg] 属性，使用多行格式以保留属性
+                    self.writeln("(");
+                    self.indent_level += 1;
+                    for (idx, f) in fields.unnamed.iter().enumerate() {
+                        // 输出字段的 #[cfg] 属性
+                        for attr in &f.attrs {
+                            let attr_str = attr.to_token_stream().to_string();
+                            let cleaned_attr = attr_str
+                                .replace("# [", "#[")
+                                .replace(" [", "[")
+                                .replace(" ]", "]")
+                                .replace(" (", "(")
+                                .replace(" )", ")")
+                                .replace(" ,", ",");
+                            self.write(&self.indent());
+                            self.writeln(&cleaned_attr);
+                        }
+                        
+                        // 输出字段
+                        self.write(&self.indent());
                         // v1.8.8: 保留字段的可见性
                         let vis_str = match &f.vis {
                             syn::Visibility::Public(_) => "pub ".to_string(),
@@ -2012,11 +2048,43 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                             }
                             syn::Visibility::Inherited => String::new(),
                         };
-                        format!("{}{}", vis_str, self.convert_type(&f.ty))
-                    })
-                    .collect();
-                self.write(&type_strs.join(", "));
-                self.write(")");
+                        self.write(&vis_str);
+                        self.write(&self.convert_type(&f.ty));
+                        if idx < fields.unnamed.len() - 1 {
+                            self.writeln(",");
+                        } else {
+                            self.writeln("");
+                        }
+                    }
+                    self.indent_level -= 1;
+                    self.write(&self.indent());
+                    self.write(")");
+                } else {
+                    // 没有 #[cfg] 属性，使用单行格式
+                    self.write("(");
+                    let type_strs: Vec<String> = fields
+                        .unnamed
+                        .iter()
+                        .map(|f| {
+                            // v1.8.8: 保留字段的可见性
+                            let vis_str = match &f.vis {
+                                syn::Visibility::Public(_) => "pub ".to_string(),
+                                syn::Visibility::Restricted(vis_restricted) => {
+                                    let vis = vis_restricted.to_token_stream().to_string();
+                                    let cleaned = vis
+                                        .replace("pub (", "pub(")
+                                        .replace("( ", "(")
+                                        .replace(" )", ")");
+                                    format!("{} ", cleaned)
+                                }
+                                syn::Visibility::Inherited => String::new(),
+                            };
+                            format!("{}{}", vis_str, self.convert_type(&f.ty))
+                        })
+                        .collect();
+                    self.write(&type_strs.join(", "));
+                    self.write(")");
+                }
                 // 然后输出 where 子句（如果有的话）
                 if let Some(where_clause) = &node.generics.where_clause {
                     self.write(" wh ");
@@ -2070,6 +2138,18 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // v1.6.5: 泛型（完整保留生命周期）
         if !node.generics.params.is_empty() {
             self.write(&self.convert_generics(&node.generics));
+        }
+
+        // v1.8.19: enum 的 where 子句支持
+        if let Some(where_clause) = &node.generics.where_clause {
+            self.write(" wh ");
+            self.write(
+                &where_clause
+                    .to_token_stream()
+                    .to_string()
+                    .replace("where", "")
+                    .trim(),
+            );
         }
 
         self.writeln(" {");
@@ -2172,6 +2252,18 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 .map(|b| self.convert_type_in_string(&b.to_token_stream().to_string()))
                 .collect();
             self.write(&bounds.join(" + "));
+        }
+
+        // v1.8.19: trait 的 where 子句支持
+        if let Some(where_clause) = &node.generics.where_clause {
+            self.write(" wh ");
+            self.write(
+                &where_clause
+                    .to_token_stream()
+                    .to_string()
+                    .replace("where", "")
+                    .trim(),
+            );
         }
 
         self.writeln(" {");

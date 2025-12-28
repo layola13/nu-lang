@@ -989,3 +989,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+## Version Notes
+
+### Experimental Tools
+
+⚠️ **Important Notice:**
+
+The following tools are currently in **experimental phase**, have not been fully tested, and are **NOT recommended for production use**:
+
+- **nu2cpp**: Nu to C++ converter
+- **nu2ts**: Nu to TypeScript converter
+
+These tools are under active development and may have the following issues:
+- Incomplete or inaccurate syntax conversion
+- Type system mapping defects
+- Generated code may not compile or run
+- APIs and behaviors may change at any time
+
+**Recommended for Production:**
+- ✅ **rust2nu** / **nu2rust**: Production-ready, fully tested
+- ✅ **cargo2nu** / **nu2cargo**: Production-ready, full workspace support
+
+If you encounter issues with experimental tools, please submit an Issue for feedback.

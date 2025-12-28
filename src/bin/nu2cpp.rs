@@ -6,7 +6,7 @@ use clap::Parser;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use nu_compiler::nu2cpp::{Nu2CppConverter, SourceMap};
+use nu_compiler::nu2cpp::{Nu2CppConverter, SourceMap, NuToCppAstConverter, CppCodegen};
 
 #[derive(Parser, Debug)]
 #[command(name = "nu2cpp")]
@@ -35,6 +35,10 @@ struct Args {
     /// Generate source map (.cpp.map)
     #[arg(short = 'm', long)]
     sourcemap: bool,
+
+    /// Use new AST-based converter (experimental, fixes generics/templates)
+    #[arg(long = "use-ast")]
+    use_ast: bool,
 }
 
 fn main() -> Result<()> {
@@ -91,24 +95,51 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
     }
 
     // 转换代码
-    let mut sourcemap = if args.sourcemap {
-        let source_name = input_path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown.nu")
-            .to_string();
-        let target_name = output_path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown.cpp")
-            .to_string();
-        Some(SourceMap::new(source_name, target_name))
+    let cpp_code = if args.use_ast {
+        // 使用新的 AST 转换器
+        if args.verbose {
+            println!("Using AST-based converter (experimental)");
+        }
+        let mut ast_converter = NuToCppAstConverter::new();
+        let unit = ast_converter.convert(&nu_code)?;
+        let mut codegen = CppCodegen::new();
+        codegen.generate(&unit)
     } else {
-        None
-    };
+        // 使用原有的字符串转换器
+        let mut sourcemap = if args.sourcemap {
+            let source_name = input_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown.nu")
+                .to_string();
+            let target_name = output_path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown.cpp")
+                .to_string();
+            Some(SourceMap::new(source_name, target_name))
+        } else {
+            None
+        };
 
-    let cpp_code = if let Some(ref mut sm) = sourcemap {
-        converter.convert_with_sourcemap(&nu_code, Some(sm))?
-    } else {
-        converter.convert(&nu_code)?
+        let code = if let Some(ref mut sm) = sourcemap {
+            converter.convert_with_sourcemap(&nu_code, Some(sm))?
+        } else {
+            converter.convert(&nu_code)?
+        };
+
+        // 写入源码映射 (only for legacy converter)
+        if let Some(sm) = sourcemap {
+            let mut map_path = output_path.clone();
+            map_path.set_extension("cpp.map");
+            
+            sm.save_to_file(&map_path)
+                .with_context(|| format!("Failed to write source map: {:?}", map_path))?;
+
+            if args.verbose {
+                println!("✓ Source map: {:?} ({} mappings)", map_path, sm.mapping_count());
+            }
+        }
+
+        code
     };
 
     // 写入输出文件
@@ -122,19 +153,6 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
 
     if args.verbose {
         println!("✓ Converted: {:?} -> {:?}", input_path, output_path);
-    }
-
-    // 写入源码映射
-    if let Some(sm) = sourcemap {
-        let mut map_path = output_path.clone();
-        map_path.set_extension("cpp.map");
-        
-        sm.save_to_file(&map_path)
-            .with_context(|| format!("Failed to write source map: {:?}", map_path))?;
-
-        if args.verbose {
-            println!("✓ Source map: {:?} ({} mappings)", map_path, sm.mapping_count());
-        }
     }
 
     Ok(())
@@ -168,6 +186,7 @@ fn convert_directory(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
         force: true,      // 目录转换默认force，避免文件覆盖问题
         verbose: args.verbose,
         sourcemap: args.sourcemap,
+        use_ast: args.use_ast,
     };
 
     // 遍历输入目录
@@ -202,6 +221,7 @@ fn convert_directory_recursive(
                     force: args.force,
                     verbose: args.verbose,
                     sourcemap: args.sourcemap,
+                    use_ast: args.use_ast,
                 };
 
                 convert_file(converter, &file_args)?;

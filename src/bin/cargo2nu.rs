@@ -128,6 +128,86 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
             report.files_skipped += 1;
         }
 
+        // 如果是 Mixed workspace（根目录也是 package），转换根目录的 src/
+        if report.workspace_type == WorkspaceType::Mixed {
+            let root_src = input_dir.join("src");
+            if root_src.exists() {
+                if args.verbose {
+                    println!("\n转换根 package 的 src/ 目录");
+                }
+                if !args.dry_run {
+                    fs::create_dir_all(output_dir.join("src"))?;
+                }
+                let (c, s, f) = convert_rust_files_recursive(&root_src, &output_dir.join("src"), &root_src, args, &incremental)?;
+                report.files_converted += c;
+                report.files_skipped += s;
+                report.files_failed += f;
+            }
+            
+            // 转换根目录的 examples/
+            let root_examples = input_dir.join("examples");
+            if root_examples.exists() {
+                if args.verbose {
+                    println!("\n转换根 package 的 examples/ 目录");
+                }
+                if !args.dry_run {
+                    fs::create_dir_all(output_dir.join("examples"))?;
+                }
+                let (c, s, f) = convert_rust_files_recursive(&root_examples, &output_dir.join("examples"), &root_examples, args, &incremental)?;
+                report.files_converted += c;
+                report.files_skipped += s;
+                report.files_failed += f;
+            }
+            
+            // 转换根目录的 tests/
+            let root_tests = input_dir.join("tests");
+            if root_tests.exists() {
+                if args.verbose {
+                    println!("\n转换根 package 的 tests/ 目录");
+                }
+                if !args.dry_run {
+                    fs::create_dir_all(output_dir.join("tests"))?;
+                }
+                let (c, s, f) = convert_rust_files_recursive(&root_tests, &output_dir.join("tests"), &root_tests, args, &incremental)?;
+                report.files_converted += c;
+                report.files_skipped += s;
+                report.files_failed += f;
+            }
+            
+            // 转换根目录的 build.rs
+            let build_rs = input_dir.join("build.rs");
+            let build_nu = output_dir.join("build.nu");
+            if build_rs.exists() {
+                let decision = incremental.should_convert(&build_rs, &build_nu);
+                if decision != ConversionDecision::Skip {
+                    match fs::read_to_string(&build_rs) {
+                        Ok(rust_content) => {
+                            let converter = nu_compiler::rust2nu::Rust2NuConverter::new();
+                            match converter.convert(&rust_content) {
+                                Ok(nu_content) => {
+                                    if args.dry_run {
+                                        println!("[dry-run] 将创建: build.nu");
+                                    } else {
+                                        fs::write(&build_nu, nu_content)?;
+                                        println!("  ✓ build.nu");
+                                    }
+                                    report.files_converted += 1;
+                                }
+                                Err(e) => {
+                                    eprintln!("  ✗ build.rs 转换失败: {}", e);
+                                    report.files_failed += 1;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("  ✗ 无法读取 build.rs: {}", e);
+                            report.files_failed += 1;
+                        }
+                    }
+                }
+            }
+        }
+
         // 获取并过滤成员
         let members = get_workspace_members(&cargo_toml)?;
         let filtered_members = filter_members(members, &args.exclude, &args.only);

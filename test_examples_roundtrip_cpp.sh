@@ -55,10 +55,10 @@ for nu_file in examples/*.nu; do
         # 标记当前文件是否成功
         file_success=true
         
-        # 步骤1: nu2cpp 转换
-        echo -e "  ${YELLOW}[1/4]${NC} Nu -> C++ 转换..."
+        # 步骤1: nu2cpp 转换 (使用新的 AST 转换器)
+        echo -e "  ${YELLOW}[1/4]${NC} Nu -> C++ 转换 (AST mode)..."
         nu2cpp_output=$(mktemp)
-        if cargo run --bin nu2cpp -- "$nu_file" "$TEMP_CPP_DIR/$filename.cpp" -f 2>"$nu2cpp_output"; then
+        if cargo run --bin nu2cpp -- "$nu_file" "$TEMP_CPP_DIR/$filename.cpp" -f --use-ast 2>"$nu2cpp_output"; then
             echo -e "  ${GREEN}✓${NC} Nu -> C++ 成功"
             rm -f "$nu2cpp_output"
         else
@@ -95,7 +95,8 @@ for nu_file in examples/*.nu; do
 cmake_minimum_required(VERSION 3.15)
 project($filename CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+# 使用 C++23 标准 (GCC 14+/Clang 17+)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 源文件

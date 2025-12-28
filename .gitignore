@@ -12,3 +12,5 @@ temp_*/
 *.map
 test_tokio_nu/
 test_simple/
+gcc-14.1.0/
+gcc*

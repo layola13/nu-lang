@@ -1,4 +1,4 @@
-#!/bin/bash
+o#!/bin/bash
 # Nu2TS输出修复脚本
 # 用于修复已知的转换问题
 
