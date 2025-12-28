@@ -1281,96 +1281,6 @@ impl NuToCppAstConverter {
             // Generate: auto* p = std::get_if<TypeName>(&value)
             // Condition: p != nullptr
 
-            #[test]
-            fn test_enum_with_tuple_variant() {
-                let nu_code = r#"
-E CalcError {
-    InvalidOperator(String),
-    DivisionByZero,
-    ParseError(String),
-}
-"#;
-
-                let mut converter = NuToCppAstConverter::new();
-                let result = converter.convert(nu_code);
-                assert!(result.is_ok());
-
-                let unit = result.unwrap();
-
-                // The enum should be parsed with associated data
-                // This will generate structs for each variant
-                // For now, we just verify it parses without errors
-                assert!(!unit.items.is_empty());
-            }
-
-            #[test]
-            fn test_enum_with_struct_variant() {
-                let nu_code = r#"
-E Message {
-    Move { x: i32, y: i32 },
-    Write(String),
-    Quit,
-}
-"#;
-
-                let mut converter = NuToCppAstConverter::new();
-                let result = converter.convert(nu_code);
-                assert!(result.is_ok());
-
-                let unit = result.unwrap();
-                assert!(!unit.items.is_empty());
-            }
-
-            #[test]
-            fn test_parse_enum_variant_unit() {
-                let converter = NuToCppAstConverter::new();
-                let result = converter.parse_enum_variant("DivisionByZero");
-
-                assert!(result.is_ok());
-                let variant = result.unwrap();
-                assert!(variant.is_some());
-
-                let variant = variant.unwrap();
-                assert_eq!(variant.name, "DivisionByZero");
-                assert!(variant.associated_data.is_none());
-            }
-
-            #[test]
-            fn test_parse_enum_variant_tuple() {
-                let converter = NuToCppAstConverter::new();
-                let result = converter.parse_enum_variant("InvalidOperator(String)");
-
-                assert!(result.is_ok());
-                let variant = result.unwrap();
-                assert!(variant.is_some());
-
-                let variant = variant.unwrap();
-                assert_eq!(variant.name, "InvalidOperator");
-                assert!(variant.associated_data.is_some());
-
-                let fields = variant.associated_data.unwrap();
-                assert_eq!(fields.len(), 1);
-                assert_eq!(fields[0].name, "_0");
-            }
-
-            #[test]
-            fn test_parse_enum_variant_struct() {
-                let converter = NuToCppAstConverter::new();
-                let result = converter.parse_enum_variant("Move { x: i32, y: i32 }");
-
-                assert!(result.is_ok());
-                let variant = result.unwrap();
-                assert!(variant.is_some());
-
-                let variant = variant.unwrap();
-                assert_eq!(variant.name, "Move");
-                assert!(variant.associated_data.is_some());
-
-                let fields = variant.associated_data.unwrap();
-                assert_eq!(fields.len(), 2);
-                assert_eq!(fields[0].name, "x");
-                assert_eq!(fields[1].name, "y");
-            }
             Ok(CppExpr::BinOp {
                 left: Box::new(CppExpr::Call {
                     callee: Box::new(CppExpr::Raw(format!("std::get_if<{}>", type_name))),
@@ -1622,7 +1532,6 @@ S Config {
 
     #[test]
     fn test_for_enumerate_parsing() {
-        use crate::nu2cpp::cpp_codegen::CppCodegen;
 
         // Create a converter instance
         let converter = NuToCppAstConverter::new();
