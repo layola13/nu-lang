@@ -50,7 +50,7 @@ Nu-lang: Rust, Condensed. v1.6.5
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // 显示ASCII Logo
     println!("{}", ASCII_LOGO);
 
@@ -141,23 +141,32 @@ fn convert_file(
         // 创建 SourceMap
         let mut sourcemap = LazySourceMap::new(
             input.file_name().unwrap().to_string_lossy().to_string(),
-            output_path.file_name().unwrap().to_string_lossy().to_string(),
+            output_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
         );
-        
+
         // 使用 sourcemap 进行转换
         let code = converter
             .convert_with_sourcemap(&nu_code, Some(&mut sourcemap))
             .with_context(|| format!("Failed to convert file: {}", input.display()))?;
-        
+
         // 保存 sourcemap 文件
         let map_path = output_path.with_extension("rs.map");
-        sourcemap.save_to_file(&map_path)
+        sourcemap
+            .save_to_file(&map_path)
             .with_context(|| format!("Failed to write sourcemap file: {}", map_path.display()))?;
-        
+
         if verbose {
-            println!("Generated sourcemap: {} ({} mappings)", map_path.display(), sourcemap.mapping_count());
+            println!(
+                "Generated sourcemap: {} ({} mappings)",
+                map_path.display(),
+                sourcemap.mapping_count()
+            );
         }
-        
+
         code
     } else {
         converter
@@ -198,7 +207,14 @@ fn convert_directory(
             let output_path = output_base
                 .join(path.file_name().unwrap())
                 .with_extension("rs");
-            convert_file(converter, &path, Some(&output_path), force, verbose, generate_sourcemap)?;
+            convert_file(
+                converter,
+                &path,
+                Some(&output_path),
+                force,
+                verbose,
+                generate_sourcemap,
+            )?;
         }
     }
 

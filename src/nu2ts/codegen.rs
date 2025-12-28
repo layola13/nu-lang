@@ -11,8 +11,8 @@ pub struct TsCodegen {
     output: String,
     indent: usize,
     temp_counter: usize,
-    in_function: bool,  // 跟踪是否在函数内部
-    variable_counters: HashMap<String, usize>,  // 跟踪变量使用次数
+    in_function: bool,                         // 跟踪是否在函数内部
+    variable_counters: HashMap<String, usize>, // 跟踪变量使用次数
 }
 
 impl TsCodegen {
@@ -129,14 +129,10 @@ impl TsCodegen {
             if i > 0 {
                 self.write(", ");
             }
-            
+
             // 移除参数名中的mut关键字
-            let clean_param_name = param.name
-                .trim()
-                .replace("mut ", "")
-                .trim()
-                .to_string();
-            
+            let clean_param_name = param.name.trim().replace("mut ", "").trim().to_string();
+
             let ref_prefix = if param.is_ref {
                 if param.is_mut {
                     "/* &mut */ "
@@ -150,9 +146,7 @@ impl TsCodegen {
             let clean_type = self.remove_lifetime_annotations(&self.type_to_ts(&param.ty));
             self.write(&format!(
                 "{}{}: {}",
-                ref_prefix,
-                clean_param_name,
-                clean_type
+                ref_prefix, clean_param_name, clean_type
             ));
         }
 
@@ -266,10 +260,8 @@ impl TsCodegen {
                     .iter()
                     .map(|f| format!("{}: {}", f.name, self.type_to_ts(&f.ty)))
                     .collect();
-                let field_assigns: Vec<String> = struct_fields
-                    .iter()
-                    .map(|f| f.name.clone())
-                    .collect();
+                let field_assigns: Vec<String> =
+                    struct_fields.iter().map(|f| f.name.clone()).collect();
                 self.writeln(&format!(
                     "export const {}_{} = ({}): {}_{} => {{ return {{ tag: '{}', {} }}; }};",
                     e.name,
@@ -328,7 +320,7 @@ impl TsCodegen {
             // "Type" -> 直接使用
             i.target.trim()
         };
-        
+
         self.writeln(&format!("// impl {}", i.target));
         self.writeln(&format!("export namespace {} {{", namespace_name));
         self.indent += 1;
@@ -374,7 +366,7 @@ impl TsCodegen {
             self.writeln(trimmed);
             return Ok(());
         }
-        
+
         // 修复问题5: 常量声明语法 - 识别 C NAME: type = value 模式
         if trimmed.starts_with("C ") && trimmed.contains(':') && trimmed.contains('=') {
             // 解析常量声明: C PI: number = 3.14159
@@ -417,7 +409,7 @@ impl TsCodegen {
             // 可能是字段定义
             if let Some(colon_pos) = trimmed.find(':') {
                 let field_name = trimmed[..colon_pos].trim();
-                let field_type = trimmed[colon_pos+1..].trim().trim_end_matches(',').trim();
+                let field_type = trimmed[colon_pos + 1..].trim().trim_end_matches(',').trim();
                 // 简单类型转换
                 let ts_type = field_type
                     .replace("V<", "Array<")
@@ -508,31 +500,43 @@ impl TsCodegen {
     ) -> Result<()> {
         self.write_indent();
         // 修复问题1: 清理变量名，移除可能残留的类型标注字符
-        let clean_name = name.trim()
-            .split(':').next().unwrap_or(name)  // 移除 : 后的类型标注
-            .split_whitespace().next().unwrap_or(name)  // 移除空格
+        let clean_name = name
+            .trim()
+            .split(':')
+            .next()
+            .unwrap_or(name) // 移除 : 后的类型标注
+            .split_whitespace()
+            .next()
+            .unwrap_or(name) // 移除空格
             .trim();
-        
+
         // 修复变量重复声明：跟踪变量使用次数，添加唯一后缀
-        let counter = self.variable_counters.entry(clean_name.to_string())
+        let counter = self
+            .variable_counters
+            .entry(clean_name.to_string())
             .or_insert(0);
         *counter += 1;
-        
+
         // 如果变量已被声明过，添加唯一后缀
         let unique_name = if *counter > 1 {
             format!("{}_{}", clean_name, counter)
         } else {
             clean_name.to_string()
         };
-        
+
         // 修复问题4: 使用let代替const，避免作用域重复声明问题
         // mut变量使用let，非mut变量也使用let以避免块作用域问题
         let keyword = "let";
-        
+
         // 格式：let name: type = value 或 let name = value
         if let Some(t) = ty {
             // 有类型标注：let name: type = value
-            self.write(&format!("{} {}: {} = ", keyword, unique_name, self.type_to_ts(t)));
+            self.write(&format!(
+                "{} {}: {} = ",
+                keyword,
+                unique_name,
+                self.type_to_ts(t)
+            ));
         } else {
             // 无类型标注：let name = value
             self.write(&format!("{} {} = ", keyword, unique_name));
@@ -616,7 +620,10 @@ impl TsCodegen {
 
     fn emit_expr_unwrapped(&mut self, expr: &Expr) -> Result<()> {
         match expr {
-            Expr::Block { stmts, trailing_expr } => {
+            Expr::Block {
+                stmts,
+                trailing_expr,
+            } => {
                 // Block表达式：生成语句序列和trailing expression
                 for stmt in stmts {
                     self.emit_stmt(stmt)?;
@@ -687,7 +694,7 @@ impl TsCodegen {
                     if segments.len() == 2 {
                         let first = segments[0].trim();
                         let second = segments[1].trim();
-                        
+
                         // 修复#9: String::new() 应生成 ""
                         if first == "String" && second == "new" && args.is_empty() {
                             self.write("\"\"");
@@ -763,7 +770,7 @@ impl TsCodegen {
                         "entries" => "entries",
                         _ => method.as_str(),
                     };
-                    
+
                     self.emit_expr(object)?;
                     self.write(&format!(".{}(", mapped_method));
                     for (i, arg) in args.iter().enumerate() {
@@ -781,7 +788,12 @@ impl TsCodegen {
             }
             Expr::Index { object, index } => {
                 // 检查index是否是范围表达式
-                if let Expr::Binary { left, op: BinOp::Range, right } = index.as_ref() {
+                if let Expr::Binary {
+                    left,
+                    op: BinOp::Range,
+                    right,
+                } = index.as_ref()
+                {
                     // 转换为.slice()调用
                     self.emit_expr(object)?;
                     self.write(".slice(");
@@ -789,7 +801,12 @@ impl TsCodegen {
                     self.write(", ");
                     self.emit_expr(right)?;
                     self.write(")");
-                } else if let Expr::Binary { left, op: BinOp::RangeInclusive, right } = index.as_ref() {
+                } else if let Expr::Binary {
+                    left,
+                    op: BinOp::RangeInclusive,
+                    right,
+                } = index.as_ref()
+                {
                     // 包含式范围：arr[a..=b] -> arr.slice(a, b + 1)
                     self.emit_expr(object)?;
                     self.write(".slice(");
@@ -862,7 +879,8 @@ impl TsCodegen {
                         self.write(", ");
                     }
                     // 修复问题4: 清理参数名中的&、&mut引用符号以及括号
-                    let clean_name = param.name
+                    let clean_name = param
+                        .name
                         .trim()
                         .trim_start_matches('(')
                         .trim_end_matches(')')
@@ -877,9 +895,13 @@ impl TsCodegen {
                     self.write(&format!(": {}", self.type_to_ts(ret)));
                 }
                 self.write(" => ");
-                
+
                 // 修复问题1：对于Block类型的body，直接生成块内容，不使用IIFE
-                if let Expr::Block { stmts, trailing_expr } = body.as_ref() {
+                if let Expr::Block {
+                    stmts,
+                    trailing_expr,
+                } = body.as_ref()
+                {
                     if stmts.is_empty() && trailing_expr.is_some() {
                         // 单表达式闭包：(x, y) => x + y
                         self.emit_expr(trailing_expr.as_ref().unwrap())?;
@@ -1056,15 +1078,15 @@ impl TsCodegen {
                 // 修复问题1: Raw表达式不应该生成注释后跟分号的语法错误
                 // 如果Raw表达式包含未完成的转换（如parse<>()、get_first_element等），
                 // 应该尝试基本转换而不是直接注释掉
-                
+
                 let trimmed = s.trim();
-                
+
                 // 检查是否是未完成的复杂表达式（包含泛型、方法链等）
                 let is_complex_expr = trimmed.contains(".parse")
                     || trimmed.contains("map_err")
                     || trimmed.contains("get_first_element")
                     || (trimmed.contains('<') && trimmed.contains('>') && trimmed.contains("()"));
-                
+
                 if is_complex_expr {
                     // 对于复杂表达式，生成TODO占位符而不是注释
                     // 这样不会产生语法错误
@@ -1187,7 +1209,7 @@ impl TsCodegen {
                 // 修复元组解构语法：如果变量名包含元组模式 (a, b)，转换为数组解构 [a, b]
                 if var.starts_with('(') && var.ends_with(')') {
                     // 元组模式：(key, value) -> [key, value]
-                    let fixed_pattern = format!("[{}]", &var[1..var.len()-1]);
+                    let fixed_pattern = format!("[{}]", &var[1..var.len() - 1]);
                     Some(format!("const {} = {};", fixed_pattern, temp))
                 } else {
                     Some(format!("const {} = {};", var, temp))
@@ -1197,7 +1219,7 @@ impl TsCodegen {
                 // 修复元组解构语法：如果变量名包含元组模式 (a, b)，转换为数组解构 [a, b]
                 if var.starts_with('(') && var.ends_with(')') {
                     // 元组模式：(key, value) -> [key, value]
-                    let fixed_pattern = format!("[{}]", &var[1..var.len()-1]);
+                    let fixed_pattern = format!("[{}]", &var[1..var.len() - 1]);
                     Some(format!("const {} = {};", fixed_pattern, temp))
                 } else {
                     Some(format!("const {} = {};", var, temp))
@@ -1211,7 +1233,7 @@ impl TsCodegen {
                     // 无绑定的枚举变体，不需要变量声明
                     return None;
                 }
-                
+
                 // 所有枚举变体的bindings都从.value字段提取
                 let bindings_str: Vec<String> = bindings
                     .iter()
@@ -1228,7 +1250,7 @@ impl TsCodegen {
                         }
                     })
                     .collect();
-                
+
                 if bindings_str.is_empty() {
                     None
                 } else {
@@ -1250,7 +1272,7 @@ impl TsCodegen {
         // 修复#2: if表达式不应以const开头，直接使用if
         // 修复问题4: 处理if let条件中的Some模式匹配
         self.write("if (");
-        
+
         // 检查condition是否包含"let Some"模式
         if let Expr::Raw(s) = condition {
             if s.contains("let Some") {
@@ -1258,8 +1280,11 @@ impl TsCodegen {
                 let pattern_match = s.replace("let Some(", "").replace(")", "");
                 if let Some(eq_pos) = pattern_match.find('=') {
                     let var_name = pattern_match[..eq_pos].trim();
-                    let value_expr = pattern_match[eq_pos+1..].trim();
-                    self.write(&format!("{} !== null && {} !== undefined", value_expr, value_expr));
+                    let value_expr = pattern_match[eq_pos + 1..].trim();
+                    self.write(&format!(
+                        "{} !== null && {} !== undefined",
+                        value_expr, value_expr
+                    ));
                 } else {
                     self.emit_expr(condition)?;
                 }
@@ -1269,7 +1294,7 @@ impl TsCodegen {
         } else {
             self.emit_expr(condition)?;
         }
-        
+
         self.writeln(") {");
         self.indent += 1;
 
@@ -1297,11 +1322,11 @@ impl TsCodegen {
         // 修复问题1: 解构赋值语法 - 将 (key, value) 转换为 [key, value]
         let fixed_pattern = if pattern.starts_with('(') && pattern.ends_with(')') {
             // 这是元组解构，需要转换为数组解构
-            format!("[{}]", &pattern[1..pattern.len()-1])
+            format!("[{}]", &pattern[1..pattern.len() - 1])
         } else {
             pattern.to_string()
         };
-        
+
         self.write(&format!("for (const {} of ", fixed_pattern));
         self.emit_expr(iterator)?;
         self.writeln(") {");
@@ -1369,7 +1394,7 @@ impl TsCodegen {
     }
 
     // ============ 类型转换 ============
-    
+
     /// 修复问题2: 移除生命周期标注的辅助函数
     fn remove_lifetime_annotations(&self, type_str: &str) -> String {
         let mut result = type_str.to_string();
@@ -1474,7 +1499,7 @@ impl TsCodegen {
             BinOp::Gt => ">",
             BinOp::Ge => ">=",
             BinOp::Assign => "=",
-            BinOp::Range => "..", // 将在表达式级别处理
+            BinOp::Range => "..",           // 将在表达式级别处理
             BinOp::RangeInclusive => "..=", // 将在表达式级别处理
             BinOp::AddAssign => "+=",
             BinOp::SubAssign => "-=",
@@ -1503,17 +1528,17 @@ impl TsCodegen {
         let mut result = String::new();
         let mut i = 0;
         let chars: Vec<char> = args.chars().collect();
-        
+
         while i < chars.len() {
             let c = chars[i];
-            
+
             // 处理数组重复语法: [value; count]
             if c == '[' {
                 // 查找匹配的 ]
                 let mut j = i + 1;
                 let mut depth = 1;
                 let mut semicolon_pos = None;
-                
+
                 while j < chars.len() && depth > 0 {
                     if chars[j] == '[' {
                         depth += 1;
@@ -1524,28 +1549,31 @@ impl TsCodegen {
                     }
                     j += 1;
                 }
-                
+
                 // 检查是否是数组重复语法
                 if let Some(semi_pos) = semicolon_pos {
                     if depth == 0 && j > i + 1 {
                         // 提取 value 和 count
-                        let value_part: String = chars[i+1..semi_pos].iter().collect();
-                        let count_part: String = chars[semi_pos+1..j-1].iter().collect();
+                        let value_part: String = chars[i + 1..semi_pos].iter().collect();
+                        let count_part: String = chars[semi_pos + 1..j - 1].iter().collect();
                         let value_trimmed = value_part.trim();
                         let count_trimmed = count_part.trim();
-                        
+
                         // 验证这确实是数组重复语法
                         if !value_trimmed.is_empty() && !count_trimmed.is_empty() {
                             // 递归处理value部分（可能包含嵌套的数组重复语法）
                             let processed_value = self.process_macro_args(value_trimmed);
                             // 转换为 new Array(count).fill(value)
-                            result.push_str(&format!("new Array({}).fill({})", count_trimmed, processed_value));
+                            result.push_str(&format!(
+                                "new Array({}).fill({})",
+                                count_trimmed, processed_value
+                            ));
                             i = j;
                             continue;
                         }
                     }
                 }
-                
+
                 // 不是数组重复语法，继续正常处理
                 result.push(c);
                 i += 1;
@@ -1556,27 +1584,27 @@ impl TsCodegen {
                 lookahead.push(c);
                 let start = i;
                 i += 1;
-                
+
                 // 收集标识符
                 while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
                     lookahead.push(chars[i]);
                     i += 1;
                 }
-                
+
                 // 检查后面是否跟着空格和{
                 let mut spaces = String::new();
                 let mut has_brace = false;
                 let mut temp_i = i;
-                
+
                 while temp_i < chars.len() && chars[temp_i] == ' ' {
                     spaces.push(chars[temp_i]);
                     temp_i += 1;
                 }
-                
+
                 if temp_i < chars.len() && chars[temp_i] == '{' {
                     has_brace = true;
                 }
-                
+
                 if has_brace {
                     // 这是结构体初始化，跳过名称和空格，只保留{...}
                     i = temp_i;
@@ -1591,7 +1619,7 @@ impl TsCodegen {
                 i += 1;
             }
         }
-        
+
         result
     }
 
@@ -1647,23 +1675,34 @@ impl TsCodegen {
         // ========== 优先级-1：修复impl Trait语法 ==========
         // impl Fn(i32) -> i32 应该转换为 (arg0: number) => number
         // impl Trait 语法转换
-        if result.contains("impl Fn(") || result.contains("impl FnOnce(") || result.contains("impl FnMut(") {
+        if result.contains("impl Fn(")
+            || result.contains("impl FnOnce(")
+            || result.contains("impl FnMut(")
+        {
             let mut new_result = String::new();
             let chars: Vec<char> = result.chars().collect();
             let mut i = 0;
-            
+
             while i < chars.len() {
                 // 检测 "impl Fn(" 或 "impl FnOnce(" 或 "impl FnMut("
                 if i + 8 <= chars.len() {
-                    let slice: String = chars[i..i+8].iter().collect();
-                    if slice == "impl Fn(" || (i + 12 <= chars.len() && chars[i..i+12].iter().collect::<String>() == "impl FnOnce(")
-                       || (i + 11 <= chars.len() && chars[i..i+11].iter().collect::<String>() == "impl FnMut(") {
+                    let slice: String = chars[i..i + 8].iter().collect();
+                    if slice == "impl Fn("
+                        || (i + 12 <= chars.len()
+                            && chars[i..i + 12].iter().collect::<String>() == "impl FnOnce(")
+                        || (i + 11 <= chars.len()
+                            && chars[i..i + 11].iter().collect::<String>() == "impl FnMut(")
+                    {
                         // 跳过 "impl Fn(" 或 "impl FnOnce(" 或 "impl FnMut("
-                        let skip_len = if slice == "impl Fn(" { 8 }
-                                      else if chars[i..i+12].iter().collect::<String>() == "impl FnOnce(" { 12 }
-                                      else { 11 };
+                        let skip_len = if slice == "impl Fn(" {
+                            8
+                        } else if chars[i..i + 12].iter().collect::<String>() == "impl FnOnce(" {
+                            12
+                        } else {
+                            11
+                        };
                         i += skip_len;
-                        
+
                         // 提取参数类型直到 ) ->
                         let mut params_str = String::new();
                         let mut depth = 1;
@@ -1680,35 +1719,68 @@ impl TsCodegen {
                             i += 1;
                         }
                         i += 1; // 跳过 )
-                        
+
                         // 跳过空格和 ->
-                        while i < chars.len() && (chars[i] == ' ' || chars[i] == '-' || chars[i] == '>') {
+                        while i < chars.len()
+                            && (chars[i] == ' ' || chars[i] == '-' || chars[i] == '>')
+                        {
                             i += 1;
                         }
-                        
+
                         // 提取返回类型
                         let mut return_type = String::new();
-                        while i < chars.len() && chars[i] != ' ' && chars[i] != ')' && chars[i] != ',' && chars[i] != ';' {
+                        while i < chars.len()
+                            && chars[i] != ' '
+                            && chars[i] != ')'
+                            && chars[i] != ','
+                            && chars[i] != ';'
+                        {
                             return_type.push(chars[i]);
                             i += 1;
                         }
-                        
+
                         // 转换参数类型
                         let params: Vec<&str> = params_str.split(',').collect();
-                        let ts_params: Vec<String> = params.iter().enumerate().map(|(idx, p)| {
-                            let clean_p = p.trim().replace("i32", "number").replace("i64", "number")
-                                          .replace("f32", "number").replace("f64", "number")
-                                          .replace("String", "string").replace("bool", "boolean");
-                            format!("arg{}: {}", idx, if clean_p.is_empty() { "any" } else { &clean_p })
-                        }).collect();
-                        
+                        let ts_params: Vec<String> = params
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, p)| {
+                                let clean_p = p
+                                    .trim()
+                                    .replace("i32", "number")
+                                    .replace("i64", "number")
+                                    .replace("f32", "number")
+                                    .replace("f64", "number")
+                                    .replace("String", "string")
+                                    .replace("bool", "boolean");
+                                format!(
+                                    "arg{}: {}",
+                                    idx,
+                                    if clean_p.is_empty() { "any" } else { &clean_p }
+                                )
+                            })
+                            .collect();
+
                         // 转换返回类型
-                        let ts_return = return_type.trim().replace("i32", "number").replace("i64", "number")
-                                                   .replace("f32", "number").replace("f64", "number")
-                                                   .replace("String", "string").replace("bool", "boolean");
-                        
+                        let ts_return = return_type
+                            .trim()
+                            .replace("i32", "number")
+                            .replace("i64", "number")
+                            .replace("f32", "number")
+                            .replace("f64", "number")
+                            .replace("String", "string")
+                            .replace("bool", "boolean");
+
                         // 生成 TS 函数类型
-                        new_result.push_str(&format!("({}) => {}", ts_params.join(", "), if ts_return.is_empty() { "any" } else { &ts_return }));
+                        new_result.push_str(&format!(
+                            "({}) => {}",
+                            ts_params.join(", "),
+                            if ts_return.is_empty() {
+                                "any"
+                            } else {
+                                &ts_return
+                            }
+                        ));
                         continue;
                     }
                 }
@@ -1717,11 +1789,11 @@ impl TsCodegen {
             }
             result = new_result;
         }
-        
+
         // ========== 优先级0：修复未定义的标识符 ==========
         // 修复 Write -> Message_Write (消息类型)
         result = result.replace("Write(", "Message_Write(");
-        
+
         // 修复 Some(x) -> x (Option类型简化)
         // 注意：这里需要小心处理，避免误替换
         if result.contains("Some(") && !result.contains("OptionSome") {
@@ -1729,16 +1801,16 @@ impl TsCodegen {
             let mut new_result = String::new();
             let mut i = 0;
             let result_chars: Vec<char> = result.chars().collect();
-            
+
             while i < result_chars.len() {
                 if i + 5 <= result_chars.len() {
-                    let slice: String = result_chars[i..i+5].iter().collect();
+                    let slice: String = result_chars[i..i + 5].iter().collect();
                     if slice == "Some(" {
                         // 找到 Some(，提取内容直到匹配的)
                         let mut depth = 1;
                         let mut j = i + 5;
                         let mut content = String::new();
-                        
+
                         while j < result_chars.len() && depth > 0 {
                             if result_chars[j] == '(' {
                                 depth += 1;
@@ -1753,7 +1825,7 @@ impl TsCodegen {
                             }
                             j += 1;
                         }
-                        
+
                         // 输出内容（去掉Some包装）
                         new_result.push_str(&content);
                         i = j + 1; // 跳过 )
@@ -1765,14 +1837,14 @@ impl TsCodegen {
             }
             result = new_result;
         }
-        
+
         // 修复 None -> null
         result = result.replace("None", "null");
-        
+
         // 修复 String::from(x) -> String(x) (TypeScript中直接字符串转换)
         result = result.replace("String::from(", "String(");
         result = result.replace("String.from(", "String(");
-        
+
         // ========== 优先级0：修复循环和迭代器 ==========
         // 修复被注释的循环: /* L(pattern)in expr.iter(){...} */ -> for (const pattern of expr) { }
         // 🚨 已禁用：这个字符串替换太激进，会在不合适的位置（如return语句后）插入for循环
@@ -1827,7 +1899,7 @@ impl TsCodegen {
         //     }
         //     result = new_result;
         // }
-        
+
         // 修复 .iter() 方法调用（在for循环中已经处理，这里处理其他情况）
         result = result.replace(".iter()", "");
         result = result.replace(".iter_mut()", "");
@@ -1838,14 +1910,14 @@ impl TsCodegen {
             let mut new_result = String::new();
             let mut i = 0;
             let chars: Vec<char> = result.chars().collect();
-            
+
             while i < chars.len() {
                 if chars[i] == '[' {
                     // 尝试匹配 [value; count] 模式
                     let mut j = i + 1;
                     let mut depth = 1;
                     let mut semicolon_pos = None;
-                    
+
                     // 找到匹配的 ] 并记录 ; 的位置
                     while j < chars.len() && depth > 0 {
                         if chars[j] == '[' {
@@ -1857,26 +1929,29 @@ impl TsCodegen {
                         }
                         j += 1;
                     }
-                    
+
                     // 检查是否是数组重复语法
                     if let Some(semi_pos) = semicolon_pos {
                         if depth == 0 && j > i + 1 {
                             // 提取 value 和 count
-                            let value_part: String = chars[i+1..semi_pos].iter().collect();
-                            let count_part: String = chars[semi_pos+1..j-1].iter().collect();
+                            let value_part: String = chars[i + 1..semi_pos].iter().collect();
+                            let count_part: String = chars[semi_pos + 1..j - 1].iter().collect();
                             let value_trimmed = value_part.trim();
                             let count_trimmed = count_part.trim();
-                            
+
                             // 验证这确实是数组重复语法
                             if !value_trimmed.is_empty() && !count_trimmed.is_empty() {
                                 // 转换为 new Array(count).fill(value)
-                                new_result.push_str(&format!("new Array({}).fill({})", count_trimmed, value_trimmed));
+                                new_result.push_str(&format!(
+                                    "new Array({}).fill({})",
+                                    count_trimmed, value_trimmed
+                                ));
                                 i = j;
                                 continue;
                             }
                         }
                     }
-                    
+
                     // 不是数组重复语法，保持原样
                     new_result.push(chars[i]);
                     i += 1;
@@ -1891,17 +1966,16 @@ impl TsCodegen {
         // 修复问题2: 移除 Rust 类型后缀（i8, i16, i32, i64, i128, isize, u8, u16, u32, u64, u128, usize, f32, f64）
         // 使用正则表达式模式：数字后紧跟类型后缀
         let type_suffixes = [
-            "i128", "i64", "i32", "i16", "i8", "isize",
-            "u128", "u64", "u32", "u16", "u8", "usize",
-            "f64", "f32"
+            "i128", "i64", "i32", "i16", "i8", "isize", "u128", "u64", "u32", "u16", "u8", "usize",
+            "f64", "f32",
         ];
-        
+
         for suffix in &type_suffixes {
             // 创建匹配模式：数字+后缀（后面必须是非字母数字字符）
             let mut i = 0;
             let chars: Vec<char> = result.chars().collect();
             let mut new_result = String::new();
-            
+
             while i < chars.len() {
                 // 检查是否匹配后缀
                 let mut matched = false;
@@ -1909,11 +1983,12 @@ impl TsCodegen {
                     let potential_suffix: String = chars[i..i + suffix.len()].iter().collect();
                     if potential_suffix == *suffix {
                         // 检查前面是否是数字
-                        let has_digit_before = i > 0 && (chars[i-1].is_ascii_digit() || chars[i-1] == '.');
+                        let has_digit_before =
+                            i > 0 && (chars[i - 1].is_ascii_digit() || chars[i - 1] == '.');
                         // 检查后面是否是边界（非字母数字）
                         let has_boundary_after = i + suffix.len() >= chars.len()
                             || !chars[i + suffix.len()].is_alphanumeric();
-                        
+
                         if has_digit_before && has_boundary_after {
                             // 跳过这个后缀
                             i += suffix.len();
@@ -1921,7 +1996,7 @@ impl TsCodegen {
                         }
                     }
                 }
-                
+
                 if !matched {
                     new_result.push(chars[i]);
                     i += 1;
@@ -1951,17 +2026,22 @@ impl TsCodegen {
             let mut chars = result.chars().peekable();
             let mut i = 0;
             let result_bytes = result.as_bytes();
-            
+
             while i < result.len() {
-                if i + 3 < result.len() && result_bytes[i] == b'0' && result_bytes[i+1] == b'.' && result_bytes[i+2] == b'.' {
+                if i + 3 < result.len()
+                    && result_bytes[i] == b'0'
+                    && result_bytes[i + 1] == b'.'
+                    && result_bytes[i + 2] == b'.'
+                {
                     // 找到 0..，提取后面的数字
                     let mut j = i + 3;
                     while j < result.len() && result_bytes[j].is_ascii_digit() {
                         j += 1;
                     }
                     if j > i + 3 {
-                        let num_str = &result[i+3..j];
-                        new_result.push_str(&format!("Array.from({{length: {}}}, (_, i) => i)", num_str));
+                        let num_str = &result[i + 3..j];
+                        new_result
+                            .push_str(&format!("Array.from({{length: {}}}, (_, i) => i)", num_str));
                         i = j;
                         continue;
                     }
@@ -1979,15 +2059,20 @@ impl TsCodegen {
         result = result.replace(" * =", "*=");
         result = result.replace(" / =", "/=");
         result = result.replace(" % =", "%=");
-        
+
         // 修复问题7: 转换路径分隔符 :: 为 . (TypeScript使用.作为成员访问)
         // ⚠️ 关键修复：不要清理所有 : 的空格，因为这会影响类型标注
         // 只处理明确的 :: 路径分隔符
         // 不要使用 result.replace(" : : ", "::") 这样的替换，会破坏 `const name: type` 中的冒号
-        
+
         // 修复双冒号语法错误：先移除 :: 之间的所有空格，包括 ": :"和": : "等变体
         // 这样可以修复 thread: :sleep 这类错误
-        result = result.replace(" : : ", "::").replace(": :", "::").replace(" :: ", "::").replace(":: ", "::").replace(" ::", "::");
+        result = result
+            .replace(" : : ", "::")
+            .replace(": :", "::")
+            .replace(" :: ", "::")
+            .replace(":: ", "::")
+            .replace(" ::", "::");
         // 然后将 :: 路径分隔符转换为 .
         result = result.replace("::", ".");
 
@@ -1995,7 +2080,7 @@ impl TsCodegen {
         // 修复 .to_string() -> .toString() (确保括号完整)
         // 注意：必须精确替换完整的方法调用，避免吞掉括号
         result = result.replace(".to_string()", ".toString()");
-        
+
         // 修复 as 类型转换缺少空格的问题
         // 在 as 前后添加空格，避免被吞掉
         if result.contains("as ") {
@@ -2003,12 +2088,12 @@ impl TsCodegen {
             let mut new_result = String::new();
             let chars: Vec<char> = result.chars().collect();
             let mut i = 0;
-            
+
             while i < chars.len() {
                 if i >= 2 && i + 3 < chars.len() {
                     // 检测 "XYas " 模式，其中XY不是空格
-                    let slice: String = chars[i..i+3].iter().collect();
-                    if slice == "as " && i >= 1 && chars[i-1] != ' ' && chars[i-1] != '(' {
+                    let slice: String = chars[i..i + 3].iter().collect();
+                    if slice == "as " && i >= 1 && chars[i - 1] != ' ' && chars[i - 1] != '(' {
                         // 在 as 前添加空格
                         new_result.push(' ');
                     }
@@ -2018,14 +2103,14 @@ impl TsCodegen {
             }
             result = new_result;
         }
-        
+
         result = result.replace(".len()", ".length");
         result = result.replace(".is_empty()", ".length === 0");
         result = result.replace(".clear()", ".length = 0");
-        
+
         // 修复 String.from() -> String()
         result = result.replace("String.from(", "String(");
-        
+
         // 修复集合构造函数
         result = result.replace("BTreeMap::new()", "new Map()");
         result = result.replace("BTreeMap.new()", "new Map()");
@@ -2033,12 +2118,12 @@ impl TsCodegen {
         result = result.replace("HashMap.new()", "new Map()");
         result = result.replace("HashSet::new()", "new Set()");
         result = result.replace("HashSet.new()", "new Set()");
-        
+
         // 修复集合方法
         result = result.replace(".insert(", ".set("); // Map.insert -> Map.set
         result = result.replace(".contains_key(", ".has("); // Map.contains_key -> Map.has
         result = result.replace(".remove(", ".delete("); // Map.remove -> Map.delete
-        
+
         // 处理枚举访问: Color.Red -> Color_Red
         // 这是一个简化版本，更完整的实现需要在 AST 级别处理
         if result.contains("Color.Red") {
@@ -2050,7 +2135,7 @@ impl TsCodegen {
         if result.contains("Color.Blue") {
             result = result.replace("Color.Blue", "Color_Blue");
         }
-        
+
         // 修复问题6: console.log 格式化 - 将 {} 转换为模板字符串占位符
         // 简化版：将 "text: {}" 转换为模板字符串提示
         if result.contains("console.log") && result.contains("{}") {
@@ -2064,7 +2149,7 @@ impl TsCodegen {
             let mut new_result = String::new();
             let chars: Vec<char> = result.chars().collect();
             let mut i = 0;
-            
+
             while i < chars.len() {
                 // 检测 identifier[..expr] 或 identifier[expr..] 或 identifier[expr1..expr2] 模式
                 if i > 0 && chars[i] == '[' {
@@ -2079,11 +2164,11 @@ impl TsCodegen {
                         }
                         j += 1;
                     }
-                    
+
                     if depth == 0 {
                         // 提取索引内容
-                        let index_content: String = chars[i+1..j-1].iter().collect();
-                        
+                        let index_content: String = chars[i + 1..j - 1].iter().collect();
+
                         // 检查是否包含 ..
                         if index_content.contains("..") {
                             // 这是切片语法
@@ -2091,7 +2176,7 @@ impl TsCodegen {
                             if parts.len() == 2 {
                                 let start = parts[0].trim();
                                 let end = parts[1].trim();
-                                
+
                                 // 转换为 .slice() 调用
                                 if start.is_empty() && !end.is_empty() {
                                     // [..n] -> .slice(0, n)
@@ -2112,7 +2197,7 @@ impl TsCodegen {
                         }
                     }
                 }
-                
+
                 new_result.push(chars[i]);
                 i += 1;
             }
@@ -2120,7 +2205,10 @@ impl TsCodegen {
         }
 
         // 修复泛型语法：移除 .< 之间的点号和空格
-        result = result.replace(".< ", "<").replace(". <", "<").replace(".<", "<");
+        result = result
+            .replace(".< ", "<")
+            .replace(". <", "<")
+            .replace(".<", "<");
         // 移除泛型参数中的多余空格
         result = result.replace("< ", "<").replace(" >", ">");
 
@@ -2134,23 +2222,27 @@ impl TsCodegen {
         let mut bracket_fixed = String::new();
         let result_chars: Vec<char> = result.chars().collect();
         let mut i = 0;
-        
+
         while i < result_chars.len() {
             // 向前查找，检测是否是 .toString( 模式
             if i >= 9 {
                 let check_start = i.saturating_sub(9);
                 let slice: String = result_chars[check_start..=i].iter().collect();
-                
+
                 // 如果当前是 '(' 且前面是 ".toString"
                 if slice.ends_with(".toString(") {
                     // 添加这个 '('
                     bracket_fixed.push(result_chars[i]);
-                    
+
                     // 查看下一个字符
                     if i + 1 < result_chars.len() {
                         let next = result_chars[i + 1];
                         // 如果下一个字符是分号、空格+分号、或其他结束符，需要补充 ')'
-                        if next == ';' || (next == ' ' && i + 2 < result_chars.len() && result_chars[i + 2] == ';') {
+                        if next == ';'
+                            || (next == ' '
+                                && i + 2 < result_chars.len()
+                                && result_chars[i + 2] == ';')
+                        {
                             // 自动添加闭合括号
                             bracket_fixed.push(')');
                         }
@@ -2159,17 +2251,17 @@ impl TsCodegen {
                     continue;
                 }
             }
-            
+
             bracket_fixed.push(result_chars[i]);
             i += 1;
         }
         result = bracket_fixed;
-        
+
         // 修复#8: 修复重复的return: return return -> return
         while result.contains("return return ") {
             result = result.replace("return return ", "return ");
         }
-        
+
         // 修复问题4: 闭包参数中的& 符号
         result = result.replace("(& ", "(").replace("(&", "(");
         result = result.replace("(&mut ", "(");

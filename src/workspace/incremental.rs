@@ -99,9 +99,7 @@ impl IncrementalConverter {
 
 /// 获取文件修改时间
 fn get_modified_time(path: &Path) -> Option<SystemTime> {
-    fs::metadata(path)
-        .ok()
-        .and_then(|m| m.modified().ok())
+    fs::metadata(path).ok().and_then(|m| m.modified().ok())
 }
 
 /// 配置文件处理器
@@ -286,7 +284,6 @@ fn convert_gitignore_extensions(content: &str, from_ext: &str, to_ext: &str) -> 
         .join("\n")
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,13 +343,13 @@ target/"#;
 
         // 创建源文件
         File::create(&src).unwrap().write_all(b"source").unwrap();
-        
+
         // 创建目标文件（稍后）
         std::thread::sleep(std::time::Duration::from_millis(10));
         File::create(&tgt).unwrap().write_all(b"target").unwrap();
 
         let converter = IncrementalConverter::new();
-        
+
         // 目标更新，应该跳过
         let decision = converter.should_convert(&src, &tgt);
         assert_eq!(decision, ConversionDecision::Skip);

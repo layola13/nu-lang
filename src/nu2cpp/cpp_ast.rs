@@ -25,10 +25,7 @@ pub enum CppType {
     /// Reference type: T& or const T&
     Reference { inner: Box<CppType>, is_const: bool },
     /// Template instantiation: std::vector<T>, std::optional<T>
-    Template {
-        base: String,
-        args: Vec<CppType>,
-    },
+    Template { base: String, args: Vec<CppType> },
     /// Auto type (for type inference)
     Auto,
     /// Decltype
@@ -36,15 +33,33 @@ pub enum CppType {
 }
 
 impl CppType {
-    pub fn int32() -> Self { CppType::Primitive("int32_t".to_string()) }
-    pub fn int64() -> Self { CppType::Primitive("int64_t".to_string()) }
-    pub fn uint32() -> Self { CppType::Primitive("uint32_t".to_string()) }
-    pub fn uint64() -> Self { CppType::Primitive("uint64_t".to_string()) }
-    pub fn float32() -> Self { CppType::Primitive("float".to_string()) }
-    pub fn float64() -> Self { CppType::Primitive("double".to_string()) }
-    pub fn bool_type() -> Self { CppType::Primitive("bool".to_string()) }
-    pub fn string() -> Self { CppType::Named("std::string".to_string()) }
-    pub fn string_view() -> Self { CppType::Named("std::string_view".to_string()) }
+    pub fn int32() -> Self {
+        CppType::Primitive("int32_t".to_string())
+    }
+    pub fn int64() -> Self {
+        CppType::Primitive("int64_t".to_string())
+    }
+    pub fn uint32() -> Self {
+        CppType::Primitive("uint32_t".to_string())
+    }
+    pub fn uint64() -> Self {
+        CppType::Primitive("uint64_t".to_string())
+    }
+    pub fn float32() -> Self {
+        CppType::Primitive("float".to_string())
+    }
+    pub fn float64() -> Self {
+        CppType::Primitive("double".to_string())
+    }
+    pub fn bool_type() -> Self {
+        CppType::Primitive("bool".to_string())
+    }
+    pub fn string() -> Self {
+        CppType::Named("std::string".to_string())
+    }
+    pub fn string_view() -> Self {
+        CppType::Named("std::string_view".to_string())
+    }
 
     /// Create a std::vector<T>
     pub fn vector(inner: CppType) -> Self {
@@ -156,10 +171,7 @@ pub enum CppExpr {
         right: Box<CppExpr>,
     },
     /// Unary operation: !x, -x, *ptr
-    UnaryOp {
-        op: String,
-        operand: Box<CppExpr>,
-    },
+    UnaryOp { op: String, operand: Box<CppExpr> },
     /// Function call: func(args...)
     Call {
         callee: Box<CppExpr>,
@@ -309,7 +321,7 @@ pub struct CppFunction {
     pub params: Vec<CppParam>,
     pub return_type: CppType,
     pub body: Option<Vec<CppStmt>>, // None for declarations only
-    pub is_const: bool,    // for methods: void foo() const
+    pub is_const: bool,             // for methods: void foo() const
     pub is_static: bool,
     pub is_virtual: bool,
     pub is_override: bool,
@@ -409,18 +421,51 @@ impl CppTranslationUnit {
     /// Add standard includes needed for Nu runtime (C++23)
     pub fn add_standard_includes(&mut self) {
         // Core C++23 headers
-        self.includes.push(CppInclude { path: "cstdint".to_string(), is_system: true });
-        self.includes.push(CppInclude { path: "string".to_string(), is_system: true });
-        self.includes.push(CppInclude { path: "string_view".to_string(), is_system: true });
-        self.includes.push(CppInclude { path: "vector".to_string(), is_system: true });
-        self.includes.push(CppInclude { path: "memory".to_string(), is_system: true });
-        self.includes.push(CppInclude { path: "optional".to_string(), is_system: true });
+        self.includes.push(CppInclude {
+            path: "cstdint".to_string(),
+            is_system: true,
+        });
+        self.includes.push(CppInclude {
+            path: "string".to_string(),
+            is_system: true,
+        });
+        self.includes.push(CppInclude {
+            path: "string_view".to_string(),
+            is_system: true,
+        });
+        self.includes.push(CppInclude {
+            path: "vector".to_string(),
+            is_system: true,
+        });
+        self.includes.push(CppInclude {
+            path: "memory".to_string(),
+            is_system: true,
+        });
+        self.includes.push(CppInclude {
+            path: "optional".to_string(),
+            is_system: true,
+        });
         // C++23 additions
-        self.includes.push(CppInclude { path: "expected".to_string(), is_system: true }); // std::expected<T,E>
-        self.includes.push(CppInclude { path: "print".to_string(), is_system: true });    // std::println
-        self.includes.push(CppInclude { path: "format".to_string(), is_system: true });   // std::format
-        self.includes.push(CppInclude { path: "variant".to_string(), is_system: true });  // std::variant
-        self.includes.push(CppInclude { path: "thread".to_string(), is_system: true });   // std::jthread
+        self.includes.push(CppInclude {
+            path: "expected".to_string(),
+            is_system: true,
+        }); // std::expected<T,E>
+        self.includes.push(CppInclude {
+            path: "print".to_string(),
+            is_system: true,
+        }); // std::println
+        self.includes.push(CppInclude {
+            path: "format".to_string(),
+            is_system: true,
+        }); // std::format
+        self.includes.push(CppInclude {
+            path: "variant".to_string(),
+            is_system: true,
+        }); // std::variant
+        self.includes.push(CppInclude {
+            path: "thread".to_string(),
+            is_system: true,
+        }); // std::jthread
     }
 
     pub fn add_item(&mut self, item: CppItem) {
@@ -446,7 +491,9 @@ impl fmt::Display for CppType {
             CppType::Template { base, args } => {
                 write!(f, "{}<", base)?;
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { write!(f, ", ")?; }
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
                     write!(f, "{}", arg)?;
                 }
                 write!(f, ">")
@@ -464,12 +511,16 @@ mod tests {
     #[test]
     fn test_cpp_type_display() {
         assert_eq!(CppType::int32().to_string(), "int32_t");
-        assert_eq!(CppType::vector(CppType::int32()).to_string(), "std::vector<int32_t>");
+        assert_eq!(
+            CppType::vector(CppType::int32()).to_string(),
+            "std::vector<int32_t>"
+        );
         assert_eq!(
             CppType::Template {
                 base: "std::map".to_string(),
                 args: vec![CppType::string(), CppType::int32()],
-            }.to_string(),
+            }
+            .to_string(),
             "std::map<std::string, int32_t>"
         );
     }

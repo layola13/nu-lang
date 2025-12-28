@@ -59,17 +59,45 @@ impl NuToCppAstConverter {
 
             // Parse line and generate AST nodes
             if let Some(item) = self.parse_line(trimmed, &lines, &mut i)? {
+                eprintln!(
+                    "DEBUG: Adding item from parse_line: {:?}",
+                    match &item {
+                        CppItem::Class(c) => format!("Class({})", c.name),
+                        CppItem::Comment(s) => format!("Comment({})", s),
+                        CppItem::TypeAlias(t) => format!("TypeAlias({})", t.name),
+                        _ => format!("{:?}", item),
+                    }
+                );
                 unit.add_item(item);
             }
 
             i += 1;
         }
 
+        // Add any items that were collected in self.items (e.g., from enum variants)
+        eprintln!("DEBUG: self.items count before drain: {}", self.items.len());
+        for item in self.items.drain(..) {
+            eprintln!(
+                "DEBUG: Adding item from self.items: {:?}",
+                match &item {
+                    CppItem::Class(c) => format!("Class({})", c.name),
+                    CppItem::TypeAlias(t) => format!("TypeAlias({})", t.name),
+                    _ => format!("{:?}", item),
+                }
+            );
+            unit.add_item(item);
+        }
+
         Ok(unit)
     }
 
     /// Parse a single line and return a CppItem if applicable
-    fn parse_line(&mut self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppItem>> {
+    fn parse_line(
+        &mut self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppItem>> {
         // Priority 1: Loop (L) - must check before function since L looks like identifier
         if line.starts_with("L ") || line == "L {" || line.starts_with("L(") {
             // Loop/for is a statement, not a top-level item
@@ -125,7 +153,12 @@ impl NuToCppAstConverter {
     }
 
     /// Parse an impl block (methods for a type)
-    fn parse_impl(&mut self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppItem>> {
+    fn parse_impl(
+        &mut self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppItem>> {
         let content = &line[2..]; // Skip "I "
 
         // Check for trait implementation: I Trait for Type { ... }
@@ -133,14 +166,23 @@ impl NuToCppAstConverter {
             let parts: Vec<&str> = content.split(" for ").collect();
             if parts.len() == 2 {
                 let trait_n = parts[0].trim().to_string();
-                let type_n = parts[1].trim().trim_end_matches(" {").trim_end_matches('{').trim().to_string();
+                let type_n = parts[1]
+                    .trim()
+                    .trim_end_matches(" {")
+                    .trim_end_matches('{')
+                    .trim()
+                    .to_string();
                 (type_n, Some(trait_n))
             } else {
                 return Ok(None);
             }
         } else {
             // Regular impl: I Type { ... }
-            let name = content.trim().trim_end_matches(" {").trim_end_matches('{').trim();
+            let name = content
+                .trim()
+                .trim_end_matches(" {")
+                .trim_end_matches('{')
+                .trim();
             let (type_name, _generics) = self.extract_name_and_generics(name)?;
             (type_name, None)
         };
@@ -172,7 +214,9 @@ impl NuToCppAstConverter {
 
                 // Parse function definition within impl
                 if method_line.starts_with("F ") || method_line.starts_with("f ") {
-                    if let Some(CppItem::Function(mut func)) = self.parse_function(method_line, lines, index)? {
+                    if let Some(CppItem::Function(mut func)) =
+                        self.parse_function(method_line, lines, index)?
+                    {
                         // Mark methods with &self as non-static
                         if method_line.contains("&self") || method_line.contains("&mut self") {
                             func.is_static = false;
@@ -205,20 +249,36 @@ impl NuToCppAstConverter {
 
         // Add comment about trait implementation
         if let Some(trait_n) = trait_name {
-            Ok(Some(CppItem::Comment(format!("Implementation of {} for {}", trait_n, class_name))))
+            Ok(Some(CppItem::Comment(format!(
+                "Implementation of {} for {}",
+                trait_n, class_name
+            ))))
         } else if !cls.methods.is_empty() {
             Ok(Some(CppItem::Class(cls)))
         } else {
-            Ok(Some(CppItem::Comment(format!("Implementation for {}", class_name))))
+            Ok(Some(CppItem::Comment(format!(
+                "Implementation for {}",
+                class_name
+            ))))
         }
     }
 
     /// Parse a trait definition
-    fn parse_trait(&mut self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppItem>> {
+    fn parse_trait(
+        &mut self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppItem>> {
         let is_pub = line.starts_with("TR ");
         let content = &line[3..]; // Skip "TR " or "tr "
-        
-        let name = content.trim().trim_end_matches(" {").trim_end_matches('{').trim().to_string();
+
+        let name = content
+            .trim()
+            .trim_end_matches(" {")
+            .trim_end_matches('{')
+            .trim()
+            .to_string();
 
         // Parse trait methods (as pure virtual)
         let mut methods = vec![];
@@ -242,7 +302,9 @@ impl NuToCppAstConverter {
 
                 // Parse function signature (no body = pure virtual in C++)
                 if method_line.starts_with("F ") || method_line.starts_with("f ") {
-                    if let Some(CppItem::Function(mut func)) = self.parse_function(method_line, lines, index)? {
+                    if let Some(CppItem::Function(mut func)) =
+                        self.parse_function(method_line, lines, index)?
+                    {
                         func.is_virtual = true;
                         func.body = None; // Pure virtual = 0
                         methods.push(func);
@@ -272,9 +334,9 @@ impl NuToCppAstConverter {
     fn parse_module(&self, line: &str) -> Result<Option<CppItem>> {
         let is_pub = line.starts_with("DM ");
         let content = if is_pub { &line[3..] } else { &line[2..] };
-        
+
         let name = content.trim().trim_end_matches(';').to_string();
-        
+
         // C++ doesn't have direct module equivalent, use namespace
         Ok(Some(CppItem::Namespace(CppNamespace {
             name,
@@ -283,7 +345,12 @@ impl NuToCppAstConverter {
     }
 
     /// Parse a struct definition
-    fn parse_struct(&mut self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppItem>> {
+    fn parse_struct(
+        &mut self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppItem>> {
         let is_pub = line.starts_with("S ");
         let content = &line[2..];
 
@@ -363,7 +430,12 @@ impl NuToCppAstConverter {
     }
 
     /// Parse a function definition
-    fn parse_function(&mut self, line: &str, _lines: &[&str], _index: &mut usize) -> Result<Option<CppItem>> {
+    fn parse_function(
+        &mut self,
+        line: &str,
+        _lines: &[&str],
+        _index: &mut usize,
+    ) -> Result<Option<CppItem>> {
         let is_pub = line.starts_with("F ");
         let content = &line[2..];
 
@@ -388,13 +460,21 @@ impl NuToCppAstConverter {
             template_params,
             params,
             return_type,
-            body: if has_body { Some(vec![CppStmt::Comment("TODO: parse body".to_string())]) } else { None },
+            body: if has_body {
+                Some(vec![CppStmt::Comment("TODO: parse body".to_string())])
+            } else {
+                None
+            },
             is_const: false,
             is_static: !is_pub && !content.contains("&self"),
             is_virtual: false,
             is_override: false,
             is_noexcept: false,
-            visibility: if is_pub { CppVisibility::Public } else { CppVisibility::Private },
+            visibility: if is_pub {
+                CppVisibility::Public
+            } else {
+                CppVisibility::Private
+            },
         };
 
         Ok(Some(CppItem::Function(func)))
@@ -406,11 +486,21 @@ impl NuToCppAstConverter {
     /// - Tuple variants: InvalidOperator(String)
     /// - Struct variants: Move { x: i32, y: i32 }
     /// Generates: struct per variant + using EnumName = std::variant<...>
-    fn parse_enum(&mut self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppItem>> {
+    fn parse_enum(
+        &mut self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppItem>> {
         let content = &line[2..];
 
         // Extract enum name
-        let name = content.trim().trim_end_matches(" {").trim_end_matches('{').trim().to_string();
+        let name = content
+            .trim()
+            .trim_end_matches(" {")
+            .trim_end_matches('{')
+            .trim()
+            .to_string();
 
         let mut variants = vec![];
         let mut has_associated_data = false;
@@ -466,10 +556,11 @@ impl NuToCppAstConverter {
             }
 
             // Generate type alias: using EnumName = std::variant<Variant1, Variant2, ...>
-            let variant_types: Vec<CppType> = variant_names.iter()
+            let variant_types: Vec<CppType> = variant_names
+                .iter()
                 .map(|name| CppType::Named(name.clone()))
                 .collect();
-            
+
             items.push(CppItem::TypeAlias(CppTypeAlias {
                 name: name.clone(),
                 template_params: vec![],
@@ -530,7 +621,11 @@ impl NuToCppAstConverter {
                 return Ok(Some(CppEnumVariant {
                     name: variant_name,
                     value: None,
-                    associated_data: if fields.is_empty() { None } else { Some(fields) },
+                    associated_data: if fields.is_empty() {
+                        None
+                    } else {
+                        Some(fields)
+                    },
                 }));
             }
         }
@@ -566,7 +661,11 @@ impl NuToCppAstConverter {
                 return Ok(Some(CppEnumVariant {
                     name: variant_name,
                     value: None,
-                    associated_data: if fields.is_empty() { None } else { Some(fields) },
+                    associated_data: if fields.is_empty() {
+                        None
+                    } else {
+                        Some(fields)
+                    },
                 }));
             }
         }
@@ -726,7 +825,7 @@ impl NuToCppAstConverter {
                     "Box" | "B" => "std::unique_ptr",
                     "Rc" => "std::shared_ptr",
                     "Arc" | "A" => "std::shared_ptr",
-                    "Weak" | "W" => "std::weak_ptr",  // Weak reference
+                    "Weak" | "W" => "std::weak_ptr", // Weak reference
                     // Collections
                     "HashMap" | "HM" => "std::unordered_map",
                     "HashSet" | "HS" => "std::unordered_set",
@@ -777,12 +876,17 @@ impl NuToCppAstConverter {
     /// Parse for loop with enumerate pattern
     /// Converts: for(i, record) in self.history.iter().enumerate()
     /// To: ForEnumerate { index_var: "i", value_var: "record", collection: "this->history", body: [...] }
-    fn parse_for_enumerate(&self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppStmt>> {
+    fn parse_for_enumerate(
+        &self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppStmt>> {
         // Pattern: L (index_var, value_var) in collection.iter().enumerate() { ... }
         // or: for (index_var, value_var) in collection.iter().enumerate() { ... }
-        
+
         let trimmed = line.trim();
-        
+
         // Extract the for loop pattern
         let content = if trimmed.starts_with("L ") {
             &trimmed[2..]
@@ -791,50 +895,54 @@ impl NuToCppAstConverter {
         } else {
             return Ok(None);
         };
-        
+
         // Check if this is an enumerate pattern
         if !content.contains(".enumerate()") {
             return Ok(None);
         }
-        
+
         // Extract (index_var, value_var) part
         if !content.starts_with('(') {
             return Ok(None);
         }
-        
-        let close_paren = content.find(')').ok_or_else(|| anyhow::anyhow!("Missing closing parenthesis in for enumerate"))?;
+
+        let close_paren = content
+            .find(')')
+            .ok_or_else(|| anyhow::anyhow!("Missing closing parenthesis in for enumerate"))?;
         let vars_part = &content[1..close_paren];
-        
+
         // Split variables: "i, record" -> ["i", "record"]
         let vars: Vec<&str> = vars_part.split(',').map(|s| s.trim()).collect();
         if vars.len() != 2 {
             return Ok(None);
         }
-        
+
         let index_var = vars[0].to_string();
         let value_var = vars[1].to_string();
-        
+
         // Extract collection part: "in collection.iter().enumerate()"
-        let in_pos = content.find(" in ").ok_or_else(|| anyhow::anyhow!("Missing 'in' keyword in for enumerate"))?;
+        let in_pos = content
+            .find(" in ")
+            .ok_or_else(|| anyhow::anyhow!("Missing 'in' keyword in for enumerate"))?;
         let after_in = &content[in_pos + 4..];
-        
+
         // Remove .iter().enumerate() or .enumerate() and { from collection expression
         let mut collection_str = after_in.trim();
-        
+
         // Remove trailing {
         if let Some(brace_pos) = collection_str.rfind('{') {
             collection_str = &collection_str[..brace_pos].trim();
         }
-        
+
         // Remove .iter().enumerate() or .enumerate()
         if let Some(pos) = collection_str.find(".iter().enumerate()") {
             collection_str = &collection_str[..pos];
         } else if let Some(pos) = collection_str.find(".enumerate()") {
             collection_str = &collection_str[..pos];
         }
-        
+
         let collection_str = collection_str.trim();
-        
+
         // Convert collection to CppExpr
         // Handle self.field -> this->field
         let cpp_collection = if collection_str.starts_with("self.") {
@@ -851,43 +959,43 @@ impl NuToCppAstConverter {
         } else {
             CppExpr::Var(collection_str.to_string())
         };
-        
+
         // Parse body statements
         let mut body = vec![];
-        
+
         if content.ends_with('{') {
             let mut depth = 1;
             *index += 1;
-            
+
             while *index < lines.len() && depth > 0 {
                 let body_line = lines[*index].trim();
-                
+
                 if body_line.is_empty() || body_line.starts_with("//") {
                     *index += 1;
                     continue;
                 }
-                
+
                 if body_line == "}" {
                     depth -= 1;
                     if depth == 0 {
                         break;
                     }
                 }
-                
+
                 // Count braces for nested structures
                 let open = body_line.matches('{').count();
                 let close = body_line.matches('}').count();
                 depth += open as i32 - close as i32;
-                
+
                 // Parse statement (simplified - just convert to Raw statement for now)
                 // In a full implementation, this would recursively parse statements
                 let stmt = CppStmt::Raw(body_line.to_string());
                 body.push(stmt);
-                
+
                 *index += 1;
             }
         }
-        
+
         Ok(Some(CppStmt::ForEnumerate {
             index_var,
             value_var,
@@ -899,16 +1007,19 @@ impl NuToCppAstConverter {
     /// Handles: Constructor calls like Calculator{history: Vec::new()}
     fn parse_expr(&self, s: &str) -> Result<CppExpr> {
         let s = s.trim();
-        
+
         // Handle struct initialization: Type{field: value, ...}
         if let Some(brace_pos) = s.find('{') {
             let type_part = &s[..brace_pos].trim();
-            
+
             // Check if this looks like a struct constructor (not a block)
-            if type_part.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '<' || c == '>' || c == ':') {
+            if type_part
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '<' || c == '>' || c == ':')
+            {
                 if let Some(close_brace) = s.rfind('}') {
                     let fields_str = &s[brace_pos + 1..close_brace];
-                    
+
                     // Parse fields: field: value, field2: value2
                     let mut fields = vec![];
                     for field_part in fields_str.split(',') {
@@ -916,26 +1027,27 @@ impl NuToCppAstConverter {
                         if field_part.is_empty() {
                             continue;
                         }
-                        
+
                         if let Some(colon_pos) = field_part.find(':') {
                             // Check it's not :: (namespace separator)
                             if colon_pos > 0 && !field_part[..colon_pos].ends_with(':') {
                                 let field_name = field_part[..colon_pos].trim().to_string();
                                 let field_value_str = field_part[colon_pos + 1..].trim();
-                                
+
                                 // Convert Vec::new() to std::vector<T>{}
                                 let field_value_str = if field_value_str.contains("Vec::new()") {
-                                    field_value_str.replace("Vec::new()", "std::vector<std::string>{}")
+                                    field_value_str
+                                        .replace("Vec::new()", "std::vector<std::string>{}")
                                 } else {
                                     field_value_str.to_string()
                                 };
-                                
+
                                 let field_value = self.parse_expr(&field_value_str)?;
                                 fields.push((Some(field_name), field_value));
                             }
                         }
                     }
-                    
+
                     // Convert to C++ constructor call or brace initialization
                     // Type{field: value} -> Type() with member initialization
                     return Ok(CppExpr::BraceInit {
@@ -945,51 +1057,47 @@ impl NuToCppAstConverter {
                 }
             }
         }
-        
+
         // Handle Vec::new() -> std::vector<T>{}
         if s.contains("Vec::new()") {
             let converted = s.replace("Vec::new()", "std::vector<std::string>{}");
             return Ok(CppExpr::Raw(converted));
         }
-        
+
         // Default: treat as raw expression
         Ok(CppExpr::Raw(s.to_string()))
     }
-    
+
     /// Parse a Nu statement into CppStmt
     /// Handles: let bindings, return statements, etc.
     fn parse_statement(&self, line: &str) -> Result<Option<CppStmt>> {
         let line = line.trim();
-        
+
         if line.is_empty() || line.starts_with("//") {
             return Ok(None);
         }
-        
+
         // Handle return statement: < expr
         if line.starts_with("< ") || line == "<" {
-            let expr_str = if line.len() > 2 {
-                &line[2..]
-            } else {
-                ""
-            };
-            
+            let expr_str = if line.len() > 2 { &line[2..] } else { "" };
+
             if expr_str.is_empty() {
                 return Ok(Some(CppStmt::Return(None)));
             }
-            
+
             let expr = self.parse_expr(expr_str)?;
             return Ok(Some(CppStmt::Return(Some(expr))));
         }
-        
+
         // Handle let binding: l name = expr
         if line.starts_with("l ") {
             let content = &line[2..];
-            
+
             if let Some(eq_pos) = content.find('=') {
                 let name = content[..eq_pos].trim().to_string();
                 let value_str = content[eq_pos + 1..].trim();
                 let init_expr = self.parse_expr(value_str)?;
-                
+
                 return Ok(Some(CppStmt::VarDecl {
                     name,
                     var_type: CppType::Named("auto".to_string()),
@@ -998,16 +1106,16 @@ impl NuToCppAstConverter {
                 }));
             }
         }
-        
+
         // Handle mutable let: v name = expr
         if line.starts_with("v ") {
             let content = &line[2..];
-            
+
             if let Some(eq_pos) = content.find('=') {
                 let name = content[..eq_pos].trim().to_string();
                 let value_str = content[eq_pos + 1..].trim();
                 let init_expr = self.parse_expr(value_str)?;
-                
+
                 return Ok(Some(CppStmt::VarDecl {
                     name,
                     var_type: CppType::Named("auto".to_string()),
@@ -1016,16 +1124,21 @@ impl NuToCppAstConverter {
                 }));
             }
         }
-        
+
         // Default: treat as raw statement
         Ok(Some(CppStmt::Raw(line.to_string())))
     }
-    
+
     /// Parse a match expression: M val { pattern => expr, ... }
     /// Converts to C++ if-else chain using std::get_if per NU2CPP23.md line 61
-    fn parse_match_expression(&self, line: &str, lines: &[&str], index: &mut usize) -> Result<Option<CppStmt>> {
+    fn parse_match_expression(
+        &self,
+        line: &str,
+        lines: &[&str],
+        index: &mut usize,
+    ) -> Result<Option<CppStmt>> {
         let trimmed = line.trim();
-        
+
         // Pattern: M value { ... } or match value { ... }
         let content = if trimmed.starts_with("M ") {
             &trimmed[2..]
@@ -1034,32 +1147,32 @@ impl NuToCppAstConverter {
         } else {
             return Ok(None);
         };
-        
+
         // Extract the value being matched
         if !content.contains('{') {
             return Ok(None);
         }
-        
+
         let brace_pos = content.find('{').unwrap();
         let value_str = content[..brace_pos].trim();
         let value_expr = self.parse_expr(value_str)?;
-        
+
         // Parse match arms
         let mut arms = vec![];
-        
+
         if content.ends_with('{') || content.contains('{') {
             let mut depth = 1;
             *index += 1;
             let mut current_arm = String::new();
-            
+
             while *index < lines.len() && depth > 0 {
                 let arm_line = lines[*index].trim();
-                
+
                 if arm_line.is_empty() || arm_line.starts_with("//") {
                     *index += 1;
                     continue;
                 }
-                
+
                 if arm_line == "}" {
                     depth -= 1;
                     if depth == 0 {
@@ -1072,12 +1185,12 @@ impl NuToCppAstConverter {
                         break;
                     }
                 }
-                
+
                 // Count braces
                 let open = arm_line.matches('{').count();
                 let close = arm_line.matches('}').count();
                 depth += open as i32 - close as i32;
-                
+
                 // Accumulate arm content
                 if arm_line.contains("=>") {
                     // New arm starts
@@ -1094,49 +1207,49 @@ impl NuToCppAstConverter {
                         current_arm.push_str(arm_line);
                     }
                 }
-                
+
                 *index += 1;
             }
         }
-        
+
         // Generate C++ if-else chain using std::get_if
         Ok(Some(self.generate_match_if_chain(value_expr, arms)?))
     }
-    
+
     /// Parse a single match arm: pattern => expression
     fn parse_match_arm(&self, arm_str: &str) -> Result<Option<MatchArm>> {
         let arm_str = arm_str.trim().trim_end_matches(',');
-        
+
         if !arm_str.contains("=>") {
             return Ok(None);
         }
-        
+
         let parts: Vec<&str> = arm_str.splitn(2, "=>").collect();
         if parts.len() != 2 {
             return Ok(None);
         }
-        
+
         let pattern = parts[0].trim().to_string();
         let expr_str = parts[1].trim();
         let expr = self.parse_expr(expr_str)?;
-        
+
         Ok(Some(MatchArm { pattern, expr }))
     }
-    
+
     /// Generate C++ if-else chain from match arms using std::get_if
     fn generate_match_if_chain(&self, value: CppExpr, arms: Vec<MatchArm>) -> Result<CppStmt> {
         if arms.is_empty() {
             return Ok(CppStmt::Comment("Empty match expression".to_string()));
         }
-        
+
         // Build nested if-else chain
         let mut current: Option<Vec<CppStmt>> = None;
-        
+
         // Process arms in reverse to build nested structure
         for arm in arms.iter().rev() {
             let condition = self.generate_match_condition(&value, &arm.pattern)?;
             let then_block = vec![CppStmt::Return(Some(arm.expr.clone()))];
-            
+
             let if_stmt = if let Some(else_block) = current {
                 CppStmt::If {
                     condition,
@@ -1150,32 +1263,32 @@ impl NuToCppAstConverter {
                     else_block: None,
                 }
             };
-            
+
             current = Some(vec![if_stmt]);
         }
-        
+
         Ok(current.unwrap().into_iter().next().unwrap())
     }
-    
+
     /// Generate condition for pattern matching using std::get_if
     fn generate_match_condition(&self, value: &CppExpr, pattern: &str) -> Result<CppExpr> {
         let pattern = pattern.trim();
-        
+
         // Handle wildcard pattern: _
         if pattern == "_" {
             return Ok(CppExpr::Literal("true".to_string()));
         }
-        
+
         // Handle variant pattern: TypeName(var) or TypeName
         if let Some(paren_pos) = pattern.find('(') {
             let type_name = &pattern[..paren_pos].trim();
-            
+
             // Generate: auto* p = std::get_if<TypeName>(&value)
             // Condition: p != nullptr
 
-    #[test]
-    fn test_enum_with_tuple_variant() {
-        let nu_code = r#"
+            #[test]
+            fn test_enum_with_tuple_variant() {
+                let nu_code = r#"
 E CalcError {
     InvalidOperator(String),
     DivisionByZero,
@@ -1183,21 +1296,21 @@ E CalcError {
 }
 "#;
 
-        let mut converter = NuToCppAstConverter::new();
-        let result = converter.convert(nu_code);
-        assert!(result.is_ok());
-        
-        let unit = result.unwrap();
-        
-        // The enum should be parsed with associated data
-        // This will generate structs for each variant
-        // For now, we just verify it parses without errors
-        assert!(!unit.items.is_empty());
-    }
+                let mut converter = NuToCppAstConverter::new();
+                let result = converter.convert(nu_code);
+                assert!(result.is_ok());
 
-    #[test]
-    fn test_enum_with_struct_variant() {
-        let nu_code = r#"
+                let unit = result.unwrap();
+
+                // The enum should be parsed with associated data
+                // This will generate structs for each variant
+                // For now, we just verify it parses without errors
+                assert!(!unit.items.is_empty());
+            }
+
+            #[test]
+            fn test_enum_with_struct_variant() {
+                let nu_code = r#"
 E Message {
     Move { x: i32, y: i32 },
     Write(String),
@@ -1205,64 +1318,64 @@ E Message {
 }
 "#;
 
-        let mut converter = NuToCppAstConverter::new();
-        let result = converter.convert(nu_code);
-        assert!(result.is_ok());
-        
-        let unit = result.unwrap();
-        assert!(!unit.items.is_empty());
-    }
+                let mut converter = NuToCppAstConverter::new();
+                let result = converter.convert(nu_code);
+                assert!(result.is_ok());
 
-    #[test]
-    fn test_parse_enum_variant_unit() {
-        let converter = NuToCppAstConverter::new();
-        let result = converter.parse_enum_variant("DivisionByZero");
-        
-        assert!(result.is_ok());
-        let variant = result.unwrap();
-        assert!(variant.is_some());
-        
-        let variant = variant.unwrap();
-        assert_eq!(variant.name, "DivisionByZero");
-        assert!(variant.associated_data.is_none());
-    }
+                let unit = result.unwrap();
+                assert!(!unit.items.is_empty());
+            }
 
-    #[test]
-    fn test_parse_enum_variant_tuple() {
-        let converter = NuToCppAstConverter::new();
-        let result = converter.parse_enum_variant("InvalidOperator(String)");
-        
-        assert!(result.is_ok());
-        let variant = result.unwrap();
-        assert!(variant.is_some());
-        
-        let variant = variant.unwrap();
-        assert_eq!(variant.name, "InvalidOperator");
-        assert!(variant.associated_data.is_some());
-        
-        let fields = variant.associated_data.unwrap();
-        assert_eq!(fields.len(), 1);
-        assert_eq!(fields[0].name, "_0");
-    }
+            #[test]
+            fn test_parse_enum_variant_unit() {
+                let converter = NuToCppAstConverter::new();
+                let result = converter.parse_enum_variant("DivisionByZero");
 
-    #[test]
-    fn test_parse_enum_variant_struct() {
-        let converter = NuToCppAstConverter::new();
-        let result = converter.parse_enum_variant("Move { x: i32, y: i32 }");
-        
-        assert!(result.is_ok());
-        let variant = result.unwrap();
-        assert!(variant.is_some());
-        
-        let variant = variant.unwrap();
-        assert_eq!(variant.name, "Move");
-        assert!(variant.associated_data.is_some());
-        
-        let fields = variant.associated_data.unwrap();
-        assert_eq!(fields.len(), 2);
-        assert_eq!(fields[0].name, "x");
-        assert_eq!(fields[1].name, "y");
-    }
+                assert!(result.is_ok());
+                let variant = result.unwrap();
+                assert!(variant.is_some());
+
+                let variant = variant.unwrap();
+                assert_eq!(variant.name, "DivisionByZero");
+                assert!(variant.associated_data.is_none());
+            }
+
+            #[test]
+            fn test_parse_enum_variant_tuple() {
+                let converter = NuToCppAstConverter::new();
+                let result = converter.parse_enum_variant("InvalidOperator(String)");
+
+                assert!(result.is_ok());
+                let variant = result.unwrap();
+                assert!(variant.is_some());
+
+                let variant = variant.unwrap();
+                assert_eq!(variant.name, "InvalidOperator");
+                assert!(variant.associated_data.is_some());
+
+                let fields = variant.associated_data.unwrap();
+                assert_eq!(fields.len(), 1);
+                assert_eq!(fields[0].name, "_0");
+            }
+
+            #[test]
+            fn test_parse_enum_variant_struct() {
+                let converter = NuToCppAstConverter::new();
+                let result = converter.parse_enum_variant("Move { x: i32, y: i32 }");
+
+                assert!(result.is_ok());
+                let variant = result.unwrap();
+                assert!(variant.is_some());
+
+                let variant = variant.unwrap();
+                assert_eq!(variant.name, "Move");
+                assert!(variant.associated_data.is_some());
+
+                let fields = variant.associated_data.unwrap();
+                assert_eq!(fields.len(), 2);
+                assert_eq!(fields[0].name, "x");
+                assert_eq!(fields[1].name, "y");
+            }
             Ok(CppExpr::BinOp {
                 left: Box::new(CppExpr::Call {
                     callee: Box::new(CppExpr::Raw(format!("std::get_if<{}>", type_name))),
@@ -1289,14 +1402,14 @@ E Message {
             })
         }
     }
-    
+
     /// Convert Nu expression string to C++ (compatibility wrapper)
     fn convert_nu_expr_to_cpp(&self, expr: &str) -> Result<String> {
         let cpp_expr = self.parse_expr(expr)?;
         // Simple serialization - in practice would use CppCodegen
         Ok(self.serialize_expr(&cpp_expr))
     }
-    
+
     /// Serialize CppExpr to string (helper for convert_nu_expr_to_cpp)
     fn serialize_expr(&self, expr: &CppExpr) -> String {
         match expr {
@@ -1316,7 +1429,6 @@ E Message {
             _ => format!("{:?}", expr), // Fallback
         }
     }
-
 }
 
 impl Default for NuToCppAstConverter {
@@ -1516,31 +1628,33 @@ S Config {
     #[test]
     fn test_for_enumerate_parsing() {
         use crate::nu2cpp::cpp_codegen::CppCodegen;
-        
+
         // Create a converter instance
         let converter = NuToCppAstConverter::new();
-        
+
         // Test Nu code with enumerate pattern
         let nu_line = "L (i, record) in self.history.iter().enumerate() {";
-        let lines = vec![
-            nu_line,
-            "    process(record);",
-            "}",
-        ];
+        let lines = vec![nu_line, "    process(record);", "}"];
         let mut index = 0;
-        
+
         // Parse the for enumerate loop
         let result = converter.parse_for_enumerate(nu_line, &lines, &mut index);
         assert!(result.is_ok());
-        
+
         let stmt = result.unwrap();
         assert!(stmt.is_some());
-        
-        if let Some(CppStmt::ForEnumerate { index_var, value_var, collection, body }) = stmt {
+
+        if let Some(CppStmt::ForEnumerate {
+            index_var,
+            value_var,
+            collection,
+            body,
+        }) = stmt
+        {
             // Verify parsed variables
             assert_eq!(index_var, "i");
             assert_eq!(value_var, "record");
-            
+
             // Verify collection is converted to this->history
             match collection {
                 CppExpr::ArrowAccess { member, .. } => {
@@ -1548,7 +1662,7 @@ S Config {
                 }
                 _ => panic!("Expected ArrowAccess for self.history"),
             }
-            
+
             // Verify body is parsed
             assert!(!body.is_empty());
         } else {
@@ -1565,20 +1679,134 @@ S Config {
     #[test]
     fn test_constructor_syntax_conversion() {
         let converter = NuToCppAstConverter::new();
-        
+
         // Test parsing Calculator{history: Vec::new()} expression
         let result = converter.parse_expr("Calculator{history: Vec::new()}");
         assert!(result.is_ok());
-        
+
         // Test conversion to C++ syntax
         let converted = converter.convert_nu_expr_to_cpp("Calculator{history: Vec::new()}");
         assert!(converted.is_ok());
-        
+
         let cpp_output = converted.unwrap();
         // Should convert to constructor call with proper initialization
         // Calculator(std::vector<std::string>{})
         eprintln!("DEBUG: cpp_output = {:?}", cpp_output);
         assert!(cpp_output.contains("Calculator("));
         assert!(cpp_output.contains("std::vector") || cpp_output.contains("vector"));
+    }
+
+    #[test]
+    fn test_enum_with_tuple_variant() {
+        let nu_code = r#"
+E CalcError {
+    InvalidOperator(String),
+    DivisionByZero,
+    ParseError(String),
+}
+"#;
+
+        let mut converter = NuToCppAstConverter::new();
+        let result = converter.convert(nu_code);
+        assert!(result.is_ok());
+
+        let unit = result.unwrap();
+
+        // The enum should generate structs for each variant + type alias
+        assert!(!unit.items.is_empty());
+
+        // Generate code to verify output
+        let mut codegen = CppCodegen::new();
+        let output = codegen.generate(&unit);
+
+        // Debug: print actual output
+        eprintln!("=== Generated C++ output ===");
+        eprintln!("{}", output);
+        eprintln!("=== End output ===");
+
+        // Should contain struct definitions
+        assert!(output.contains("struct InvalidOperator"));
+        assert!(output.contains("struct DivisionByZero"));
+        assert!(output.contains("struct ParseError"));
+
+        // Should contain variant type alias
+        assert!(output.contains("using CalcError = std::variant<"));
+    }
+
+    #[test]
+    fn test_enum_with_struct_variant() {
+        let nu_code = r#"
+E Message {
+    Move { x: i32, y: i32 },
+    Write(String),
+    Quit,
+}
+"#;
+
+        let mut converter = NuToCppAstConverter::new();
+        let result = converter.convert(nu_code);
+        assert!(result.is_ok());
+
+        let unit = result.unwrap();
+        assert!(!unit.items.is_empty());
+
+        let mut codegen = CppCodegen::new();
+        let output = codegen.generate(&unit);
+
+        assert!(output.contains("struct Move"));
+        assert!(output.contains("struct Write"));
+        assert!(output.contains("struct Quit"));
+        assert!(output.contains("using Message = std::variant<"));
+    }
+
+    #[test]
+    fn test_parse_enum_variant_unit() {
+        let converter = NuToCppAstConverter::new();
+        let result = converter.parse_enum_variant("DivisionByZero");
+
+        assert!(result.is_ok());
+        let variant = result.unwrap();
+        assert!(variant.is_some());
+
+        let variant = variant.unwrap();
+        assert_eq!(variant.name, "DivisionByZero");
+        assert!(variant.associated_data.is_none());
+    }
+
+    #[test]
+    fn test_parse_enum_variant_tuple() {
+        let converter = NuToCppAstConverter::new();
+        let result = converter.parse_enum_variant("InvalidOperator(String)");
+
+        assert!(result.is_ok());
+        let variant = result.unwrap();
+        assert!(variant.is_some());
+
+        let variant = variant.unwrap();
+        assert_eq!(variant.name, "InvalidOperator");
+        assert!(variant.associated_data.is_some());
+
+        let fields = variant.associated_data.unwrap();
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "_0");
+    }
+
+    #[test]
+    fn test_parse_enum_variant_struct() {
+        let converter = NuToCppAstConverter::new();
+        let result = converter.parse_enum_variant("Move { x: i32, y: i32 }");
+
+        assert!(result.is_ok());
+        let variant = result.unwrap();
+        assert!(variant.is_some());
+
+        let variant = variant.unwrap();
+        assert_eq!(variant.name, "Move");
+        assert!(variant.associated_data.is_some());
+
+        let fields = variant.associated_data.unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name, "x");
+        assert_eq!(fields[1].name, "y");
     }
 }

@@ -5,9 +5,8 @@ use anyhow::{Context, Result};
 use quote::ToTokens;
 use std::collections::HashSet;
 use syn::{
-    visit::Visit, Attribute, Block, Expr, File, FnArg, Item, ItemEnum, ItemFn, ItemImpl,
-    ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type, Visibility,
-    spanned::Spanned,
+    spanned::Spanned, visit::Visit, Attribute, Block, Expr, File, FnArg, Item, ItemEnum, ItemFn,
+    ItemImpl, ItemStruct, ItemTrait, ReturnType, Signature, Stmt, Type, Visibility,
 };
 
 /// v1.8.3: 检查字符是否是标识符的一部分
@@ -24,7 +23,7 @@ fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
     let from_chars: Vec<char> = from.chars().collect();
     let from_len = from_chars.len();
     let mut i = 0;
-    
+
     while i < chars.len() {
         // 检查是否匹配 from
         if i + from_len <= chars.len() {
@@ -32,8 +31,9 @@ fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
             if slice == from {
                 // 检查前后边界
                 let prev_is_ident = i > 0 && is_ident_char(chars[i - 1]);
-                let next_is_ident = i + from_len < chars.len() && is_ident_char(chars[i + from_len]);
-                
+                let next_is_ident =
+                    i + from_len < chars.len() && is_ident_char(chars[i + from_len]);
+
                 // v1.8.8: 检查是否是枚举变体上下文（前面是 :: 或 Self::）
                 // 枚举变体名不应该被替换
                 let is_enum_variant = if i >= 2 {
@@ -41,19 +41,31 @@ fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
                 } else {
                     false
                 };
-                
+
                 // 只有当前后都不是标识符字符时才替换
                 // 但允许 "Vec<" "Option<" "Result<" 等模式（后面是 < 或 ::）
                 // v1.8.8: 不替换枚举变体名（后面跟 ( 且前面是 ::）
-                let next_char = if i + from_len < chars.len() { Some(chars[i + from_len]) } else { None };
-                
+                let next_char = if i + from_len < chars.len() {
+                    Some(chars[i + from_len])
+                } else {
+                    None
+                };
+
                 // v1.8.8: 如果后面是 (，检查是否是枚举变体模式
                 // 枚举变体: Self::Vec(x), Some(x), None
                 // 类型构造: Vec::new(), Vec::with_capacity()
                 let is_variant_pattern = next_char == Some('(') && is_enum_variant;
-                
-                let is_type_context = next_char == Some('<') || next_char == Some(':') || next_char == Some(' ') || next_char == Some(',') || next_char == Some(')') || next_char == Some('>') || next_char == Some(';') || next_char == Some('{') || next_char.is_none();
-                
+
+                let is_type_context = next_char == Some('<')
+                    || next_char == Some(':')
+                    || next_char == Some(' ')
+                    || next_char == Some(',')
+                    || next_char == Some(')')
+                    || next_char == Some('>')
+                    || next_char == Some(';')
+                    || next_char == Some('{')
+                    || next_char.is_none();
+
                 if !prev_is_ident && (!next_is_ident || is_type_context) && !is_variant_pattern {
                     result.push_str(to);
                     i += from_len;
@@ -64,7 +76,7 @@ fn replace_standalone_type(s: &str, from: &str, to: &str) -> String {
         result.push(chars[i]);
         i += 1;
     }
-    
+
     result
 }
 
@@ -493,7 +505,13 @@ impl Rust2NuConverter {
             result.push_str(&self.convert_type(&qself.ty));
             result.push_str(" as ");
             // 输出 trait 路径（从 path 的开头到 qself.position）
-            for (i, segment) in type_path.path.segments.iter().take(qself.position).enumerate() {
+            for (i, segment) in type_path
+                .path
+                .segments
+                .iter()
+                .take(qself.position)
+                .enumerate()
+            {
                 if i > 0 {
                     result.push_str("::");
                 }
@@ -501,20 +519,28 @@ impl Rust2NuConverter {
                 // 处理泛型参数
                 if let syn::PathArguments::AngleBracketed(args) = &segment.arguments {
                     result.push('<');
-                    let arg_strs: Vec<String> = args.args.iter().map(|arg| {
-                        match arg {
+                    let arg_strs: Vec<String> = args
+                        .args
+                        .iter()
+                        .map(|arg| match arg {
                             syn::GenericArgument::Lifetime(l) => format!("'{}", l.ident),
                             syn::GenericArgument::Type(t) => self.convert_type(t),
                             _ => arg.to_token_stream().to_string(),
-                        }
-                    }).collect();
+                        })
+                        .collect();
                     result.push_str(&arg_strs.join(", "));
                     result.push('>');
                 }
             }
             result.push_str(">::");
             // 输出关联类型（从 qself.position 开始）
-            for (i, segment) in type_path.path.segments.iter().skip(qself.position).enumerate() {
+            for (i, segment) in type_path
+                .path
+                .segments
+                .iter()
+                .skip(qself.position)
+                .enumerate()
+            {
                 if i > 0 {
                     result.push_str("::");
                 }
@@ -656,7 +682,7 @@ impl Rust2NuConverter {
                 // 先转换类型（保护裸指针的mut关键字），再去掉变量名前的mut
                 let pat_str = local.pat.to_token_stream().to_string();
                 let converted_pat = self.convert_type_in_string(&pat_str);
-                
+
                 // 只有在 simple identifier 模式下且 is_mut 为 true 时，才去除开头的 "mut "
                 let clean_pat = if is_mut && converted_pat.starts_with("mut ") {
                     &converted_pat[4..] // 跳过 "mut "
@@ -669,7 +695,7 @@ impl Rust2NuConverter {
                 if let Some(init) = &local.init {
                     self.write(" = ");
                     self.write(&self.convert_expr(&init.expr));
-                    
+
                     // v1.8: 处理 let-else 语法 (Rust 1.65+)
                     // let Some(x) = expr else { return; }
                     if let Some((_, diverge)) = &init.diverge {
@@ -813,38 +839,56 @@ impl Rust2NuConverter {
             }
             // v1.8.2: 添加常用表达式的递归转换，确保内部的 ? 被正确转换为 !
             Expr::Binary(bin) => {
-                format!("{} {} {}", self.convert_expr(&bin.left), bin.op.to_token_stream().to_string(), self.convert_expr(&bin.right))
+                format!(
+                    "{} {} {}",
+                    self.convert_expr(&bin.left),
+                    bin.op.to_token_stream(),
+                    self.convert_expr(&bin.right)
+                )
             }
             Expr::Cast(cast) => {
-                format!("{} as {}", self.convert_expr(&cast.expr), self.convert_type(&cast.ty))
+                format!(
+                    "{} as {}",
+                    self.convert_expr(&cast.expr),
+                    self.convert_type(&cast.ty)
+                )
             }
             Expr::Call(call) => {
                 let func = self.convert_expr(&call.func);
                 // v1.8.9: 保留函数调用参数上的 #[cfg] 属性
-                let args = call.args.iter().map(|arg| {
-                    let attrs = self.get_expr_attrs(arg);
-                    let mut arg_str = String::new();
-                    for attr in &attrs {
-                        let attr_str = attr.to_token_stream().to_string();
-                        let cleaned_attr = attr_str
-                            .replace("# [", "#[")
-                            .replace(" [", "[")
-                            .replace(" ]", "]")
-                            .replace(" (", "(")
-                            .replace(" )", ")")
-                            .replace(" ,", ",");
-                        if cleaned_attr.starts_with("#[cfg") {
-                            arg_str.push_str(&cleaned_attr);
-                            arg_str.push(' ');
+                let args = call
+                    .args
+                    .iter()
+                    .map(|arg| {
+                        let attrs = self.get_expr_attrs(arg);
+                        let mut arg_str = String::new();
+                        for attr in &attrs {
+                            let attr_str = attr.to_token_stream().to_string();
+                            let cleaned_attr = attr_str
+                                .replace("# [", "#[")
+                                .replace(" [", "[")
+                                .replace(" ]", "]")
+                                .replace(" (", "(")
+                                .replace(" )", ")")
+                                .replace(" ,", ",");
+                            if cleaned_attr.starts_with("#[cfg") {
+                                arg_str.push_str(&cleaned_attr);
+                                arg_str.push(' ');
+                            }
                         }
-                    }
-                    arg_str.push_str(&self.convert_expr(arg));
-                    arg_str
-                }).collect::<Vec<_>>().join(", ");
+                        arg_str.push_str(&self.convert_expr(arg));
+                        arg_str
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 format!("{}({})", func, args)
             }
             Expr::Index(index) => {
-                format!("{}[{}]", self.convert_expr(&index.expr), self.convert_expr(&index.index))
+                format!(
+                    "{}[{}]",
+                    self.convert_expr(&index.expr),
+                    self.convert_expr(&index.index)
+                )
             }
             Expr::Field(field) => {
                 let base = self.convert_expr(&field.base);
@@ -854,14 +898,10 @@ impl Rust2NuConverter {
             Expr::Paren(paren) => {
                 format!("({})", self.convert_expr(&paren.expr))
             }
-            Expr::Path(path) => {
-                self.clean_token_spaces(&path.to_token_stream().to_string())
-            }
-            Expr::Lit(lit) => {
-                lit.to_token_stream().to_string()
-            }
+            Expr::Path(path) => self.clean_token_spaces(&path.to_token_stream().to_string()),
+            Expr::Lit(lit) => lit.to_token_stream().to_string(),
             Expr::Unary(un) => {
-                format!("{}{}", un.op.to_token_stream().to_string(), self.convert_expr(&un.expr))
+                format!("{}{}", un.op.to_token_stream(), self.convert_expr(&un.expr))
             }
             Expr::MethodCall(call) => {
                 let receiver = self.convert_expr(&call.receiver);
@@ -1188,7 +1228,9 @@ impl Rust2NuConverter {
                             }
                         }
                         _ => {
-                            result.push_str(&self.clean_token_spaces(&stmt.to_token_stream().to_string()));
+                            result.push_str(
+                                &self.clean_token_spaces(&stmt.to_token_stream().to_string()),
+                            );
                             result.push(' ');
                         }
                     }
@@ -1199,14 +1241,18 @@ impl Rust2NuConverter {
             // v1.8: 处理引用表达式，递归处理内部表达式
             // 这样 &StructLiteral{} 可以正确格式化结构体字面量
             Expr::Reference(ref_expr) => {
-                let mutability = if ref_expr.mutability.is_some() { "&mut " } else { "& " };
+                let mutability = if ref_expr.mutability.is_some() {
+                    "&mut "
+                } else {
+                    "& "
+                };
                 format!("{}{}", mutability, self.convert_expr(&ref_expr.expr))
             }
             // v1.8: 处理结构体表达式，保留字段上的 #[cfg] 属性并换行输出
             Expr::Struct(struct_expr) => {
                 let path = self.clean_token_spaces(&struct_expr.path.to_token_stream().to_string());
                 let mut result = format!("{}{{", path);
-                
+
                 for field in &struct_expr.fields {
                     // 处理字段上的 #[cfg] 等属性 - 每个属性独立一行
                     for attr in &field.attrs {
@@ -1219,20 +1265,20 @@ impl Rust2NuConverter {
                             .replace(" )", ")")
                             .replace(" ,", ",");
                         result.push_str(&cleaned_attr);
-                        result.push('\n');  // 属性后换行
+                        result.push('\n'); // 属性后换行
                     }
-                    
+
                     // 字段名: 值
                     let member = field.member.to_token_stream().to_string();
                     let value = self.convert_expr(&field.expr);
                     result.push_str(&format!("{}: {},\n", member, value));
                 }
-                
+
                 // 处理 .. 表达式（结构体更新语法）
                 if let Some(rest) = &struct_expr.rest {
                     result.push_str(&format!("..{}", self.convert_expr(rest)));
                 }
-                
+
                 result.push('}');
                 self.convert_type_in_string(&result)
             }
@@ -1241,22 +1287,24 @@ impl Rust2NuConverter {
                 let expr_str = self
                     .clean_token_spaces(&expr.to_token_stream().to_string())
                     .replace("vec!", "V!");
-                
+
                 // v1.8.2 Hotfix: 即使在 fallback 路径中，也要尝试将 ? 转换为 !
                 // 必须小心处理 ?Sized 和格式化字符串中的 {:?} 和 {:#?}
-                let mut result = expr_str.replace("? Sized", "__Q_SIZED__")
-                                       .replace("?Sized", "__Q_SIZED__")
-                                       .replace("{:#?}", "__FMT_DEBUG_ALT__")
-                                       .replace("{:?}", "__FMT_DEBUG__")
-                                       .replace(":?}", "__FMT_DEBUG_END__");
+                let mut result = expr_str
+                    .replace("? Sized", "__Q_SIZED__")
+                    .replace("?Sized", "__Q_SIZED__")
+                    .replace("{:#?}", "__FMT_DEBUG_ALT__")
+                    .replace("{:?}", "__FMT_DEBUG__")
+                    .replace(":?}", "__FMT_DEBUG_END__");
                 // 转换为 !
                 result = result.replace("?", "!");
                 // 恢复 ?Sized 和格式化
-                result = result.replace("__Q_SIZED__", "?Sized")
-                               .replace("__FMT_DEBUG_ALT__", "{:#?}")
-                               .replace("__FMT_DEBUG__", "{:?}")
-                               .replace("__FMT_DEBUG_END__", ":?}");
-                
+                result = result
+                    .replace("__Q_SIZED__", "?Sized")
+                    .replace("__FMT_DEBUG_ALT__", "{:#?}")
+                    .replace("__FMT_DEBUG__", "{:?}")
+                    .replace("__FMT_DEBUG_END__", ":?}");
+
                 self.convert_type_in_string(&result)
             }
         }
@@ -1268,7 +1316,7 @@ impl Rust2NuConverter {
         // v1.8.2: 先保护字符串字面量，避免其中的空格被错误删除
         let mut protected_strings: Vec<String> = Vec::new();
         let mut result = s.to_string();
-        
+
         // 提取并保护所有字符串字面量
         let chars: Vec<char> = result.chars().collect();
         let mut i = 0;
@@ -1304,7 +1352,7 @@ impl Rust2NuConverter {
             let has_open = line.contains('<');
             let has_close = line.contains('>');
             let mut cleaned_line = line.to_string();
-            
+
             // 只有同时存在 < 和 > 才是泛型，需要清理空格
             if has_open && has_close {
                 cleaned_line = cleaned_line.replace(" < ", "<");
@@ -1314,7 +1362,7 @@ impl Rust2NuConverter {
                 cleaned_line = cleaned_line.replace(" >", ">");
             }
             // 如果只有 < 没有 >，是 return 语句，保持原样
-            
+
             cleaned_lines.push(cleaned_line);
         }
         result = cleaned_lines.join("\n");
@@ -1479,13 +1527,13 @@ impl Rust2NuConverter {
             result = replace_standalone_type(&result, "Arc", "A");
             result = replace_standalone_type(&result, "Mutex", "X");
             result = replace_standalone_type(&result, "Box", "B");
-            
+
             // 这些替换不需要边界检查
             result = result
                 .replace("& mut", "&!")
                 .replace("&mut", "&!")
                 .replace("vec!", "V!"); // vec! -> V!
-            
+
             // 恢复被保护的标识符
             result = result
                 .replace("__BOXED_IDENT__", "Boxed")
@@ -1734,22 +1782,22 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     let span = m.span();
                     let start = span.start();
                     let end = span.end();
-                    
+
                     // 按行分割源代码
                     let lines: Vec<&str> = self.source_code.lines().collect();
-                    
+
                     // 提取从start到end的所有行（行号从1开始，转为0索引）
                     if start.line > 0 && end.line <= lines.len() {
                         let start_line = start.line - 1;
                         let end_line = end.line; // end.line是包含的，不需要-1
-                        
+
                         // 提取原始宏文本
                         let original_macro: String = lines[start_line..end_line].join("\n");
                         self.writeln(&original_macro);
                         return;
                     }
                 }
-                
+
                 // 回退方案：使用to_token_stream()并清理空格
                 let macro_str = m.to_token_stream().to_string();
                 let cleaned_macro = macro_str
@@ -1780,22 +1828,29 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" )", ")")
                         .replace(" ,", ",");
                     // v1.8: 保留 #[cfg]、#[macro_use] 和 #[path] 属性（macro_use 和 path 对于编译至关重要）
-                    if cleaned_attr.starts_with("#[cfg") || cleaned_attr.starts_with("#[macro_use") || cleaned_attr.starts_with("#[path") {
+                    if cleaned_attr.starts_with("#[cfg")
+                        || cleaned_attr.starts_with("#[macro_use")
+                        || cleaned_attr.starts_with("#[path")
+                    {
                         self.writeln(&cleaned_attr);
                     }
                 }
 
                 // Nu v1.6.3: DM=pub mod, D=mod
                 // v1.8: 保留受限可见性 pub(crate)/pub(super)
-                let (vis_prefix, keyword) = if let syn::Visibility::Restricted(vis_restricted) = &m.vis {
-                    let vis_str = vis_restricted.to_token_stream().to_string();
-                    let cleaned = vis_str.replace("pub (", "pub(").replace("( ", "(").replace(" )", ")");
-                    (format!("{} ", cleaned), "DM")
-                } else if self.is_public(&m.vis) {
-                    (String::new(), "DM")
-                } else {
-                    (String::new(), "D")
-                };
+                let (vis_prefix, keyword) =
+                    if let syn::Visibility::Restricted(vis_restricted) = &m.vis {
+                        let vis_str = vis_restricted.to_token_stream().to_string();
+                        let cleaned = vis_str
+                            .replace("pub (", "pub(")
+                            .replace("( ", "(")
+                            .replace(" )", ")");
+                        (format!("{} ", cleaned), "DM")
+                    } else if self.is_public(&m.vis) {
+                        (String::new(), "DM")
+                    } else {
+                        (String::new(), "D")
+                    };
 
                 if let Some((_, items)) = &m.content {
                     // 内联模块：mod name { ... }
@@ -1829,12 +1884,15 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         .replace(" ,", ",");
                     self.writeln(&cleaned_attr);
                 }
-                
+
                 // 输出 use 语句本身（不含属性）
                 // v1.8: 保留受限可见性 pub(crate)/pub(super)
                 let vis_prefix = if let syn::Visibility::Restricted(vis_restricted) = &u.vis {
                     let vis_str = vis_restricted.to_token_stream().to_string();
-                    let cleaned = vis_str.replace("pub (", "pub(").replace("( ", "(").replace(" )", ")");
+                    let cleaned = vis_str
+                        .replace("pub (", "pub(")
+                        .replace("( ", "(")
+                        .replace(" )", ")");
                     format!("{} U ", cleaned)
                 } else if self.is_public(&u.vis) {
                     "U ".to_string()
@@ -1860,7 +1918,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                         self.writeln(&cleaned_attr);
                     }
                 }
-                
+
                 if self.is_public(&c.vis) {
                     self.write("CP ");
                 } else {
@@ -1877,9 +1935,17 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 // Nu v1.6.3: SM = static mut, ST = static
                 let is_pub = self.is_public(&s.vis);
                 let keyword = if matches!(s.mutability, syn::StaticMutability::Mut(_)) {
-                    if is_pub { "SMP" } else { "SM" }
+                    if is_pub {
+                        "SMP"
+                    } else {
+                        "SM"
+                    }
                 } else {
-                    if is_pub { "SP" } else { "ST" }
+                    if is_pub {
+                        "SP"
+                    } else {
+                        "ST"
+                    }
                 };
                 self.write(keyword);
                 self.write(" ");
@@ -1952,7 +2018,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // v1.8.7: 对于元组结构体，where 子句应该在字段之后输出
         // 对于命名字段结构体和单元结构体，where 子句在字段之前输出
         let is_tuple_struct = matches!(&node.fields, syn::Fields::Unnamed(_));
-        
+
         // v1.7.5: 结构体的 where 子句支持（关键修复！）
         // 只有非元组结构体才在这里输出 where 子句
         if !is_tuple_struct {
@@ -2008,12 +2074,11 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 // v1.8.8: 保留 tuple struct 字段的可见性（如 pub(crate)）
                 // v1.8.21: 保留元组结构体字段的 #[cfg] 属性
                 // 检查是否有任何字段带有 #[cfg] 属性
-                let has_cfg_attrs = fields.unnamed.iter().any(|f| {
-                    f.attrs.iter().any(|attr| {
-                        attr.path().is_ident("cfg")
-                    })
-                });
-                
+                let has_cfg_attrs = fields
+                    .unnamed
+                    .iter()
+                    .any(|f| f.attrs.iter().any(|attr| attr.path().is_ident("cfg")));
+
                 if has_cfg_attrs {
                     // 如果有 #[cfg] 属性，使用多行格式以保留属性
                     self.writeln("(");
@@ -2032,7 +2097,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                             self.write(&self.indent());
                             self.writeln(&cleaned_attr);
                         }
-                        
+
                         // 输出字段
                         self.write(&self.indent());
                         // v1.8.8: 保留字段的可见性
@@ -2169,7 +2234,7 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.write(&self.indent());
                 self.writeln(&cleaned_attr);
             }
-            
+
             self.write(&self.indent());
             self.write(&variant.ident.to_string());
 
@@ -2223,10 +2288,14 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                 self.writeln(&cleaned_attr);
             }
         }
-        
+
         // v1.8.3: 处理 unsafe trait
-        let unsafe_prefix = if node.unsafety.is_some() { "unsafe " } else { "" };
-        
+        let unsafe_prefix = if node.unsafety.is_some() {
+            "unsafe "
+        } else {
+            ""
+        };
+
         let keyword = if self.is_public(&node.vis) {
             "TR"
         } else {
@@ -2248,7 +2317,9 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
         // v1.8: 保留超trait约束 (如: context::private::Sealed)
         if !node.supertraits.is_empty() {
             self.write(": ");
-            let bounds: Vec<String> = node.supertraits.iter()
+            let bounds: Vec<String> = node
+                .supertraits
+                .iter()
                 .map(|b| self.convert_type_in_string(&b.to_token_stream().to_string()))
                 .collect();
             self.write(&bounds.join(" + "));
@@ -2446,12 +2517,12 @@ impl<'ast> Visit<'ast> for Rust2NuConverter {
                     self.write(&self.indent());
                     self.write("t ");
                     self.write(&type_item.ident.to_string());
-                    
+
                     // v1.8.3: 处理泛型关联类型 (GAT)，如 type Rotator<const COUNT: u32> = ...
                     if !type_item.generics.params.is_empty() {
                         self.write(&self.convert_generics(&type_item.generics));
                     }
-                    
+
                     self.write(" = ");
                     self.write(&self.convert_type(&type_item.ty));
                     self.writeln(";");

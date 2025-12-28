@@ -41,8 +41,8 @@ fn main() -> Result<()> {
     let toml_content = fs::read_to_string(&nu_toml_path)
         .with_context(|| format!("Failed to read Nu.toml: {:?}", nu_toml_path))?;
 
-    let toml_value: Value = toml::from_str(&toml_content)
-        .with_context(|| "Failed to parse Nu.toml")?;
+    let toml_value: Value =
+        toml::from_str(&toml_content).with_context(|| "Failed to parse Nu.toml")?;
 
     // 确定输出目录
     let output_dir = args.output.as_ref().unwrap_or(&args.input);
@@ -77,11 +77,16 @@ fn convert_single_project(toml: &Value, output_dir: &Path, verbose: bool) -> Res
     Ok(())
 }
 
-fn convert_workspace(toml: &Value, input_dir: &Path, output_dir: &Path, verbose: bool) -> Result<()> {
+fn convert_workspace(
+    toml: &Value,
+    input_dir: &Path,
+    output_dir: &Path,
+    verbose: bool,
+) -> Result<()> {
     // 生成根 CMakeLists.txt
     let root_cmake = generate_workspace_root_cmake(toml)?;
     let root_cmake_path = output_dir.join("CMakeLists.txt");
-    
+
     fs::create_dir_all(output_dir)?;
     fs::write(&root_cmake_path, root_cmake)
         .with_context(|| format!("Failed to write root CMakeLists.txt: {:?}", root_cmake_path))?;
@@ -125,7 +130,9 @@ fn generate_workspace_root_cmake(toml: &Value) -> Result<String> {
     cmake.push_str("set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n");
 
     // Workspace 共享依赖
-    if let Some(workspace_deps) = toml.get("W").and_then(|w| w.get("D"))
+    if let Some(workspace_deps) = toml
+        .get("W")
+        .and_then(|w| w.get("D"))
         .or_else(|| toml.get("workspace").and_then(|w| w.get("dependencies")))
     {
         cmake.push_str("# Workspace shared dependencies\n");
@@ -135,7 +142,7 @@ fn generate_workspace_root_cmake(toml: &Value) -> Result<String> {
                 cmake.push_str(&format!("find_package({} REQUIRED)\n", pkg_name));
             }
         }
-        cmake.push_str("\n");
+        cmake.push('\n');
     }
 
     // 添加子项目
@@ -166,11 +173,17 @@ fn generate_cmake_for_project(toml: &Value, workspace_toml: Option<&Value>) -> R
     // 如果不是 workspace 成员，生成完整的项目头
     if workspace_toml.is_none() {
         cmake.push_str("cmake_minimum_required(VERSION 3.15)\n");
-        cmake.push_str(&format!("project({} VERSION {} LANGUAGES CXX)\n\n", project_name, version));
+        cmake.push_str(&format!(
+            "project({} VERSION {} LANGUAGES CXX)\n\n",
+            project_name, version
+        ));
         cmake.push_str("set(CMAKE_CXX_STANDARD 17)\n");
         cmake.push_str("set(CMAKE_CXX_STANDARD_REQUIRED ON)\n\n");
     } else {
-        cmake.push_str(&format!("project({} VERSION {})\n\n", project_name, version));
+        cmake.push_str(&format!(
+            "project({} VERSION {})\n\n",
+            project_name, version
+        ));
     }
 
     // 依赖
@@ -180,7 +193,11 @@ fn generate_cmake_for_project(toml: &Value, workspace_toml: Option<&Value>) -> R
         for (name, spec) in deps {
             // 跳过 workspace 依赖（已在根级处理）
             if let Value::Table(spec_table) = spec {
-                if spec_table.get("workspace").and_then(|v| v.as_bool()).unwrap_or(false) {
+                if spec_table
+                    .get("workspace")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+                {
                     continue;
                 }
                 if spec_table.get("path").is_some() {
@@ -192,7 +209,7 @@ fn generate_cmake_for_project(toml: &Value, workspace_toml: Option<&Value>) -> R
             let pkg_name = dependency_to_cmake_package(name);
             cmake.push_str(&format!("find_package({} REQUIRED)\n", pkg_name));
         }
-        cmake.push_str("\n");
+        cmake.push('\n');
     }
 
     // 源文件
@@ -209,9 +226,15 @@ fn generate_cmake_for_project(toml: &Value, workspace_toml: Option<&Value>) -> R
         .unwrap_or(false);
 
     if is_library {
-        cmake.push_str(&format!("add_library({} ${{SOURCES}} ${{HEADERS}})\n\n", project_name));
+        cmake.push_str(&format!(
+            "add_library({} ${{SOURCES}} ${{HEADERS}})\n\n",
+            project_name
+        ));
     } else {
-        cmake.push_str(&format!("add_executable({} ${{SOURCES}} ${{HEADERS}})\n\n", project_name));
+        cmake.push_str(&format!(
+            "add_executable({} ${{SOURCES}} ${{HEADERS}})\n\n",
+            project_name
+        ));
     }
 
     // 链接库
@@ -220,7 +243,7 @@ fn generate_cmake_for_project(toml: &Value, workspace_toml: Option<&Value>) -> R
             cmake.push_str("# Link libraries\n");
             cmake.push_str(&format!("target_link_libraries({}\n", project_name));
             cmake.push_str("    PRIVATE\n");
-            
+
             for (name, spec) in deps {
                 if let Value::Table(spec_table) = spec {
                     if spec_table.get("path").is_some() {
@@ -229,11 +252,11 @@ fn generate_cmake_for_project(toml: &Value, workspace_toml: Option<&Value>) -> R
                         continue;
                     }
                 }
-                
+
                 let link_name = dependency_to_cmake_link(name);
                 cmake.push_str(&format!("    {}\n", link_name));
             }
-            
+
             cmake.push_str(")\n\n");
         }
     }

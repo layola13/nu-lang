@@ -1,13 +1,13 @@
 // Nu Workspace Analyzer
 // Analyzes Nu workspace structure, expands globs, validates members
 
+use glob::glob;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use glob::glob;
 
 use super::error::WorkspaceError;
-use super::types::*;
 use super::nu_parser::NuParser;
+use super::types::*;
 
 /// Nu Workspace 分析器
 pub struct NuWorkspaceAnalyzer {
@@ -32,7 +32,7 @@ impl NuWorkspaceAnalyzer {
         }
 
         let config = NuParser::parse_file(&nu_toml)?;
-        
+
         Ok(Self {
             root_dir: root_dir.to_path_buf(),
             config,
@@ -71,11 +71,12 @@ impl NuWorkspaceAnalyzer {
                             match entry {
                                 Ok(path) => {
                                     if path.is_dir() && path.join("Nu.toml").exists() {
-                                        let relative = path.strip_prefix(&self.root_dir)
+                                        let relative = path
+                                            .strip_prefix(&self.root_dir)
                                             .unwrap_or(&path)
                                             .to_path_buf();
                                         let relative_str = relative.to_string_lossy().to_string();
-                                        
+
                                         if !exclude_set.contains(&relative_str) {
                                             members.push(relative);
                                         }
@@ -94,11 +95,12 @@ impl NuWorkspaceAnalyzer {
             } else {
                 let member_path = PathBuf::from(pattern);
                 let full_path = self.root_dir.join(&member_path);
-                
-                if full_path.is_dir() && full_path.join("Nu.toml").exists() {
-                    if !exclude_set.contains(pattern) {
-                        members.push(member_path);
-                    }
+
+                if full_path.is_dir()
+                    && full_path.join("Nu.toml").exists()
+                    && !exclude_set.contains(pattern)
+                {
+                    members.push(member_path);
                 }
             }
         }
@@ -113,7 +115,7 @@ impl NuWorkspaceAnalyzer {
 
         for member in &self.config.members {
             let member_path = self.root_dir.join(member);
-            
+
             if member.contains('*') || member.contains('?') || member.contains('[') {
                 continue;
             }
@@ -128,9 +130,7 @@ impl NuWorkspaceAnalyzer {
             } else if !member_path.join("Nu.toml").exists() {
                 errors.push((
                     member.clone(),
-                    WorkspaceError::NotNuProject {
-                        path: member_path,
-                    },
+                    WorkspaceError::NotNuProject { path: member_path },
                 ));
             }
         }
@@ -141,7 +141,9 @@ impl NuWorkspaceAnalyzer {
     /// 获取所有成员的完整路径
     pub fn get_member_paths(&mut self) -> Result<Vec<PathBuf>, WorkspaceError> {
         self.expand_members()?;
-        Ok(self.expanded_members.iter()
+        Ok(self
+            .expanded_members
+            .iter()
             .map(|p| self.root_dir.join(p))
             .collect())
     }

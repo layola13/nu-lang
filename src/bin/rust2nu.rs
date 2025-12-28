@@ -45,7 +45,7 @@ Nu-lang: Rust, Condensed. v1.6.5
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     // 显示ASCII Logo
     println!("{}", ASCII_LOGO);
 

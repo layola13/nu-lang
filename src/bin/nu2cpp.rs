@@ -6,7 +6,7 @@ use clap::Parser;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use nu_compiler::nu2cpp::{Nu2CppConverter, SourceMap, NuToCppAstConverter, CppCodegen};
+use nu_compiler::nu2cpp::{CppCodegen, Nu2CppConverter, NuToCppAstConverter, SourceMap};
 
 #[derive(Parser, Debug)]
 #[command(name = "nu2cpp")]
@@ -71,7 +71,7 @@ fn main() -> Result<()> {
 
 fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
     let input_path = &args.input;
-    
+
     // 读取输入文件
     let nu_code = fs::read_to_string(input_path)
         .with_context(|| format!("Failed to read input file: {:?}", input_path))?;
@@ -110,11 +110,13 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
             println!("Using string-based converter (stable)");
         }
         let mut sourcemap = if args.sourcemap {
-            let source_name = input_path.file_name()
+            let source_name = input_path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown.nu")
                 .to_string();
-            let target_name = output_path.file_name()
+            let target_name = output_path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown.cpp")
                 .to_string();
@@ -133,12 +135,16 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
         if let Some(sm) = sourcemap {
             let mut map_path = output_path.clone();
             map_path.set_extension("cpp.map");
-            
+
             sm.save_to_file(&map_path)
                 .with_context(|| format!("Failed to write source map: {:?}", map_path))?;
 
             if args.verbose {
-                println!("✓ Source map: {:?} ({} mappings)", map_path, sm.mapping_count());
+                println!(
+                    "✓ Source map: {:?} ({} mappings)",
+                    map_path,
+                    sm.mapping_count()
+                );
             }
         }
 
@@ -163,7 +169,9 @@ fn convert_file(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
 
 fn convert_directory(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
     let input_dir = &args.input;
-    let output_dir = args.output.as_ref()
+    let output_dir = args
+        .output
+        .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Output directory is required for directory conversion"))?;
 
     // 创建输出目录
@@ -185,8 +193,8 @@ fn convert_directory(converter: &Nu2CppConverter, args: &Args) -> Result<()> {
     let recursive_args = Args {
         input: args.input.clone(),
         output: args.output.clone(),
-        recursive: true,  // 目录转换默认递归
-        force: true,      // 目录转换默认force，避免文件覆盖问题
+        recursive: true, // 目录转换默认递归
+        force: true,     // 目录转换默认force，避免文件覆盖问题
         verbose: args.verbose,
         sourcemap: args.sourcemap,
         use_ast: args.use_ast,
@@ -209,7 +217,7 @@ fn convert_directory_recursive(
     {
         let entry = entry?;
         let path = entry.path();
-        
+
         if path.is_file() {
             // 只转换 .nu 文件
             if path.extension().and_then(|s| s.to_str()) == Some("nu") {

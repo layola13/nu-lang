@@ -7,8 +7,8 @@ use std::fs;
 use std::path::Path;
 
 use nu_compiler::workspace::{
-    Cargo2NuConverter, CargoWorkspaceAnalyzer, WorkspaceType, ConvertReport,
-    ConfigFileHandler, IncrementalConverter, ConversionDecision,
+    Cargo2NuConverter, CargoWorkspaceAnalyzer, ConfigFileHandler, ConversionDecision,
+    ConvertReport, IncrementalConverter, WorkspaceType,
 };
 
 /// Cargo 项目到 Nu 项目转换器
@@ -65,16 +65,18 @@ fn is_workspace(cargo_toml_path: &Path) -> Result<bool> {
 fn get_workspace_members(cargo_toml_path: &Path) -> Result<Vec<String>> {
     let root_dir = cargo_toml_path.parent().unwrap_or(Path::new("."));
     let mut analyzer = CargoWorkspaceAnalyzer::from_dir(root_dir)?;
-    
+
     let members = analyzer.expand_members()?;
-    Ok(members.iter()
+    Ok(members
+        .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect())
 }
 
 /// 过滤成员列表
 fn filter_members(members: Vec<String>, exclude: &[String], only: &[String]) -> Vec<String> {
-    members.into_iter()
+    members
+        .into_iter()
         .filter(|m| {
             // 如果指定了 only，只保留匹配的
             if !only.is_empty() {
@@ -90,7 +92,7 @@ fn filter_members(members: Vec<String>, exclude: &[String], only: &[String]) -> 
 fn convert_project(args: &Args) -> Result<ConvertReport> {
     let input_dir = Path::new(&args.input);
     let output_dir = Path::new(&args.output);
-    
+
     if !args.dry_run {
         fs::create_dir_all(output_dir)?;
     }
@@ -111,11 +113,11 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
         // 转换根 Cargo.toml -> Nu.toml
         let target_toml = output_dir.join("Nu.toml");
         let decision = incremental.should_convert(&cargo_toml, &target_toml);
-        
+
         if decision != ConversionDecision::Skip {
             let cargo_content = fs::read_to_string(&cargo_toml)?;
             let nu_content = convert_cargo_toml_to_nu_toml(&cargo_content);
-            
+
             if args.dry_run {
                 println!("[dry-run] 将创建: Nu.toml");
             } else {
@@ -138,12 +140,18 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
                 if !args.dry_run {
                     fs::create_dir_all(output_dir.join("src"))?;
                 }
-                let (c, s, f) = convert_rust_files_recursive(&root_src, &output_dir.join("src"), &root_src, args, &incremental)?;
+                let (c, s, f) = convert_rust_files_recursive(
+                    &root_src,
+                    &output_dir.join("src"),
+                    &root_src,
+                    args,
+                    &incremental,
+                )?;
                 report.files_converted += c;
                 report.files_skipped += s;
                 report.files_failed += f;
             }
-            
+
             // 转换根目录的 examples/
             let root_examples = input_dir.join("examples");
             if root_examples.exists() {
@@ -153,12 +161,18 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
                 if !args.dry_run {
                     fs::create_dir_all(output_dir.join("examples"))?;
                 }
-                let (c, s, f) = convert_rust_files_recursive(&root_examples, &output_dir.join("examples"), &root_examples, args, &incremental)?;
+                let (c, s, f) = convert_rust_files_recursive(
+                    &root_examples,
+                    &output_dir.join("examples"),
+                    &root_examples,
+                    args,
+                    &incremental,
+                )?;
                 report.files_converted += c;
                 report.files_skipped += s;
                 report.files_failed += f;
             }
-            
+
             // 转换根目录的 tests/
             let root_tests = input_dir.join("tests");
             if root_tests.exists() {
@@ -168,12 +182,18 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
                 if !args.dry_run {
                     fs::create_dir_all(output_dir.join("tests"))?;
                 }
-                let (c, s, f) = convert_rust_files_recursive(&root_tests, &output_dir.join("tests"), &root_tests, args, &incremental)?;
+                let (c, s, f) = convert_rust_files_recursive(
+                    &root_tests,
+                    &output_dir.join("tests"),
+                    &root_tests,
+                    args,
+                    &incremental,
+                )?;
                 report.files_converted += c;
                 report.files_skipped += s;
                 report.files_failed += f;
             }
-            
+
             // 转换根目录的 build.rs
             let build_rs = input_dir.join("build.rs");
             let build_nu = output_dir.join("build.nu");
@@ -212,7 +232,7 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
         let members = get_workspace_members(&cargo_toml)?;
         let filtered_members = filter_members(members, &args.exclude, &args.only);
         report.members_total = filtered_members.len();
-        
+
         if args.verbose {
             println!("找到 {} 个 workspace 成员", filtered_members.len());
         }
@@ -252,7 +272,8 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
         }
     } else {
         // 单个项目转换
-        let (converted, skipped, failed) = convert_single_project(input_dir, output_dir, args, &incremental)?;
+        let (converted, skipped, failed) =
+            convert_single_project(input_dir, output_dir, args, &incremental)?;
         report.files_converted = converted;
         report.files_skipped = skipped;
         report.files_failed = failed;
@@ -268,8 +289,8 @@ fn convert_project(args: &Args) -> Result<ConvertReport> {
 
 /// 转换单个项目，返回 (converted, skipped, failed)
 fn convert_single_project(
-    input_dir: &Path, 
-    output_dir: &Path, 
+    input_dir: &Path,
+    output_dir: &Path,
     args: &Args,
     incremental: &IncrementalConverter,
 ) -> Result<(usize, usize, usize)> {
@@ -285,13 +306,13 @@ fn convert_single_project(
     // 转换 Cargo.toml -> Nu.toml
     let cargo_toml = input_dir.join("Cargo.toml");
     let nu_toml = output_dir.join("Nu.toml");
-    
+
     if cargo_toml.exists() {
         let decision = incremental.should_convert(&cargo_toml, &nu_toml);
         if decision != ConversionDecision::Skip {
             let cargo_content = fs::read_to_string(&cargo_toml)?;
             let nu_content = convert_cargo_toml_to_nu_toml(&cargo_content);
-            
+
             if args.dry_run {
                 println!("[dry-run]   将创建: Nu.toml");
             } else {
@@ -307,7 +328,7 @@ fn convert_single_project(
     // 转换 build.rs -> build.nu
     let build_rs = input_dir.join("build.rs");
     let build_nu = output_dir.join("build.nu");
-    
+
     if build_rs.exists() {
         let decision = incremental.should_convert(&build_rs, &build_nu);
         if decision != ConversionDecision::Skip {
@@ -343,7 +364,13 @@ fn convert_single_project(
     // 转换 src/*.rs -> src/*.nu
     let src_dir = input_dir.join("src");
     if src_dir.exists() {
-        let (c, s, f) = convert_rust_files_recursive(&src_dir, &output_dir.join("src"), &src_dir, args, incremental)?;
+        let (c, s, f) = convert_rust_files_recursive(
+            &src_dir,
+            &output_dir.join("src"),
+            &src_dir,
+            args,
+            incremental,
+        )?;
         converted += c;
         skipped += s;
         failed += f;
@@ -355,7 +382,13 @@ fn convert_single_project(
         if !args.dry_run {
             fs::create_dir_all(output_dir.join("tests"))?;
         }
-        let (c, s, f) = convert_rust_files_recursive(&tests_dir, &output_dir.join("tests"), &tests_dir, args, incremental)?;
+        let (c, s, f) = convert_rust_files_recursive(
+            &tests_dir,
+            &output_dir.join("tests"),
+            &tests_dir,
+            args,
+            incremental,
+        )?;
         converted += c;
         skipped += s;
         failed += f;
@@ -367,7 +400,13 @@ fn convert_single_project(
         if !args.dry_run {
             fs::create_dir_all(output_dir.join("examples"))?;
         }
-        let (c, s, f) = convert_rust_files_recursive(&examples_dir, &output_dir.join("examples"), &examples_dir, args, incremental)?;
+        let (c, s, f) = convert_rust_files_recursive(
+            &examples_dir,
+            &output_dir.join("examples"),
+            &examples_dir,
+            args,
+            incremental,
+        )?;
         converted += c;
         skipped += s;
         failed += f;
@@ -379,7 +418,13 @@ fn convert_single_project(
         if !args.dry_run {
             fs::create_dir_all(output_dir.join("benches"))?;
         }
-        let (c, s, f) = convert_rust_files_recursive(&benches_dir, &output_dir.join("benches"), &benches_dir, args, incremental)?;
+        let (c, s, f) = convert_rust_files_recursive(
+            &benches_dir,
+            &output_dir.join("benches"),
+            &benches_dir,
+            args,
+            incremental,
+        )?;
         converted += c;
         skipped += s;
         failed += f;
@@ -411,7 +456,13 @@ fn convert_rust_files_recursive(
         if path.is_dir() {
             let dir_name = path.file_name().unwrap();
             let sub_output_dir = output_dir.join(dir_name);
-            let (c, s, f) = convert_rust_files_recursive(&path, &sub_output_dir, base_src_dir, args, incremental)?;
+            let (c, s, f) = convert_rust_files_recursive(
+                &path,
+                &sub_output_dir,
+                base_src_dir,
+                args,
+                incremental,
+            )?;
             converted += c;
             skipped += s;
             failed += f;
@@ -432,7 +483,7 @@ fn convert_rust_files_recursive(
                         Ok(nu_content) => {
                             let relative_path = path.strip_prefix(base_src_dir).unwrap_or(&path);
                             let nu_relative = relative_path.with_extension("nu");
-                            
+
                             if args.dry_run {
                                 println!("[dry-run]   将创建: {}", nu_relative.display());
                             } else {

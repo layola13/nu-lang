@@ -757,10 +757,24 @@ impl Nu2TsConverter {
         // 修复#2: 处理 "impl Trait for Type" 语法，删除 "for Type" 部分
         let type_name = if content.contains(" for ") {
             // "Trait for Type" -> 提取 "Type"
-            content.split(" for ").last().unwrap_or("").split('{').next().unwrap_or("").trim()
+            content
+                .split(" for ")
+                .last()
+                .unwrap_or("")
+                .split('{')
+                .next()
+                .unwrap_or("")
+                .trim()
         } else {
             // "Type" -> 直接使用
-            content.split_whitespace().next().unwrap_or("").split('{').next().unwrap_or("").trim()
+            content
+                .split_whitespace()
+                .next()
+                .unwrap_or("")
+                .split('{')
+                .next()
+                .unwrap_or("")
+                .trim()
         };
 
         context.current_impl = Some(type_name.to_string());
@@ -990,7 +1004,7 @@ impl Nu2TsConverter {
             let converted = self.convert_expression(content, context)?;
             format!("console.log({})", converted)
         };
-        
+
         Ok(cleaned)
     }
 

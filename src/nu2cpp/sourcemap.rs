@@ -70,11 +70,11 @@ mod tests {
     #[test]
     fn test_sourcemap_basic() {
         let mut map = SourceMap::new("test.nu".to_string(), "test.cpp".to_string());
-        
+
         map.add_mapping(1, 1);
         map.add_mapping(2, 2);
         map.add_mapping(5, 3);
-        
+
         assert_eq!(map.mapping_count(), 3);
         assert_eq!(map.find_nu_line(5), Some(3));
         assert_eq!(map.find_cpp_line(3), Some(5));

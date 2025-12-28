@@ -68,7 +68,7 @@ pub struct EnumDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
-    pub fields: Option<Vec<Type>>, // 元组变体的字段类型
+    pub fields: Option<Vec<Type>>,         // 元组变体的字段类型
     pub struct_fields: Option<Vec<Field>>, // 结构体式变体的字段
 }
 
@@ -292,25 +292,25 @@ pub enum Literal {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinOp {
-    Add,       // +
-    Sub,       // -
-    Mul,       // *
-    Div,       // /
-    Mod,       // %
-    And,       // &&
-    Or,        // ||
-    Eq,        // ==
-    Ne,        // !=
-    Lt,        // <
-    Le,        // <=
-    Gt,        // >
-    Ge,        // >=
-    Assign,    // =
-    AddAssign, // +=
-    SubAssign, // -=
-    MulAssign, // *=
-    DivAssign, // /=
-    ModAssign, // %=
+    Add,            // +
+    Sub,            // -
+    Mul,            // *
+    Div,            // /
+    Mod,            // %
+    And,            // &&
+    Or,             // ||
+    Eq,             // ==
+    Ne,             // !=
+    Lt,             // <
+    Le,             // <=
+    Gt,             // >
+    Ge,             // >=
+    Assign,         // =
+    AddAssign,      // +=
+    SubAssign,      // -=
+    MulAssign,      // *=
+    DivAssign,      // /=
+    ModAssign,      // %=
     Range,          // ..
     RangeInclusive, // ..=
 }

@@ -5,13 +5,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Workspace 类型枚举
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum WorkspaceType {
     /// 仅包含 [workspace]，无 [package] - 纯虚拟 workspace
     Virtual,
     /// 同时包含 [workspace] 和 [package] - 混合 workspace
     Mixed,
     /// 单个项目，无 workspace
+    #[default]
     Single,
 }
 
@@ -124,12 +125,6 @@ pub struct WorkspaceConfig {
     pub lints: Option<WorkspaceLints>,
     /// Patch 配置 (registry -> package -> spec)
     pub patches: HashMap<String, HashMap<String, DependencySpec>>,
-}
-
-impl Default for WorkspaceType {
-    fn default() -> Self {
-        WorkspaceType::Single
-    }
 }
 
 /// 特殊目录配置
@@ -295,27 +290,32 @@ impl ConvertReport {
     /// 格式化输出报告
     pub fn format(&self) -> String {
         let mut output = String::new();
-        
-        output.push_str(&format!("\n转换报告:\n"));
+
+        output.push_str(&"\n转换报告:\n".to_string());
         output.push_str(&format!("  Workspace 类型: {:?}\n", self.workspace_type));
-        output.push_str(&format!("  成员: {}/{}\n", self.members_converted, self.members_total));
-        output.push_str(&format!("  文件: {} 转换, {} 跳过, {} 失败\n", 
-            self.files_converted, self.files_skipped, self.files_failed));
-        
+        output.push_str(&format!(
+            "  成员: {}/{}\n",
+            self.members_converted, self.members_total
+        ));
+        output.push_str(&format!(
+            "  文件: {} 转换, {} 跳过, {} 失败\n",
+            self.files_converted, self.files_skipped, self.files_failed
+        ));
+
         if !self.warnings.is_empty() {
             output.push_str(&format!("\n警告 ({}):\n", self.warnings.len()));
             for warning in &self.warnings {
                 output.push_str(&format!("  ⚠ {}\n", warning));
             }
         }
-        
+
         if !self.errors.is_empty() {
             output.push_str(&format!("\n错误 ({}):\n", self.errors.len()));
             for error in &self.errors {
                 output.push_str(&format!("  ✗ {}\n", error));
             }
         }
-        
+
         output
     }
 }
@@ -331,7 +331,10 @@ mod tests {
 [workspace]
 members = ["lib1", "lib2"]
 "#;
-        assert_eq!(WorkspaceType::from_cargo_toml(virtual_ws), WorkspaceType::Virtual);
+        assert_eq!(
+            WorkspaceType::from_cargo_toml(virtual_ws),
+            WorkspaceType::Virtual
+        );
 
         // Mixed workspace
         let mixed_ws = r#"
@@ -341,7 +344,10 @@ members = ["lib1"]
 [package]
 name = "root"
 "#;
-        assert_eq!(WorkspaceType::from_cargo_toml(mixed_ws), WorkspaceType::Mixed);
+        assert_eq!(
+            WorkspaceType::from_cargo_toml(mixed_ws),
+            WorkspaceType::Mixed
+        );
 
         // Single project
         let single = r#"
@@ -349,7 +355,10 @@ name = "root"
 name = "mylib"
 version = "0.1.0"
 "#;
-        assert_eq!(WorkspaceType::from_cargo_toml(single), WorkspaceType::Single);
+        assert_eq!(
+            WorkspaceType::from_cargo_toml(single),
+            WorkspaceType::Single
+        );
     }
 
     #[test]
@@ -359,7 +368,10 @@ version = "0.1.0"
 [W]
 m = ["lib1", "lib2"]
 "#;
-        assert_eq!(WorkspaceType::from_nu_toml(virtual_ws), WorkspaceType::Virtual);
+        assert_eq!(
+            WorkspaceType::from_nu_toml(virtual_ws),
+            WorkspaceType::Virtual
+        );
 
         // Mixed workspace
         let mixed_ws = r#"

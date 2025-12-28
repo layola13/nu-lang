@@ -101,8 +101,22 @@ impl CppCodegen {
             CppItem::Enum(e) => self.gen_enum(e),
             CppItem::Function(f) => self.gen_function(f, None),
             CppItem::TypeAlias(ta) => self.gen_type_alias(ta),
-            CppItem::GlobalVar { name, var_type, init, is_const, is_static, is_constexpr } => {
-                self.gen_global_var(name, var_type, init.as_ref(), *is_const, *is_static, *is_constexpr);
+            CppItem::GlobalVar {
+                name,
+                var_type,
+                init,
+                is_const,
+                is_static,
+                is_constexpr,
+            } => {
+                self.gen_global_var(
+                    name,
+                    var_type,
+                    init.as_ref(),
+                    *is_const,
+                    *is_static,
+                    *is_constexpr,
+                );
             }
             CppItem::Comment(c) => self.writeln(&format!("// {}", c)),
             CppItem::Raw(s) => self.writeln(s),
@@ -123,10 +137,13 @@ impl CppCodegen {
         // Template declaration
         if !cls.template_params.is_empty() {
             self.write_indent();
-            let params: Vec<String> = cls.template_params.iter()
+            let params: Vec<String> = cls
+                .template_params
+                .iter()
                 .map(|p| format!("typename {}", p))
                 .collect();
-            self.output.push_str(&format!("template<{}>\n", params.join(", ")));
+            self.output
+                .push_str(&format!("template<{}>\n", params.join(", ")));
         }
 
         // Class/struct declaration
@@ -137,7 +154,9 @@ impl CppCodegen {
         // Base classes
         if !cls.base_classes.is_empty() {
             self.output.push_str(" : ");
-            let bases: Vec<String> = cls.base_classes.iter()
+            let bases: Vec<String> = cls
+                .base_classes
+                .iter()
                 .map(|(name, vis)| {
                     let vis_str = match vis {
                         CppVisibility::Public => "public",
@@ -154,7 +173,11 @@ impl CppCodegen {
         self.indent_level += 1;
 
         // Group by visibility
-        let default_vis = if cls.is_struct { CppVisibility::Public } else { CppVisibility::Private };
+        let default_vis = if cls.is_struct {
+            CppVisibility::Public
+        } else {
+            CppVisibility::Private
+        };
         let mut current_vis = default_vis;
 
         // Fields
@@ -188,21 +211,30 @@ impl CppCodegen {
         if !cls.derive_traits.is_empty() {
             self.writeln("");
             self.writeln("// Derived traits");
-            
+
             for trait_name in &cls.derive_traits {
                 match trait_name.as_str() {
                     "PartialEq" | "Eq" => {
                         // C++20: bool operator==(const T&) const = default;
-                        self.writeln(&format!("bool operator==(const {}&) const = default;", cls.name));
+                        self.writeln(&format!(
+                            "bool operator==(const {}&) const = default;",
+                            cls.name
+                        ));
                     }
                     "PartialOrd" | "Ord" => {
                         // C++20: auto operator<=>(const T&) const = default;
-                        self.writeln(&format!("auto operator<=>(const {}&) const = default;", cls.name));
+                        self.writeln(&format!(
+                            "auto operator<=>(const {}&) const = default;",
+                            cls.name
+                        ));
                     }
                     "Clone" | "Copy" => {
                         // C++ default copy constructor
                         self.writeln(&format!("{}(const {}&) = default;", cls.name, cls.name));
-                        self.writeln(&format!("{}& operator=(const {}&) = default;", cls.name, cls.name));
+                        self.writeln(&format!(
+                            "{}& operator=(const {}&) = default;",
+                            cls.name, cls.name
+                        ));
                     }
                     "Default" => {
                         // C++ default constructor
@@ -222,7 +254,8 @@ impl CppCodegen {
 
     fn gen_field(&mut self, field: &CppField) {
         self.write_indent();
-        self.output.push_str(&format!("{} {}", field.field_type, field.name));
+        self.output
+            .push_str(&format!("{} {}", field.field_type, field.name));
         if let Some(ref val) = field.default_value {
             self.output.push_str(&format!(" = {}", val));
         }
@@ -233,17 +266,24 @@ impl CppCodegen {
         // Template declaration
         if !func.template_params.is_empty() {
             self.write_indent();
-            let params: Vec<String> = func.template_params.iter()
+            let params: Vec<String> = func
+                .template_params
+                .iter()
                 .map(|p| format!("typename {}", p))
                 .collect();
-            self.output.push_str(&format!("template<{}>\n", params.join(", ")));
+            self.output
+                .push_str(&format!("template<{}>\n", params.join(", ")));
         }
 
         self.write_indent();
 
         // Static/virtual
-        if func.is_static { self.output.push_str("static "); }
-        if func.is_virtual { self.output.push_str("virtual "); }
+        if func.is_static {
+            self.output.push_str("static ");
+        }
+        if func.is_virtual {
+            self.output.push_str("virtual ");
+        }
 
         // Return type
         self.output.push_str(&format!("{} ", func.return_type));
@@ -262,7 +302,9 @@ impl CppCodegen {
 
         // Parameters
         self.output.push('(');
-        let params: Vec<String> = func.params.iter()
+        let params: Vec<String> = func
+            .params
+            .iter()
             .map(|p| {
                 let mut s = format!("{} {}", p.param_type, p.name);
                 if let Some(ref def) = p.default_value {
@@ -275,13 +317,19 @@ impl CppCodegen {
         self.output.push(')');
 
         // Const
-        if func.is_const { self.output.push_str(" const"); }
+        if func.is_const {
+            self.output.push_str(" const");
+        }
 
         // Noexcept
-        if func.is_noexcept { self.output.push_str(" noexcept"); }
+        if func.is_noexcept {
+            self.output.push_str(" noexcept");
+        }
 
         // Override
-        if func.is_override { self.output.push_str(" override"); }
+        if func.is_override {
+            self.output.push_str(" override");
+        }
 
         // Body or declaration
         match &func.body {
@@ -304,7 +352,7 @@ impl CppCodegen {
         // Note: ast_converter already handles Rust-style enums with data by generating
         // separate structs + std::variant type alias. This function only handles
         // simple C-style enums (enum class) without associated data.
-        
+
         self.write_indent();
         if e.is_class {
             self.output.push_str("enum class ");
@@ -337,23 +385,38 @@ impl CppCodegen {
     fn gen_type_alias(&mut self, ta: &CppTypeAlias) {
         self.write_indent();
         if !ta.template_params.is_empty() {
-            let params: Vec<String> = ta.template_params.iter()
+            let params: Vec<String> = ta
+                .template_params
+                .iter()
                 .map(|p| format!("typename {}", p))
                 .collect();
-            self.output.push_str(&format!("template<{}>\n", params.join(", ")));
+            self.output
+                .push_str(&format!("template<{}>\n", params.join(", ")));
             self.write_indent();
         }
-        self.output.push_str(&format!("using {} = {};\n", ta.name, ta.target_type));
+        self.output
+            .push_str(&format!("using {} = {};\n", ta.name, ta.target_type));
     }
 
-    fn gen_global_var(&mut self, name: &str, var_type: &CppType, init: Option<&CppExpr>,
-                      is_const: bool, is_static: bool, is_constexpr: bool) {
+    fn gen_global_var(
+        &mut self,
+        name: &str,
+        var_type: &CppType,
+        init: Option<&CppExpr>,
+        is_const: bool,
+        is_static: bool,
+        is_constexpr: bool,
+    ) {
         self.write_indent();
         if is_constexpr {
             self.output.push_str("constexpr ");
         } else {
-            if is_static { self.output.push_str("static "); }
-            if is_const { self.output.push_str("const "); }
+            if is_static {
+                self.output.push_str("static ");
+            }
+            if is_const {
+                self.output.push_str("const ");
+            }
         }
         self.output.push_str(&format!("{} {}", var_type, name));
         if let Some(expr) = init {
@@ -365,9 +428,16 @@ impl CppCodegen {
 
     fn gen_stmt(&mut self, stmt: &CppStmt) {
         match stmt {
-            CppStmt::VarDecl { name, var_type, init, is_const } => {
+            CppStmt::VarDecl {
+                name,
+                var_type,
+                init,
+                is_const,
+            } => {
                 self.write_indent();
-                if *is_const { self.output.push_str("const "); }
+                if *is_const {
+                    self.output.push_str("const ");
+                }
                 self.output.push_str(&format!("{} {}", var_type, name));
                 if let Some(expr) = init {
                     self.output.push_str(" = ");
@@ -389,7 +459,11 @@ impl CppCodegen {
                 }
                 self.output.push_str(";\n");
             }
-            CppStmt::If { condition, then_block, else_block } => {
+            CppStmt::If {
+                condition,
+                then_block,
+                else_block,
+            } => {
                 self.write_indent();
                 self.output.push_str("if (");
                 self.gen_expr(condition);
@@ -421,21 +495,31 @@ impl CppCodegen {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            CppStmt::For { init, condition, update, body } => {
+            CppStmt::For {
+                init,
+                condition,
+                update,
+                body,
+            } => {
                 self.write_indent();
                 self.output.push_str("for (");
                 if let Some(i) = init {
                     // Special handling for var decl without semicolon
-                    match i.as_ref() {
-                        CppStmt::VarDecl { name, var_type, init, is_const } => {
-                            if *is_const { self.output.push_str("const "); }
-                            self.output.push_str(&format!("{} {}", var_type, name));
-                            if let Some(expr) = init {
-                                self.output.push_str(" = ");
-                                self.gen_expr(expr);
-                            }
+                    if let CppStmt::VarDecl {
+                        name,
+                        var_type,
+                        init,
+                        is_const,
+                    } = i.as_ref()
+                    {
+                        if *is_const {
+                            self.output.push_str("const ");
                         }
-                        _ => {}
+                        self.output.push_str(&format!("{} {}", var_type, name));
+                        if let Some(expr) = init {
+                            self.output.push_str(" = ");
+                            self.gen_expr(expr);
+                        }
                     }
                 }
                 self.output.push_str("; ");
@@ -454,10 +538,16 @@ impl CppCodegen {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            CppStmt::ForRange { var_name, var_type, range, body } => {
+            CppStmt::ForRange {
+                var_name,
+                var_type,
+                range,
+                body,
+            } => {
                 self.write_indent();
                 // C++23 range-based for loop with proper syntax
-                self.output.push_str(&format!("for ({} {} : ", var_type, var_name));
+                self.output
+                    .push_str(&format!("for ({} {} : ", var_type, var_name));
                 self.gen_expr(range);
                 self.output.push_str(") {\n");
                 self.indent_level += 1;
@@ -467,29 +557,40 @@ impl CppCodegen {
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            CppStmt::ForEnumerate { index_var, value_var, collection, body } => {
+            CppStmt::ForEnumerate {
+                index_var,
+                value_var,
+                collection,
+                body,
+            } => {
                 // Generate: size_t index_var = 0; for (const auto& value_var : collection) { body; index_var++; }
                 self.write_indent();
-                self.output.push_str(&format!("size_t {} = 0;\n", index_var));
+                self.output
+                    .push_str(&format!("size_t {} = 0;\n", index_var));
                 self.write_indent();
-                self.output.push_str(&format!("for (const auto& {} : ", value_var));
+                self.output
+                    .push_str(&format!("for (const auto& {} : ", value_var));
                 self.gen_expr(collection);
                 self.output.push_str(") {\n");
                 self.indent_level += 1;
-                
+
                 // Generate body statements
                 for s in body {
                     self.gen_stmt(s);
                 }
-                
+
                 // Add index increment at the end
                 self.write_indent();
                 self.output.push_str(&format!("{}++;\n", index_var));
-                
+
                 self.indent_level -= 1;
                 self.writeln("}");
             }
-            CppStmt::Switch { expr, cases, default } => {
+            CppStmt::Switch {
+                expr,
+                cases,
+                default,
+            } => {
                 self.write_indent();
                 self.output.push_str("switch (");
                 self.gen_expr(expr);
@@ -542,7 +643,7 @@ impl CppCodegen {
     /// Convert raw Nu statement syntax to C++ (helper for Raw statements)
     fn convert_raw_stmt(&self, s: &str) -> String {
         let mut result = s.to_string();
-        
+
         // Convert self to this-> or *this
         result = regex::Regex::new(r"\bself\.")
             .unwrap()
@@ -552,14 +653,14 @@ impl CppCodegen {
             .unwrap()
             .replace_all(&result, "(*this)")
             .to_string();
-        
+
         // Convert Vec::new() to std::vector<auto>{}
         result = result.replace("Vec::new()", "std::vector<auto>{}");
         result = result.replace("Vec()", "std::vector<auto>{}");
-        
+
         // Convert .clone() (for shared_ptr, just copy; for unique_ptr should use std::move)
         result = result.replace(".clone()", "");
-        
+
         result
     }
 
@@ -589,18 +690,26 @@ impl CppCodegen {
                 self.gen_expr(callee);
                 self.output.push('(');
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { self.output.push_str(", "); }
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
                     self.gen_expr(arg);
                 }
                 self.output.push(')');
             }
-            CppExpr::MethodCall { object, method, args } => {
+            CppExpr::MethodCall {
+                object,
+                method,
+                args,
+            } => {
                 self.gen_expr(object);
                 self.output.push('.');
                 self.output.push_str(method);
                 self.output.push('(');
                 for (i, arg) in args.iter().enumerate() {
-                    if i > 0 { self.output.push_str(", "); }
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
                     self.gen_expr(arg);
                 }
                 self.output.push(')');
@@ -621,7 +730,11 @@ impl CppCodegen {
                 self.gen_expr(index);
                 self.output.push(']');
             }
-            CppExpr::Ternary { condition, then_expr, else_expr } => {
+            CppExpr::Ternary {
+                condition,
+                then_expr,
+                else_expr,
+            } => {
                 self.output.push('(');
                 self.gen_expr(condition);
                 self.output.push_str(" ? ");
@@ -630,7 +743,12 @@ impl CppCodegen {
                 self.gen_expr(else_expr);
                 self.output.push(')');
             }
-            CppExpr::Lambda { capture, params, return_type, body } => {
+            CppExpr::Lambda {
+                capture,
+                params,
+                return_type,
+                body,
+            } => {
                 // Capture
                 self.output.push('[');
                 match capture {
@@ -638,15 +756,18 @@ impl CppCodegen {
                     CppCapture::CopyAll => self.output.push('='),
                     CppCapture::RefAll => self.output.push('&'),
                     CppCapture::Explicit(items) => {
-                        let caps: Vec<String> = items.iter().map(|item| {
-                            if item.moved {
-                                format!("{} = std::move({})", item.name, item.name)
-                            } else if item.by_ref {
-                                format!("&{}", item.name)
-                            } else {
-                                item.name.clone()
-                            }
-                        }).collect();
+                        let caps: Vec<String> = items
+                            .iter()
+                            .map(|item| {
+                                if item.moved {
+                                    format!("{} = std::move({})", item.name, item.name)
+                                } else if item.by_ref {
+                                    format!("&{}", item.name)
+                                } else {
+                                    item.name.clone()
+                                }
+                            })
+                            .collect();
                         self.output.push_str(&caps.join(", "));
                     }
                 }
@@ -654,7 +775,8 @@ impl CppCodegen {
 
                 // Parameters
                 self.output.push('(');
-                let params_str: Vec<String> = params.iter()
+                let params_str: Vec<String> = params
+                    .iter()
                     .map(|p| format!("{} {}", p.param_type, p.name))
                     .collect();
                 self.output.push_str(&params_str.join(", "));
@@ -668,7 +790,9 @@ impl CppCodegen {
                 // Body
                 self.output.push_str(" { ");
                 for (i, stmt) in body.iter().enumerate() {
-                    if i > 0 { self.output.push(' '); }
+                    if i > 0 {
+                        self.output.push(' ');
+                    }
                     // Inline generation for lambda body
                     match stmt {
                         CppStmt::Return(Some(e)) => {
@@ -695,7 +819,9 @@ impl CppCodegen {
                 self.output.push_str(type_name);
                 self.output.push('{');
                 for (i, (name, val)) in fields.iter().enumerate() {
-                    if i > 0 { self.output.push_str(", "); }
+                    if i > 0 {
+                        self.output.push_str(", ");
+                    }
                     if let Some(n) = name {
                         self.output.push_str(&format!(".{} = ", n));
                     }
@@ -703,8 +829,13 @@ impl CppCodegen {
                 }
                 self.output.push('}');
             }
-            CppExpr::Cast { cast_type, target_type, expr } => {
-                self.output.push_str(&format!("{}<{}>(", cast_type, target_type));
+            CppExpr::Cast {
+                cast_type,
+                target_type,
+                expr,
+            } => {
+                self.output
+                    .push_str(&format!("{}<{}>(", cast_type, target_type));
                 self.gen_expr(expr);
                 self.output.push(')');
             }
@@ -726,7 +857,7 @@ impl CppCodegen {
     /// Convert raw Nu expression syntax to C++ (helper for Raw expressions)
     fn convert_raw_expr(&self, s: &str) -> String {
         let mut result = s.to_string();
-        
+
         // Convert self to this-> or *this
         result = regex::Regex::new(r"\bself\.")
             .unwrap()
@@ -736,19 +867,20 @@ impl CppCodegen {
             .unwrap()
             .replace_all(&result, "(*this)")
             .to_string();
-        
+
         // Convert closures: |x| expr -> [&](auto x) { return expr; }
         if let Some(pipe_start) = result.find('|') {
             if let Some(pipe_end) = result[pipe_start + 1..].find('|') {
                 let pipe_end = pipe_start + 1 + pipe_end;
                 let params = &result[pipe_start + 1..pipe_end];
                 let body = result[pipe_end + 1..].trim();
-                
+
                 // Handle special case: |_| -> no parameters
                 let cpp_params = if params.trim() == "_" {
                     String::new()
                 } else {
-                    let param_vec: Vec<String> = params.split(',')
+                    let param_vec: Vec<String> = params
+                        .split(',')
                         .map(|p| {
                             let p = p.trim();
                             if p == "_" {
@@ -760,29 +892,29 @@ impl CppCodegen {
                         .collect();
                     param_vec.join(", ")
                 };
-                
+
                 // Build C++ lambda
                 result = format!("[&]({}) {{ return {}; }}", cpp_params, body);
             }
         }
-        
+
         // Convert Vec::new() to std::vector<auto>{}
         result = result.replace("Vec::new()", "std::vector<auto>{}");
         result = result.replace("Vec()", "std::vector<auto>{}");
-        
+
         // Convert .clone() method calls
         result = result.replace(".clone()", "");
-        
+
         // Convert format! and println! macros
         result = result.replace("format!", "std::format");
         result = result.replace("println!", "std::println");
-        
+
         // Convert string literal methods: "text".to_string() -> std::string("text")
         result = regex::Regex::new(r#""([^"]+)"\s*\.\s*to_string\s*\(\s*\)"#)
             .unwrap()
             .replace_all(&result, r#"std::string("$1")"#)
             .to_string();
-        
+
         result
     }
 
@@ -863,14 +995,12 @@ mod tests {
             is_struct: true,
             template_params: vec!["T".to_string()],
             base_classes: vec![],
-            fields: vec![
-                CppField {
-                    name: "value".to_string(),
-                    field_type: CppType::Named("T".to_string()),
-                    visibility: CppVisibility::Public,
-                    default_value: None,
-                },
-            ],
+            fields: vec![CppField {
+                name: "value".to_string(),
+                field_type: CppType::Named("T".to_string()),
+                visibility: CppVisibility::Public,
+                default_value: None,
+            }],
             methods: vec![],
             nested_types: vec![],
             derive_traits: vec![],
@@ -892,28 +1022,32 @@ mod tests {
     fn test_lambda_with_capture() {
         let lambda = CppExpr::Lambda {
             capture: CppCapture::Explicit(vec![
-                CppCaptureItem { name: "x".to_string(), by_ref: false, moved: false },
-                CppCaptureItem { name: "y".to_string(), by_ref: true, moved: false },
-            ]),
-            params: vec![
-                CppParam {
-                    name: "z".to_string(),
-                    param_type: CppType::int32(),
-                    default_value: None,
+                CppCaptureItem {
+                    name: "x".to_string(),
+                    by_ref: false,
+                    moved: false,
                 },
-            ],
+                CppCaptureItem {
+                    name: "y".to_string(),
+                    by_ref: true,
+                    moved: false,
+                },
+            ]),
+            params: vec![CppParam {
+                name: "z".to_string(),
+                param_type: CppType::int32(),
+                default_value: None,
+            }],
             return_type: Some(CppType::int32()),
-            body: vec![
-                CppStmt::Return(Some(CppExpr::BinOp {
-                    left: Box::new(CppExpr::BinOp {
-                        left: Box::new(CppExpr::Var("x".to_string())),
-                        op: "+".to_string(),
-                        right: Box::new(CppExpr::Var("y".to_string())),
-                    }),
+            body: vec![CppStmt::Return(Some(CppExpr::BinOp {
+                left: Box::new(CppExpr::BinOp {
+                    left: Box::new(CppExpr::Var("x".to_string())),
                     op: "+".to_string(),
-                    right: Box::new(CppExpr::Var("z".to_string())),
-                })),
-            ],
+                    right: Box::new(CppExpr::Var("y".to_string())),
+                }),
+                op: "+".to_string(),
+                right: Box::new(CppExpr::Var("z".to_string())),
+            }))],
         };
 
         let mut codegen = CppCodegen::new();

@@ -23,12 +23,13 @@ impl CargoParser {
 
     /// 解析 Cargo.toml 内容
     pub fn parse(content: &str) -> Result<WorkspaceConfig, WorkspaceError> {
-        let toml_value: Value = content.parse().map_err(|e: toml::de::Error| {
-            WorkspaceError::TomlParseError {
-                message: e.to_string(),
-                line: None,
-            }
-        })?;
+        let toml_value: Value =
+            content
+                .parse()
+                .map_err(|e: toml::de::Error| WorkspaceError::TomlParseError {
+                    message: e.to_string(),
+                    line: None,
+                })?;
 
         let mut config = WorkspaceConfig::default();
         config.workspace_type = WorkspaceType::from_cargo_toml(content);
@@ -41,7 +42,10 @@ impl CargoParser {
     }
 
     /// 解析 [workspace] 节
-    fn parse_workspace_section(workspace: &Value, config: &mut WorkspaceConfig) -> Result<(), WorkspaceError> {
+    fn parse_workspace_section(
+        workspace: &Value,
+        config: &mut WorkspaceConfig,
+    ) -> Result<(), WorkspaceError> {
         if let Some(table) = workspace.as_table() {
             // 解析 members
             if let Some(members) = table.get("members") {
@@ -76,7 +80,8 @@ impl CargoParser {
             // 解析 workspace.metadata
             if let Some(metadata) = table.get("metadata") {
                 if let Some(meta_table) = metadata.as_table() {
-                    config.metadata = meta_table.iter()
+                    config.metadata = meta_table
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                 }
@@ -89,18 +94,17 @@ impl CargoParser {
     /// 解析字符串数组（支持单行和多行格式）
     fn parse_string_array(value: &Value) -> Result<Vec<String>, WorkspaceError> {
         match value {
-            Value::Array(arr) => {
-                arr.iter()
-                    .map(|v| {
-                        v.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| WorkspaceError::TomlParseError {
-                                message: "Expected string in array".to_string(),
-                                line: None,
-                            })
+            Value::Array(arr) => arr
+                .iter()
+                .map(|v| {
+                    v.as_str().map(|s| s.to_string()).ok_or_else(|| {
+                        WorkspaceError::TomlParseError {
+                            message: "Expected string in array".to_string(),
+                            line: None,
+                        }
                     })
-                    .collect()
-            }
+                })
+                .collect(),
             Value::String(s) => Ok(vec![s.clone()]),
             _ => Err(WorkspaceError::TomlParseError {
                 message: "Expected array or string".to_string(),
@@ -168,9 +172,19 @@ impl CargoParser {
 
                 // 保存其他未解析的字段
                 for (key, val) in table {
-                    if !matches!(key.as_str(), 
-                        "version" | "path" | "git" | "branch" | "tag" | "rev" | 
-                        "features" | "optional" | "default-features" | "workspace" | "package"
+                    if !matches!(
+                        key.as_str(),
+                        "version"
+                            | "path"
+                            | "git"
+                            | "branch"
+                            | "tag"
+                            | "rev"
+                            | "features"
+                            | "optional"
+                            | "default-features"
+                            | "workspace"
+                            | "package"
                     ) {
                         spec.extra.insert(key.clone(), val.clone());
                     }
@@ -192,22 +206,62 @@ impl CargoParser {
         let mut result = WorkspacePackage::default();
 
         if let Some(table) = pkg.as_table() {
-            result.version = table.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.edition = table.get("edition").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.authors = table.get("authors").and_then(|v| Self::parse_string_array(v).ok());
-            result.description = table.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.license = table.get("license").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.license_file = table.get("license-file").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.repository = table.get("repository").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.documentation = table.get("documentation").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.homepage = table.get("homepage").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.readme = table.get("readme").and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.keywords = table.get("keywords").and_then(|v| Self::parse_string_array(v).ok());
-            result.categories = table.get("categories").and_then(|v| Self::parse_string_array(v).ok());
-            result.rust_version = table.get("rust-version").and_then(|v| v.as_str()).map(|s| s.to_string());
+            result.version = table
+                .get("version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.edition = table
+                .get("edition")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.authors = table
+                .get("authors")
+                .and_then(|v| Self::parse_string_array(v).ok());
+            result.description = table
+                .get("description")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.license = table
+                .get("license")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.license_file = table
+                .get("license-file")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.repository = table
+                .get("repository")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.documentation = table
+                .get("documentation")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.homepage = table
+                .get("homepage")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.readme = table
+                .get("readme")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.keywords = table
+                .get("keywords")
+                .and_then(|v| Self::parse_string_array(v).ok());
+            result.categories = table
+                .get("categories")
+                .and_then(|v| Self::parse_string_array(v).ok());
+            result.rust_version = table
+                .get("rust-version")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
             result.publish = table.get("publish").and_then(|v| v.as_bool());
-            result.exclude = table.get("exclude").and_then(|v| Self::parse_string_array(v).ok());
-            result.include = table.get("include").and_then(|v| Self::parse_string_array(v).ok());
+            result.exclude = table
+                .get("exclude")
+                .and_then(|v| Self::parse_string_array(v).ok());
+            result.include = table
+                .get("include")
+                .and_then(|v| Self::parse_string_array(v).ok());
         }
 
         Ok(result)
@@ -220,14 +274,16 @@ impl CargoParser {
         if let Some(table) = lints.as_table() {
             if let Some(rust) = table.get("rust") {
                 if let Some(rust_table) = rust.as_table() {
-                    result.rust = rust_table.iter()
+                    result.rust = rust_table
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                 }
             }
             if let Some(clippy) = table.get("clippy") {
                 if let Some(clippy_table) = clippy.as_table() {
-                    result.clippy = clippy_table.iter()
+                    result.clippy = clippy_table
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                 }
@@ -237,7 +293,6 @@ impl CargoParser {
         Ok(result)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -285,14 +340,14 @@ tokio = { version = "1.0", features = ["full"] }
 local-lib = { path = "../local" }
 "#;
         let config = CargoParser::parse(content).unwrap();
-        
+
         let serde = config.dependencies.get("serde").unwrap();
         assert_eq!(serde.version, Some("1.0".to_string()));
-        
+
         let tokio = config.dependencies.get("tokio").unwrap();
         assert_eq!(tokio.version, Some("1.0".to_string()));
         assert_eq!(tokio.features, vec!["full"]);
-        
+
         let local = config.dependencies.get("local-lib").unwrap();
         assert_eq!(local.path, Some("../local".to_string()));
     }
@@ -312,12 +367,18 @@ repository = "https://github.com/example/repo"
 "#;
         let config = CargoParser::parse(content).unwrap();
         let pkg = config.package.unwrap();
-        
+
         assert_eq!(pkg.version, Some("1.0.0".to_string()));
         assert_eq!(pkg.edition, Some("2021".to_string()));
-        assert_eq!(pkg.authors, Some(vec!["Author <author@example.com>".to_string()]));
+        assert_eq!(
+            pkg.authors,
+            Some(vec!["Author <author@example.com>".to_string()])
+        );
         assert_eq!(pkg.license, Some("MIT".to_string()));
-        assert_eq!(pkg.repository, Some("https://github.com/example/repo".to_string()));
+        assert_eq!(
+            pkg.repository,
+            Some("https://github.com/example/repo".to_string())
+        );
     }
 
     #[test]
@@ -334,7 +395,7 @@ all = "warn"
 "#;
         let config = CargoParser::parse(content).unwrap();
         let lints = config.lints.unwrap();
-        
+
         assert!(lints.rust.contains_key("unsafe_code"));
         assert!(lints.clippy.contains_key("all"));
     }
@@ -350,7 +411,7 @@ serde = { version = "1.0", features = ["derive"] }
 "#;
         let config = CargoParser::parse(content).unwrap();
         let serde = config.dependencies.get("serde").unwrap();
-        
+
         assert_eq!(serde.version, Some("1.0".to_string()));
         assert_eq!(serde.features, vec!["derive"]);
     }

@@ -23,12 +23,13 @@ impl NuParser {
 
     /// 解析 Nu.toml 内容
     pub fn parse(content: &str) -> Result<WorkspaceConfig, WorkspaceError> {
-        let toml_value: Value = content.parse().map_err(|e: toml::de::Error| {
-            WorkspaceError::TomlParseError {
-                message: e.to_string(),
-                line: None,
-            }
-        })?;
+        let toml_value: Value =
+            content
+                .parse()
+                .map_err(|e: toml::de::Error| WorkspaceError::TomlParseError {
+                    message: e.to_string(),
+                    line: None,
+                })?;
 
         let mut config = WorkspaceConfig::default();
         config.workspace_type = WorkspaceType::from_nu_toml(content);
@@ -42,7 +43,10 @@ impl NuParser {
     }
 
     /// 解析 [W] 节
-    fn parse_workspace_section(workspace: &Value, config: &mut WorkspaceConfig) -> Result<(), WorkspaceError> {
+    fn parse_workspace_section(
+        workspace: &Value,
+        config: &mut WorkspaceConfig,
+    ) -> Result<(), WorkspaceError> {
         if let Some(table) = workspace.as_table() {
             // 解析 m (members)
             if let Some(members) = table.get("m") {
@@ -77,7 +81,8 @@ impl NuParser {
             // 解析 metadata - [W.metadata]
             if let Some(metadata) = table.get("metadata") {
                 if let Some(meta_table) = metadata.as_table() {
-                    config.metadata = meta_table.iter()
+                    config.metadata = meta_table
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                 }
@@ -90,18 +95,17 @@ impl NuParser {
     /// 解析字符串数组
     fn parse_string_array(value: &Value) -> Result<Vec<String>, WorkspaceError> {
         match value {
-            Value::Array(arr) => {
-                arr.iter()
-                    .map(|v| {
-                        v.as_str()
-                            .map(|s| s.to_string())
-                            .ok_or_else(|| WorkspaceError::TomlParseError {
-                                message: "Expected string in array".to_string(),
-                                line: None,
-                            })
+            Value::Array(arr) => arr
+                .iter()
+                .map(|v| {
+                    v.as_str().map(|s| s.to_string()).ok_or_else(|| {
+                        WorkspaceError::TomlParseError {
+                            message: "Expected string in array".to_string(),
+                            line: None,
+                        }
                     })
-                    .collect()
-            }
+                })
+                .collect(),
             Value::String(s) => Ok(vec![s.clone()]),
             _ => Err(WorkspaceError::TomlParseError {
                 message: "Expected array or string".to_string(),
@@ -141,7 +145,7 @@ impl NuParser {
                 if let Some(v) = table.get("version") {
                     spec.version = v.as_str().map(|s| s.to_string());
                 }
-                
+
                 if let Some(v) = table.get("path") {
                     spec.path = v.as_str().map(|s| s.to_string());
                 }
@@ -160,7 +164,7 @@ impl NuParser {
                 if let Some(v) = table.get("features") {
                     spec.features = Self::parse_string_array(v)?;
                 }
-                
+
                 // Nu 格式: opt -> optional
                 if let Some(v) = table.get("opt") {
                     spec.optional = v.as_bool().unwrap_or(false);
@@ -168,7 +172,7 @@ impl NuParser {
                 if let Some(v) = table.get("optional") {
                     spec.optional = v.as_bool().unwrap_or(false);
                 }
-                
+
                 // Nu 格式: df -> default-features
                 if let Some(v) = table.get("df") {
                     spec.default_features = v.as_bool();
@@ -176,7 +180,7 @@ impl NuParser {
                 if let Some(v) = table.get("default-features") {
                     spec.default_features = v.as_bool();
                 }
-                
+
                 // Nu 格式: w -> workspace
                 if let Some(v) = table.get("w") {
                     spec.workspace = v.as_bool().unwrap_or(false);
@@ -184,7 +188,7 @@ impl NuParser {
                 if let Some(v) = table.get("workspace") {
                     spec.workspace = v.as_bool().unwrap_or(false);
                 }
-                
+
                 // Nu 格式: pkg -> package
                 if let Some(v) = table.get("pkg") {
                     spec.package = v.as_str().map(|s| s.to_string());
@@ -195,10 +199,23 @@ impl NuParser {
 
                 // 保存其他未解析的字段
                 for (key, val) in table {
-                    if !matches!(key.as_str(), 
-                        "v" | "version" | "path" | "git" | "branch" | "tag" | "rev" | 
-                        "features" | "opt" | "optional" | "df" | "default-features" | 
-                        "w" | "workspace" | "pkg" | "package"
+                    if !matches!(
+                        key.as_str(),
+                        "v" | "version"
+                            | "path"
+                            | "git"
+                            | "branch"
+                            | "tag"
+                            | "rev"
+                            | "features"
+                            | "opt"
+                            | "optional"
+                            | "df"
+                            | "default-features"
+                            | "w"
+                            | "workspace"
+                            | "pkg"
+                            | "package"
                     ) {
                         spec.extra.insert(key.clone(), val.clone());
                     }
@@ -221,37 +238,74 @@ impl NuParser {
 
         if let Some(table) = pkg.as_table() {
             // Nu 格式使用压缩键名
-            result.version = table.get("v").or(table.get("version"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.edition = table.get("ed").or(table.get("edition"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.authors = table.get("au").or(table.get("authors"))
+            result.version = table
+                .get("v")
+                .or(table.get("version"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.edition = table
+                .get("ed")
+                .or(table.get("edition"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.authors = table
+                .get("au")
+                .or(table.get("authors"))
                 .and_then(|v| Self::parse_string_array(v).ok());
-            result.description = table.get("desc").or(table.get("description"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.license = table.get("lic").or(table.get("license"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.license_file = table.get("lic-file").or(table.get("license-file"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.repository = table.get("repo").or(table.get("repository"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.documentation = table.get("doc").or(table.get("documentation"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.homepage = table.get("home").or(table.get("homepage"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.readme = table.get("readme")
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.keywords = table.get("kw").or(table.get("keywords"))
+            result.description = table
+                .get("desc")
+                .or(table.get("description"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.license = table
+                .get("lic")
+                .or(table.get("license"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.license_file = table
+                .get("lic-file")
+                .or(table.get("license-file"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.repository = table
+                .get("repo")
+                .or(table.get("repository"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.documentation = table
+                .get("doc")
+                .or(table.get("documentation"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.homepage = table
+                .get("home")
+                .or(table.get("homepage"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.readme = table
+                .get("readme")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.keywords = table
+                .get("kw")
+                .or(table.get("keywords"))
                 .and_then(|v| Self::parse_string_array(v).ok());
-            result.categories = table.get("cat").or(table.get("categories"))
+            result.categories = table
+                .get("cat")
+                .or(table.get("categories"))
                 .and_then(|v| Self::parse_string_array(v).ok());
-            result.rust_version = table.get("rv").or(table.get("rust-version"))
-                .and_then(|v| v.as_str()).map(|s| s.to_string());
-            result.publish = table.get("publish")
-                .and_then(|v| v.as_bool());
-            result.exclude = table.get("ex").or(table.get("exclude"))
+            result.rust_version = table
+                .get("rv")
+                .or(table.get("rust-version"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            result.publish = table.get("publish").and_then(|v| v.as_bool());
+            result.exclude = table
+                .get("ex")
+                .or(table.get("exclude"))
                 .and_then(|v| Self::parse_string_array(v).ok());
-            result.include = table.get("include")
+            result.include = table
+                .get("include")
                 .and_then(|v| Self::parse_string_array(v).ok());
         }
 
@@ -265,14 +319,16 @@ impl NuParser {
         if let Some(table) = lints.as_table() {
             if let Some(rust) = table.get("rust") {
                 if let Some(rust_table) = rust.as_table() {
-                    result.rust = rust_table.iter()
+                    result.rust = rust_table
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                 }
             }
             if let Some(clippy) = table.get("clippy") {
                 if let Some(clippy_table) = clippy.as_table() {
-                    result.clippy = clippy_table.iter()
+                    result.clippy = clippy_table
+                        .iter()
                         .map(|(k, v)| (k.clone(), v.clone()))
                         .collect();
                 }
@@ -282,7 +338,6 @@ impl NuParser {
         Ok(result)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -330,14 +385,14 @@ tokio = { v = "1.0", features = ["full"] }
 local-lib = { path = "../local" }
 "#;
         let config = NuParser::parse(content).unwrap();
-        
+
         let serde = config.dependencies.get("serde").unwrap();
         assert_eq!(serde.version, Some("1.0".to_string()));
-        
+
         let tokio = config.dependencies.get("tokio").unwrap();
         assert_eq!(tokio.version, Some("1.0".to_string()));
         assert_eq!(tokio.features, vec!["full"]);
-        
+
         let local = config.dependencies.get("local-lib").unwrap();
         assert_eq!(local.path, Some("../local".to_string()));
     }
@@ -357,12 +412,18 @@ repo = "https://github.com/example/repo"
 "#;
         let config = NuParser::parse(content).unwrap();
         let pkg = config.package.unwrap();
-        
+
         assert_eq!(pkg.version, Some("1.0.0".to_string()));
         assert_eq!(pkg.edition, Some("2021".to_string()));
-        assert_eq!(pkg.authors, Some(vec!["Author <author@example.com>".to_string()]));
+        assert_eq!(
+            pkg.authors,
+            Some(vec!["Author <author@example.com>".to_string()])
+        );
         assert_eq!(pkg.license, Some("MIT".to_string()));
-        assert_eq!(pkg.repository, Some("https://github.com/example/repo".to_string()));
+        assert_eq!(
+            pkg.repository,
+            Some("https://github.com/example/repo".to_string())
+        );
     }
 
     #[test]
@@ -379,7 +440,7 @@ all = "warn"
 "#;
         let config = NuParser::parse(content).unwrap();
         let lints = config.lints.unwrap();
-        
+
         assert!(lints.rust.contains_key("unsafe_code"));
         assert!(lints.clippy.contains_key("all"));
     }
@@ -395,7 +456,7 @@ serde = { v = "1.0", features = ["derive"] }
 "#;
         let config = NuParser::parse(content).unwrap();
         let serde = config.dependencies.get("serde").unwrap();
-        
+
         assert_eq!(serde.version, Some("1.0".to_string()));
         assert_eq!(serde.features, vec!["derive"]);
     }

@@ -1,25 +1,25 @@
 // Workspace Module for Cargo/Nu Project Conversion
 // Provides complete support for Cargo Workspace structures
 
-mod types;
-mod mapping;
-mod error;
+mod cargo_analyzer;
 mod cargo_parser;
+mod error;
+mod incremental;
+mod mapping;
+mod nu_analyzer;
 mod nu_parser;
 mod toml_converter;
-mod cargo_analyzer;
-mod nu_analyzer;
-mod incremental;
+mod types;
 
 #[cfg(test)]
 mod property_tests;
 
-pub use types::*;
-pub use mapping::*;
-pub use error::*;
+pub use cargo_analyzer::*;
 pub use cargo_parser::*;
+pub use error::*;
+pub use incremental::*;
+pub use mapping::*;
+pub use nu_analyzer::*;
 pub use nu_parser::*;
 pub use toml_converter::*;
-pub use cargo_analyzer::*;
-pub use nu_analyzer::*;
-pub use incremental::*;
+pub use types::*;

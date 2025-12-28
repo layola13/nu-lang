@@ -1,14 +1,14 @@
 // Cargo Workspace Analyzer
 // Analyzes Cargo workspace structure, expands globs, validates members
 
-use std::collections::{HashMap, HashSet};
-use std::path::{Path, PathBuf};
-use std::fs;
 use glob::glob;
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::path::{Path, PathBuf};
 
+use super::cargo_parser::CargoParser;
 use super::error::WorkspaceError;
 use super::types::*;
-use super::cargo_parser::CargoParser;
 
 /// Cargo Workspace 分析器
 pub struct CargoWorkspaceAnalyzer {
@@ -33,7 +33,7 @@ impl CargoWorkspaceAnalyzer {
         }
 
         let config = CargoParser::parse_file(&cargo_toml)?;
-        
+
         Ok(Self {
             root_dir: root_dir.to_path_buf(),
             config,
@@ -74,11 +74,12 @@ impl CargoWorkspaceAnalyzer {
                             match entry {
                                 Ok(path) => {
                                     if path.is_dir() && path.join("Cargo.toml").exists() {
-                                        let relative = path.strip_prefix(&self.root_dir)
+                                        let relative = path
+                                            .strip_prefix(&self.root_dir)
                                             .unwrap_or(&path)
                                             .to_path_buf();
                                         let relative_str = relative.to_string_lossy().to_string();
-                                        
+
                                         // 检查是否被排除
                                         if !exclude_set.contains(&relative_str) {
                                             members.push(relative);
@@ -99,11 +100,12 @@ impl CargoWorkspaceAnalyzer {
                 // 直接路径
                 let member_path = PathBuf::from(pattern);
                 let full_path = self.root_dir.join(&member_path);
-                
-                if full_path.is_dir() && full_path.join("Cargo.toml").exists() {
-                    if !exclude_set.contains(pattern) {
-                        members.push(member_path);
-                    }
+
+                if full_path.is_dir()
+                    && full_path.join("Cargo.toml").exists()
+                    && !exclude_set.contains(pattern)
+                {
+                    members.push(member_path);
                 }
             }
         }
@@ -118,7 +120,7 @@ impl CargoWorkspaceAnalyzer {
 
         for member in &self.config.members {
             let member_path = self.root_dir.join(member);
-            
+
             // 跳过 glob 模式
             if member.contains('*') || member.contains('?') || member.contains('[') {
                 continue;
@@ -134,9 +136,7 @@ impl CargoWorkspaceAnalyzer {
             } else if !member_path.join("Cargo.toml").exists() {
                 errors.push((
                     member.clone(),
-                    WorkspaceError::NotCargoProject {
-                        path: member_path,
-                    },
+                    WorkspaceError::NotCargoProject { path: member_path },
                 ));
             }
         }
@@ -155,12 +155,11 @@ impl CargoWorkspaceAnalyzer {
                 continue;
             }
 
-            let content = fs::read_to_string(&cargo_toml).map_err(|e| {
-                WorkspaceError::FileReadError {
+            let content =
+                fs::read_to_string(&cargo_toml).map_err(|e| WorkspaceError::FileReadError {
                     path: cargo_toml.clone(),
                     source: e,
-                }
-            })?;
+                })?;
 
             let member_name = member_path.to_string_lossy().to_string();
             let deps = self.extract_path_dependencies(&content);
@@ -173,7 +172,7 @@ impl CargoWorkspaceAnalyzer {
     /// 从 TOML 内容提取路径依赖
     fn extract_path_dependencies(&self, content: &str) -> Vec<String> {
         let mut deps = Vec::new();
-        
+
         // 简单解析 path = "..." 模式
         for line in content.lines() {
             let trimmed = line.trim();
@@ -206,7 +205,9 @@ impl CargoWorkspaceAnalyzer {
 
         for node in self.dependency_graph.keys() {
             if !visited.contains(node) {
-                if let Some(cycle) = self.dfs_detect_cycle(node, &mut visited, &mut rec_stack, &mut path) {
+                if let Some(cycle) =
+                    self.dfs_detect_cycle(node, &mut visited, &mut rec_stack, &mut path)
+                {
                     return Ok(Some(cycle));
                 }
             }
@@ -250,7 +251,9 @@ impl CargoWorkspaceAnalyzer {
     /// 获取所有成员的完整路径
     pub fn get_member_paths(&mut self) -> Result<Vec<PathBuf>, WorkspaceError> {
         self.expand_members()?;
-        Ok(self.expanded_members.iter()
+        Ok(self
+            .expanded_members
+            .iter()
             .map(|p| self.root_dir.join(p))
             .collect())
     }
@@ -260,7 +263,6 @@ impl CargoWorkspaceAnalyzer {
         &self.config.dependencies
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -331,8 +333,12 @@ other = { path = "./other", version = "0.1" }
         };
 
         // A -> B -> C (无循环)
-        analyzer.dependency_graph.insert("A".to_string(), vec!["B".to_string()]);
-        analyzer.dependency_graph.insert("B".to_string(), vec!["C".to_string()]);
+        analyzer
+            .dependency_graph
+            .insert("A".to_string(), vec!["B".to_string()]);
+        analyzer
+            .dependency_graph
+            .insert("B".to_string(), vec!["C".to_string()]);
         analyzer.dependency_graph.insert("C".to_string(), vec![]);
 
         let mut visited = HashSet::new();
@@ -353,9 +359,15 @@ other = { path = "./other", version = "0.1" }
         };
 
         // A -> B -> C -> A (有循环)
-        analyzer.dependency_graph.insert("A".to_string(), vec!["B".to_string()]);
-        analyzer.dependency_graph.insert("B".to_string(), vec!["C".to_string()]);
-        analyzer.dependency_graph.insert("C".to_string(), vec!["A".to_string()]);
+        analyzer
+            .dependency_graph
+            .insert("A".to_string(), vec!["B".to_string()]);
+        analyzer
+            .dependency_graph
+            .insert("B".to_string(), vec!["C".to_string()]);
+        analyzer
+            .dependency_graph
+            .insert("C".to_string(), vec!["A".to_string()]);
 
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
