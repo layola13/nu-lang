@@ -1529,10 +1529,8 @@ S Config {
         assert!(output.contains("std::string name;"));
         assert!(output.contains("std::optional<int32_t> timeout;"));
     }
-
     #[test]
     fn test_for_enumerate_parsing() {
-
         // Create a converter instance
         let converter = NuToCppAstConverter::new();
 
